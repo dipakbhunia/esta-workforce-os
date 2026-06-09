@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum CompanyStatus {
+  ACTIVE
+  INACTIVE
+  TRIAL
+  SUSPENDED
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  HR
+  MANAGER
+  EMPLOYEE
+}
+
+model Company {
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String
+  slug         String        @unique
+  status       CompanyStatus @default(TRIAL)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  branches     Branch[]
+  departments  Department[]
+  designations Designation[]
+  shifts       Shift[]
+  users        User[]
+  roles        Role[]
+  auditLogs    AuditLog[]
+
+  @@index([status])
+}
+
+model Branch {
+  id          String        @id @default(uuid()) @db.Uuid
+  companyId   String        @db.Uuid
+  name        String
+  code        String
+  address     String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  departments Department[]
+  users       User[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model Department {
+  id           String        @id @default(uuid()) @db.Uuid
+  companyId    String        @db.Uuid
+  branchId     String?       @db.Uuid
+  name         String
+  code         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  designations Designation[]
+  users        User[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([branchId])
+}
+
+model Designation {
+  id           String      @id @default(uuid()) @db.Uuid
+  companyId    String      @db.Uuid
+  departmentId String?     @db.Uuid
+  name         String
+  code         String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  users        User[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([departmentId])
+}
+
+model Shift {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @db.Uuid
+  name      String
+  code      String
+  startTime String
+  endTime   String
+  timezone  String   @default("UTC")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users     User[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Uuid
+  companyId     String?        @db.Uuid
+  branchId      String?        @db.Uuid
+  departmentId  String?        @db.Uuid
+  designationId String?        @db.Uuid
+  shiftId       String?        @db.Uuid
+  email         String         @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  status        UserStatus     @default(ACTIVE)
+  lastLoginAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  company       Company?       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch        Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department    Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation   Designation?   @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  shift         Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  roles         UserRole[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]     @relation("AuditLogActor")
+
+  @@index([companyId])
+  @@index([branchId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model Role {
+  id        String     @id @default(uuid()) @db.Uuid
+  companyId String?    @db.Uuid
+  name      RoleName
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  company   Company?   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users     UserRole[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([name])
+}
+
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model RefreshToken {
+  id        String    @id @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String?  @db.Uuid
+  actorUserId String?  @db.Uuid
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  actor       User?    @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+}
