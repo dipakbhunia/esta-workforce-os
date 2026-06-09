@@ -33,18 +33,24 @@ async function main(): Promise<void> {
   const companyAdminPassword =
     process.env.SEED_COMPANY_ADMIN_PASSWORD ?? 'CompanyAdmin@123';
 
-  const company = await prisma.company.upsert({
-    where: { slug: 'demo-company' },
-    update: {
-      name: 'Demo Company',
-      status: CompanyStatus.TRIAL,
-    },
-    create: {
-      name: 'Demo Company',
-      slug: 'demo-company',
-      status: CompanyStatus.TRIAL,
-    },
+  const existingCompany = await prisma.company.findFirst({
+    where: { slug: 'demo-company', deletedAt: null },
   });
+  const company = existingCompany
+    ? await prisma.company.update({
+        where: { id: existingCompany.id },
+        data: {
+          name: 'Demo Company',
+          status: CompanyStatus.TRIAL,
+        },
+      })
+    : await prisma.company.create({
+        data: {
+          name: 'Demo Company',
+          slug: 'demo-company',
+          status: CompanyStatus.TRIAL,
+        },
+      });
 
   const superAdminRole = await upsertRole(null, RoleName.SUPER_ADMIN);
   const companyRoles = await Promise.all(

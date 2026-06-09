@@ -31,10 +31,11 @@ enum RoleName {
 model Company {
   id           String        @id @default(uuid()) @db.Uuid
   name         String
-  slug         String        @unique
+  slug         String
   status       CompanyStatus @default(TRIAL)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
   branches     Branch[]
   departments  Department[]
   designations Designation[]
@@ -44,6 +45,8 @@ model Company {
   auditLogs    AuditLog[]
 
   @@index([status])
+  @@index([slug])
+  @@index([deletedAt])
 }
 
 model Branch {
@@ -54,12 +57,14 @@ model Branch {
   address     String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
   company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   departments Department[]
   users       User[]
 
-  @@unique([companyId, code])
   @@index([companyId])
+  @@index([companyId, code])
+  @@index([deletedAt])
 }
 
 model Department {
@@ -70,14 +75,16 @@ model Department {
   code         String
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
   designations Designation[]
   users        User[]
 
-  @@unique([companyId, code])
   @@index([companyId])
+  @@index([companyId, code])
   @@index([branchId])
+  @@index([deletedAt])
 }
 
 model Designation {
@@ -88,13 +95,15 @@ model Designation {
   code         String
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
   company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   users        User[]
 
-  @@unique([companyId, code])
   @@index([companyId])
+  @@index([companyId, code])
   @@index([departmentId])
+  @@index([deletedAt])
 }
 
 model Shift {
@@ -107,11 +116,13 @@ model Shift {
   timezone  String   @default("UTC")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime?
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users     User[]
 
-  @@unique([companyId, code])
   @@index([companyId])
+  @@index([companyId, code])
+  @@index([deletedAt])
 }
 
 model User {
