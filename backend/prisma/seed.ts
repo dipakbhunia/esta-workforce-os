@@ -9,17 +9,67 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 12;
 
-async function upsertRole(companyId: string | null, name: RoleName) {
+const permissionDefinitions = [
+  ['users.read', 'View users'],
+  ['users.create', 'Create users'],
+  ['users.update', 'Update users'],
+  ['users.delete', 'Soft-delete users'],
+  ['users.status', 'Activate or deactivate users'],
+  ['users.password.reset', 'Reset user passwords'],
+  ['users.roles.assign', 'Assign and remove user roles'],
+  ['roles.read', 'View roles and permissions'],
+  ['roles.create', 'Create roles'],
+  ['roles.update', 'Update roles'],
+  ['roles.permissions.assign', 'Assign permissions to roles'],
+] as const;
+
+const defaultRolePermissions: Record<RoleName, string[]> = {
+  [RoleName.SUPER_ADMIN]: permissionDefinitions.map(([key]) => key),
+  [RoleName.COMPANY_ADMIN]: permissionDefinitions.map(([key]) => key),
+  [RoleName.HR]: [
+    'users.read',
+    'users.create',
+    'users.update',
+    'users.delete',
+    'users.status',
+    'users.password.reset',
+    'users.roles.assign',
+    'roles.read',
+  ],
+  [RoleName.MANAGER]: [],
+  [RoleName.EMPLOYEE]: [],
+};
+
+async function upsertRole(companyId: string | null, systemName: RoleName) {
   const existingRole = await prisma.role.findFirst({
-    where: { companyId, name },
+    where: { companyId, systemName, deletedAt: null },
   });
 
   if (existingRole) {
-    return existingRole;
+    return prisma.role.update({
+      where: { id: existingRole.id },
+      data: {
+        key: systemName,
+        name: systemName
+          .toLowerCase()
+          .split('_')
+          .map((part) => part[0].toUpperCase() + part.slice(1))
+          .join(' '),
+      },
+    });
   }
 
   return prisma.role.create({
-    data: { companyId, name },
+    data: {
+      companyId,
+      key: systemName,
+      name: systemName
+        .toLowerCase()
+        .split('_')
+        .map((part) => part[0].toUpperCase() + part.slice(1))
+        .join(' '),
+      systemName,
+    },
   });
 }
 
@@ -52,6 +102,16 @@ async function main(): Promise<void> {
         },
       });
 
+  const permissions = await Promise.all(
+    permissionDefinitions.map(([key, description]) =>
+      prisma.permission.upsert({
+        where: { key },
+        update: { description },
+        create: { key, description },
+      }),
+    ),
+  );
+
   const superAdminRole = await upsertRole(null, RoleName.SUPER_ADMIN);
   const companyRoles = await Promise.all(
     [
@@ -62,11 +122,29 @@ async function main(): Promise<void> {
     ].map((name) => upsertRole(company.id, name)),
   );
   const companyAdminRole = companyRoles.find(
-    (role) => role.name === RoleName.COMPANY_ADMIN,
+    (role) => role.systemName === RoleName.COMPANY_ADMIN,
   );
 
   if (!companyAdminRole) {
     throw new Error('Company admin role was not created');
+  }
+
+  const allRoles = [superAdminRole, ...companyRoles];
+  for (const role of allRoles) {
+    if (!role.systemName) continue;
+    const allowedKeys = defaultRolePermissions[role.systemName];
+    const permissionIds = permissions
+      .filter((permission) => allowedKeys.includes(permission.key))
+      .map((permission) => permission.id);
+
+    await prisma.$transaction([
+      prisma.rolePermission.deleteMany({ where: { roleId: role.id } }),
+      ...permissionIds.map((permissionId) =>
+        prisma.rolePermission.create({
+          data: { roleId: role.id, permissionId },
+        }),
+      ),
+    ]);
   }
 
   const superAdmin = await prisma.user.upsert({
@@ -76,6 +154,7 @@ async function main(): Promise<void> {
       firstName: 'Super',
       lastName: 'Admin',
       status: UserStatus.ACTIVE,
+      deletedAt: null,
     },
     create: {
       email: superAdminEmail.toLowerCase(),
@@ -94,6 +173,7 @@ async function main(): Promise<void> {
       firstName: 'Demo',
       lastName: 'Admin',
       status: UserStatus.ACTIVE,
+      deletedAt: null,
     },
     create: {
       companyId: company.id,

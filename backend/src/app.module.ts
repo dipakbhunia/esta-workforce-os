@@ -9,7 +9,9 @@ import { CompaniesModule } from './modules/companies/companies.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { DesignationsModule } from './modules/designations/designations.module';
 import { HealthModule } from './modules/health/health.module';
+import { RolesModule } from './modules/roles/roles.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { ShiftsModule } from './modules/shifts/shifts.module';
     DepartmentsModule,
     DesignationsModule,
     ShiftsModule,
+    UsersModule,
+    RolesModule,
     HealthModule,
   ],
 })

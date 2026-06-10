@@ -140,6 +140,7 @@ model User {
   lastLoginAt   DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
   company       Company?       @relation(fields: [companyId], references: [id], onDelete: Restrict)
   branch        Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
   department    Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
@@ -153,20 +154,27 @@ model User {
   @@index([branchId])
   @@index([departmentId])
   @@index([status])
+  @@index([deletedAt])
 }
 
 model Role {
-  id        String     @id @default(uuid()) @db.Uuid
-  companyId String?    @db.Uuid
-  name      RoleName
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  company   Company?   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  users     UserRole[]
+  id          String           @id @default(uuid()) @db.Uuid
+  companyId   String?          @db.Uuid
+  key         String
+  name        String
+  systemName  RoleName?
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+  company     Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users       UserRole[]
+  permissions RolePermission[]
 
-  @@unique([companyId, name])
   @@index([companyId])
-  @@index([name])
+  @@index([companyId, key])
+  @@index([systemName])
+  @@index([deletedAt])
 }
 
 model UserRole {
@@ -178,6 +186,26 @@ model UserRole {
 
   @@id([userId, roleId])
   @@index([roleId])
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  assignedAt   DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
 }
 
 model RefreshToken {

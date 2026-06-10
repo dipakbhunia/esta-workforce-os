@@ -54,7 +54,11 @@ export class AuthService {
       include: authUserInclude,
     });
 
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    if (
+      !user ||
+      user.deletedAt ||
+      !(await bcrypt.compare(dto.password, user.passwordHash))
+    ) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -220,7 +224,7 @@ export class AuthService {
   }
 
   private assertUserCanAuthenticate(user: UserWithAuthRelations): void {
-    if (user.status !== UserStatus.ACTIVE) {
+    if (user.deletedAt || user.status !== UserStatus.ACTIVE) {
       throw new UnauthorizedException('User account is not active');
     }
 
@@ -243,7 +247,9 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       status: user.status,
-      roles: user.roles.map(({ role }) => role.name),
+      roles: user.roles
+        .map(({ role }) => role.systemName)
+        .filter((role): role is NonNullable<typeof role> => role !== null),
     };
   }
 
