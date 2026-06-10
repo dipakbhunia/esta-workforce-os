@@ -67,6 +67,12 @@ enum LeaveRequestStatus {
   CANCELLED
 }
 
+enum MonitoringDeviceStatus {
+  ACTIVE
+  INACTIVE
+  REVOKED
+}
+
 model Company {
   id           String        @id @default(uuid()) @db.Uuid
   name         String
@@ -85,6 +91,12 @@ model Company {
   leaveTypes   LeaveType[]
   leaveRequests LeaveRequest[]
   leaveBalances LeaveBalance[]
+  monitoringDevices MonitoringDevice[]
+  heartbeats Heartbeat[]
+  activitySessions ActivitySession[]
+  screenshots Screenshot[]
+  applicationUsages ApplicationUsage[]
+  websiteUsages WebsiteUsage[]
   roles        Role[]
   auditLogs    AuditLog[]
 
@@ -248,6 +260,12 @@ model Employee {
   leaveRequests                LeaveRequest[] @relation("LeaveRequestEmployee")
   approvedLeaveRequests        LeaveRequest[] @relation("LeaveRequestApprover")
   leaveBalances                LeaveBalance[]
+  monitoringDevices            MonitoringDevice[]
+  heartbeats                   Heartbeat[]
+  activitySessions             ActivitySession[]
+  screenshots                  Screenshot[]
+  applicationUsages            ApplicationUsage[]
+  websiteUsages                WebsiteUsage[]
 
   @@index([companyId])
   @@index([companyId, employeeCode])
@@ -374,6 +392,157 @@ model LeaveBalance {
 
   @@unique([employeeId, leaveTypeId, year])
   @@index([companyId, year])
+}
+
+model MonitoringDevice {
+  id                String                 @id @default(uuid()) @db.Uuid
+  companyId         String                 @db.Uuid
+  employeeId        String                 @db.Uuid
+  deviceIdentifier  String
+  deviceName        String
+  platform          String
+  osVersion         String?
+  appVersion        String?
+  status            MonitoringDeviceStatus @default(ACTIVE)
+  lastSeenAt        DateTime?
+  registeredAt      DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  deletedAt         DateTime?
+  company           Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee               @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  heartbeats        Heartbeat[]
+  activitySessions  ActivitySession[]
+  screenshots       Screenshot[]
+  applicationUsages ApplicationUsage[]
+  websiteUsages     WebsiteUsage[]
+
+  @@unique([employeeId, deviceIdentifier])
+  @@index([companyId, status])
+  @@index([employeeId, status])
+  @@index([lastSeenAt])
+  @@index([deletedAt])
+}
+
+model Heartbeat {
+  id          String           @id @default(uuid()) @db.Uuid
+  companyId   String           @db.Uuid
+  employeeId  String           @db.Uuid
+  deviceId    String           @db.Uuid
+  recordedAt  DateTime         @default(now())
+  idleSeconds Int              @default(0)
+  isOnline    Boolean          @default(true)
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee    Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device      MonitoringDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, recordedAt])
+  @@index([employeeId, recordedAt])
+  @@index([deviceId, recordedAt])
+}
+
+model ActivitySession {
+  id                String             @id @default(uuid()) @db.Uuid
+  companyId         String             @db.Uuid
+  employeeId        String             @db.Uuid
+  deviceId          String             @db.Uuid
+  clientSessionId   String
+  startedAt         DateTime
+  endedAt           DateTime
+  activeSeconds     Int                @default(0)
+  idleSeconds       Int                @default(0)
+  keystrokeCount    Int?
+  mouseClickCount   Int?
+  metadata          Json?
+  createdAt         DateTime           @default(now())
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device            MonitoringDevice   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  applicationUsages ApplicationUsage[]
+  websiteUsages     WebsiteUsage[]
+
+  @@unique([deviceId, clientSessionId])
+  @@index([companyId, startedAt])
+  @@index([employeeId, startedAt])
+  @@index([deviceId, startedAt])
+}
+
+model Screenshot {
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  employeeId         String           @db.Uuid
+  deviceId           String           @db.Uuid
+  clientScreenshotId String
+  capturedAt         DateTime
+  storageKey         String
+  mimeType           String
+  sizeBytes          Int?
+  width              Int?
+  height             Int?
+  checksum           String?
+  metadata           Json?
+  createdAt          DateTime         @default(now())
+  deletedAt          DateTime?
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device             MonitoringDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, clientScreenshotId])
+  @@index([companyId, capturedAt])
+  @@index([employeeId, capturedAt])
+  @@index([deviceId, capturedAt])
+  @@index([deletedAt])
+}
+
+model ApplicationUsage {
+  id                String           @id @default(uuid()) @db.Uuid
+  companyId         String           @db.Uuid
+  employeeId        String           @db.Uuid
+  deviceId          String           @db.Uuid
+  activitySessionId String           @db.Uuid
+  applicationName   String
+  windowTitle       String?
+  startedAt         DateTime
+  endedAt           DateTime
+  durationSeconds   Int
+  createdAt         DateTime         @default(now())
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device            MonitoringDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  activitySession   ActivitySession  @relation(fields: [activitySessionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, startedAt])
+  @@index([employeeId, startedAt])
+  @@index([deviceId, startedAt])
+  @@index([activitySessionId])
+  @@index([applicationName])
+}
+
+model WebsiteUsage {
+  id                String           @id @default(uuid()) @db.Uuid
+  companyId         String           @db.Uuid
+  employeeId        String           @db.Uuid
+  deviceId          String           @db.Uuid
+  activitySessionId String           @db.Uuid
+  browserName       String?
+  domain            String
+  url               String?
+  pageTitle         String?
+  startedAt         DateTime
+  endedAt           DateTime
+  durationSeconds   Int
+  createdAt         DateTime         @default(now())
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  device            MonitoringDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  activitySession   ActivitySession  @relation(fields: [activitySessionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, startedAt])
+  @@index([employeeId, startedAt])
+  @@index([deviceId, startedAt])
+  @@index([activitySessionId])
+  @@index([domain])
 }
 
 model Role {

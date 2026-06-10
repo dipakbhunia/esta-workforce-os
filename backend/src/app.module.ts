@@ -12,6 +12,7 @@ import { DesignationsModule } from './modules/designations/designations.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { HealthModule } from './modules/health/health.module';
 import { LeaveModule } from './modules/leave/leave.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { UsersModule } from './modules/users/users.module';
@@ -36,6 +37,7 @@ import { UsersModule } from './modules/users/users.module';
     DesignationsModule,
     EmployeesModule,
     LeaveModule,
+    MonitoringModule,
     ShiftsModule,
     UsersModule,
     RolesModule,
