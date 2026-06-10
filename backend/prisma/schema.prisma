@@ -48,6 +48,25 @@ enum EmployeeStatus {
   TERMINATED
 }
 
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  HALF_DAY
+  ABSENT
+}
+
+enum AttendanceLogType {
+  PUNCH_IN
+  PUNCH_OUT
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 model Company {
   id           String        @id @default(uuid()) @db.Uuid
   name         String
@@ -62,6 +81,10 @@ model Company {
   shifts       Shift[]
   users        User[]
   employees    Employee[]
+  attendances  Attendance[]
+  leaveTypes   LeaveType[]
+  leaveRequests LeaveRequest[]
+  leaveBalances LeaveBalance[]
   roles        Role[]
   auditLogs    AuditLog[]
 
@@ -221,6 +244,10 @@ model Employee {
   shift                        Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   reportingManager             Employee?      @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
   directReports                Employee[]     @relation("EmployeeReporting")
+  attendances                  Attendance[]
+  leaveRequests                LeaveRequest[] @relation("LeaveRequestEmployee")
+  approvedLeaveRequests        LeaveRequest[] @relation("LeaveRequestApprover")
+  leaveBalances                LeaveBalance[]
 
   @@index([companyId])
   @@index([companyId, employeeCode])
@@ -231,6 +258,122 @@ model Employee {
   @@index([reportingManagerId])
   @@index([status])
   @@index([deletedAt])
+}
+
+model Attendance {
+  id              String           @id @default(uuid()) @db.Uuid
+  companyId       String           @db.Uuid
+  employeeId      String           @db.Uuid
+  attendanceDate  DateTime         @db.Date
+  punchInAt       DateTime?
+  punchOutAt      DateTime?
+  status          AttendanceStatus @default(PRESENT)
+  workedMinutes   Int              @default(0)
+  breakMinutes    Int              @default(0)
+  lateMinutes     Int              @default(0)
+  expectedMinutes Int
+  shiftStartTime  String
+  shiftEndTime    String
+  shiftTimezone   String
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee        Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  logs            AttendanceLog[]
+  breaks          BreakLog[]
+
+  @@unique([employeeId, attendanceDate])
+  @@index([companyId, attendanceDate])
+  @@index([employeeId, attendanceDate])
+  @@index([status])
+}
+
+model AttendanceLog {
+  id           String            @id @default(uuid()) @db.Uuid
+  attendanceId String            @db.Uuid
+  type         AttendanceLogType
+  occurredAt   DateTime          @default(now())
+  note         String?
+  attendance   Attendance        @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId, occurredAt])
+}
+
+model BreakLog {
+  id           String     @id @default(uuid()) @db.Uuid
+  attendanceId String     @db.Uuid
+  startedAt    DateTime   @default(now())
+  endedAt      DateTime?
+  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceId, startedAt])
+}
+
+model LeaveType {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @db.Uuid
+  name           String
+  code           String
+  description    String?
+  defaultDays    Float          @default(0)
+  requiresApproval Boolean      @default(true)
+  managerCanApprove Boolean     @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requests       LeaveRequest[]
+  balances       LeaveBalance[]
+
+  @@index([companyId])
+  @@index([companyId, code])
+  @@index([deletedAt])
+}
+
+model LeaveRequest {
+  id           String             @id @default(uuid()) @db.Uuid
+  companyId    String             @db.Uuid
+  employeeId   String             @db.Uuid
+  leaveTypeId  String             @db.Uuid
+  startDate    DateTime           @db.Date
+  endDate      DateTime           @db.Date
+  totalDays    Float
+  reason       String?
+  status       LeaveRequestStatus @default(PENDING)
+  approverId   String?            @db.Uuid
+  reviewedAt   DateTime?
+  reviewComment String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee     Employee           @relation("LeaveRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType    LeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  approver     Employee?          @relation("LeaveRequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status])
+  @@index([employeeId, startDate])
+  @@index([leaveTypeId])
+  @@index([deletedAt])
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  employeeId  String    @db.Uuid
+  leaveTypeId String    @db.Uuid
+  year        Int
+  allocated   Float     @default(0)
+  used        Float     @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([companyId, year])
 }
 
 model Role {
