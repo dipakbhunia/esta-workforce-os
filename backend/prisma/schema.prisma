@@ -28,6 +28,26 @@ enum RoleName {
   EMPLOYEE
 }
 
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+  TEMPORARY
+}
+
+enum WorkMode {
+  ONSITE
+  REMOTE
+  HYBRID
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+}
+
 model Company {
   id           String        @id @default(uuid()) @db.Uuid
   name         String
@@ -41,6 +61,7 @@ model Company {
   designations Designation[]
   shifts       Shift[]
   users        User[]
+  employees    Employee[]
   roles        Role[]
   auditLogs    AuditLog[]
 
@@ -61,6 +82,7 @@ model Branch {
   company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   departments Department[]
   users       User[]
+  employees   Employee[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -80,6 +102,7 @@ model Department {
   branch       Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
   designations Designation[]
   users        User[]
+  employees    Employee[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -99,6 +122,7 @@ model Designation {
   company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   users        User[]
+  employees    Employee[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -119,6 +143,7 @@ model Shift {
   deletedAt DateTime?
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users     User[]
+  employees Employee[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -149,10 +174,61 @@ model User {
   roles         UserRole[]
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]     @relation("AuditLogActor")
+  employee      Employee?
 
   @@index([companyId])
   @@index([branchId])
   @@index([departmentId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model Employee {
+  id                           String         @id @default(uuid()) @db.Uuid
+  userId                       String         @unique @db.Uuid
+  companyId                    String         @db.Uuid
+  branchId                     String?        @db.Uuid
+  departmentId                 String?        @db.Uuid
+  designationId                String?        @db.Uuid
+  shiftId                      String?        @db.Uuid
+  reportingManagerId           String?        @db.Uuid
+  employeeCode                 String
+  joiningDate                  DateTime       @db.Date
+  employmentType               EmploymentType
+  workMode                     WorkMode
+  status                       EmployeeStatus @default(ACTIVE)
+  phone                        String?
+  alternatePhone               String?
+  personalEmail                String?
+  emergencyContactName         String?
+  emergencyContactRelationship String?
+  emergencyContactPhone        String?
+  addressLine1                 String?
+  addressLine2                 String?
+  city                         String?
+  state                        String?
+  postalCode                   String?
+  country                      String?
+  documents                    Json?
+  createdAt                    DateTime       @default(now())
+  updatedAt                    DateTime       @updatedAt
+  deletedAt                    DateTime?
+  user                         User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  company                      Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch                       Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department                   Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation                  Designation?   @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  shift                        Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  reportingManager             Employee?      @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
+  directReports                Employee[]     @relation("EmployeeReporting")
+
+  @@index([companyId])
+  @@index([companyId, employeeCode])
+  @@index([branchId])
+  @@index([departmentId])
+  @@index([designationId])
+  @@index([shiftId])
+  @@index([reportingManagerId])
   @@index([status])
   @@index([deletedAt])
 }

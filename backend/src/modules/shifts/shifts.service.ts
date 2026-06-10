@@ -106,6 +106,10 @@ export class ShiftsService {
         where: { shiftId: id },
         data: { shiftId: null },
       });
+      await tx.employee.updateMany({
+        where: { shiftId: id },
+        data: { shiftId: null },
+      });
       return tx.shift.update({
         where: { id },
         data: { deletedAt: new Date() },

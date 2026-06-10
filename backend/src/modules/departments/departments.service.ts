@@ -111,6 +111,10 @@ export class DepartmentsService {
         where: { departmentId: id },
         data: { departmentId: null },
       });
+      await tx.employee.updateMany({
+        where: { departmentId: id },
+        data: { departmentId: null },
+      });
       return tx.department.update({
         where: { id },
         data: { deletedAt: new Date() },

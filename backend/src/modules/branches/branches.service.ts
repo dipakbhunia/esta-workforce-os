@@ -103,6 +103,10 @@ export class BranchesService {
         where: { branchId: id },
         data: { branchId: null },
       });
+      await tx.employee.updateMany({
+        where: { branchId: id },
+        data: { branchId: null },
+      });
       return tx.branch.update({ where: { id }, data: { deletedAt } });
     });
   }

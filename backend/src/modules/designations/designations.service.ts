@@ -109,6 +109,10 @@ export class DesignationsService {
         where: { designationId: id },
         data: { designationId: null },
       });
+      await tx.employee.updateMany({
+        where: { designationId: id },
+        data: { designationId: null },
+      });
       return tx.designation.update({
         where: { id },
         data: { deletedAt: new Date() },

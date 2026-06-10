@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CompanyStatus, Prisma } from '@prisma/client';
+import { CompanyStatus, EmployeeStatus, Prisma } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import {
@@ -118,6 +118,10 @@ export class CompaniesService {
           data: { deletedAt },
         }),
         tx.shift.updateMany({ where: { companyId: id }, data: { deletedAt } }),
+        tx.employee.updateMany({
+          where: { companyId: id, deletedAt: null },
+          data: { deletedAt, status: EmployeeStatus.TERMINATED },
+        }),
       ]);
       return tx.company.update({
         where: { id },
