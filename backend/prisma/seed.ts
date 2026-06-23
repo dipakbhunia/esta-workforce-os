@@ -1,8 +1,11 @@
 import {
   CompanyStatus,
+  EmployeeStatus,
+  EmploymentType,
   PrismaClient,
   RoleName,
   UserStatus,
+  WorkMode,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
@@ -73,6 +76,72 @@ async function upsertRole(companyId: string | null, systemName: RoleName) {
   });
 }
 
+async function upsertBranch(companyId: string) {
+  const existingBranch = await prisma.branch.findFirst({
+    where: { companyId, code: 'MAIN', deletedAt: null },
+  });
+  const data = {
+    companyId,
+    name: 'Main Branch',
+    code: 'MAIN',
+    address: 'Demo Company Main Office',
+    deletedAt: null,
+  };
+  return existingBranch
+    ? prisma.branch.update({ where: { id: existingBranch.id }, data })
+    : prisma.branch.create({ data });
+}
+
+async function upsertDepartment(companyId: string, branchId: string) {
+  const existingDepartment = await prisma.department.findFirst({
+    where: { companyId, code: 'ADMIN', deletedAt: null },
+  });
+  const data = {
+    companyId,
+    branchId,
+    name: 'Administration',
+    code: 'ADMIN',
+    deletedAt: null,
+  };
+  return existingDepartment
+    ? prisma.department.update({ where: { id: existingDepartment.id }, data })
+    : prisma.department.create({ data });
+}
+
+async function upsertDesignation(companyId: string, departmentId: string) {
+  const existingDesignation = await prisma.designation.findFirst({
+    where: { companyId, code: 'COMPANY_ADMIN', deletedAt: null },
+  });
+  const data = {
+    companyId,
+    departmentId,
+    name: 'Company Admin',
+    code: 'COMPANY_ADMIN',
+    deletedAt: null,
+  };
+  return existingDesignation
+    ? prisma.designation.update({ where: { id: existingDesignation.id }, data })
+    : prisma.designation.create({ data });
+}
+
+async function upsertShift(companyId: string) {
+  const existingShift = await prisma.shift.findFirst({
+    where: { companyId, code: 'GENERAL', deletedAt: null },
+  });
+  const data = {
+    companyId,
+    name: 'General Shift',
+    code: 'GENERAL',
+    startTime: '09:00',
+    endTime: '18:00',
+    timezone: 'Asia/Kolkata',
+    deletedAt: null,
+  };
+  return existingShift
+    ? prisma.shift.update({ where: { id: existingShift.id }, data })
+    : prisma.shift.create({ data });
+}
+
 async function main(): Promise<void> {
   const superAdminEmail =
     process.env.SEED_SUPER_ADMIN_EMAIL ?? 'superadmin@esta.local';
@@ -101,6 +170,11 @@ async function main(): Promise<void> {
           status: CompanyStatus.TRIAL,
         },
       });
+
+  const branch = await upsertBranch(company.id);
+  const department = await upsertDepartment(company.id, branch.id);
+  const designation = await upsertDesignation(company.id, department.id);
+  const shift = await upsertShift(company.id);
 
   const permissions = await Promise.all(
     permissionDefinitions.map(([key, description]) =>
@@ -169,6 +243,10 @@ async function main(): Promise<void> {
     where: { email: companyAdminEmail.toLowerCase() },
     update: {
       companyId: company.id,
+      branchId: branch.id,
+      departmentId: department.id,
+      designationId: designation.id,
+      shiftId: shift.id,
       passwordHash: await bcrypt.hash(companyAdminPassword, SALT_ROUNDS),
       firstName: 'Demo',
       lastName: 'Admin',
@@ -177,6 +255,10 @@ async function main(): Promise<void> {
     },
     create: {
       companyId: company.id,
+      branchId: branch.id,
+      departmentId: department.id,
+      designationId: designation.id,
+      shiftId: shift.id,
       email: companyAdminEmail.toLowerCase(),
       passwordHash: await bcrypt.hash(companyAdminPassword, SALT_ROUNDS),
       firstName: 'Demo',
@@ -213,9 +295,41 @@ async function main(): Promise<void> {
     },
   });
 
+  await prisma.employee.upsert({
+    where: { userId: companyAdmin.id },
+    update: {
+      companyId: company.id,
+      branchId: branch.id,
+      departmentId: department.id,
+      designationId: designation.id,
+      shiftId: shift.id,
+      employeeCode: 'EMP-ADMIN-001',
+      joiningDate: new Date('2026-01-01T00:00:00.000Z'),
+      employmentType: EmploymentType.FULL_TIME,
+      workMode: WorkMode.HYBRID,
+      status: EmployeeStatus.ACTIVE,
+      deletedAt: null,
+    },
+    create: {
+      userId: companyAdmin.id,
+      companyId: company.id,
+      branchId: branch.id,
+      departmentId: department.id,
+      designationId: designation.id,
+      shiftId: shift.id,
+      employeeCode: 'EMP-ADMIN-001',
+      joiningDate: new Date('2026-01-01T00:00:00.000Z'),
+      employmentType: EmploymentType.FULL_TIME,
+      workMode: WorkMode.HYBRID,
+      status: EmployeeStatus.ACTIVE,
+    },
+  });
+
   console.log('Seed completed.');
   console.log(`Super admin: ${superAdmin.email}`);
   console.log(`Company admin: ${companyAdmin.email}`);
+  console.log('Company admin employee: EMP-ADMIN-001');
+  console.log('Demo organization: MAIN / ADMIN / COMPANY_ADMIN / GENERAL');
 }
 
 main()
