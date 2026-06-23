@@ -22,6 +22,24 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
+export function parseAuthResponse(value: unknown): AuthResponse {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('accessToken' in value) ||
+    typeof value.accessToken !== 'string' ||
+    !('refreshToken' in value) ||
+    typeof value.refreshToken !== 'string' ||
+    !('user' in value) ||
+    typeof value.user !== 'object' ||
+    value.user === null
+  ) {
+    throw new Error('Backend returned an invalid authentication response');
+  }
+
+  return value as AuthResponse;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   meta: {

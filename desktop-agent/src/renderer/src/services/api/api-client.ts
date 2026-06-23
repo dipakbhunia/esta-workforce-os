@@ -1,5 +1,5 @@
 import { environment } from '../../config/environment';
-import type { AuthResponse } from '../../types/api';
+import { parseAuthResponse } from '../../types/api';
 import { tokenStorage } from '../storage/token-storage';
 
 export class ApiError extends Error {
@@ -7,6 +7,7 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly details?: unknown,
+    readonly targetUrl?: string,
   ) {
     super(message);
   }
@@ -20,17 +21,26 @@ class ApiClient {
     init: RequestInit = {},
     retryAfterRefresh = true,
   ): Promise<T> {
+    const targetUrl = this.url(path);
+    if (path === '/auth/login') {
+      console.info(`[Esta Desktop] Login request URL: ${targetUrl}`);
+    }
     const tokens = await tokenStorage.get();
-    const response = await fetch(`${environment.apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(tokens?.accessToken
-          ? { Authorization: `Bearer ${tokens.accessToken}` }
-          : {}),
-        ...init.headers,
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(targetUrl, {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(tokens?.accessToken
+            ? { Authorization: `Bearer ${tokens.accessToken}` }
+            : {}),
+          ...init.headers,
+        },
+      });
+    } catch (error) {
+      throw this.networkError(targetUrl, error);
+    }
 
     if (
       response.status === 401 &&
@@ -49,7 +59,7 @@ class ApiClient {
         'message' in body
           ? String(body.message)
           : `Request failed with status ${response.status}`;
-      throw new ApiError(message, response.status, body);
+      throw new ApiError(`${message} (${targetUrl})`, response.status, body, targetUrl);
     }
     return body as T;
   }
@@ -65,16 +75,23 @@ class ApiClient {
   private async performRefresh(): Promise<boolean> {
     const tokens = await tokenStorage.get();
     if (!tokens?.refreshToken) return false;
-    const response = await fetch(`${environment.apiBaseUrl}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-    });
+    const targetUrl = this.url('/auth/refresh');
+    let response: Response;
+    try {
+      response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+    } catch (error) {
+      console.warn(this.networkError(targetUrl, error).message);
+      return false;
+    }
     if (!response.ok) {
       await tokenStorage.clear();
       return false;
     }
-    const refreshed = (await response.json()) as AuthResponse;
+    const refreshed = parseAuthResponse(await response.json());
     await tokenStorage.set({
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken,
@@ -91,6 +108,20 @@ class ApiClient {
     } catch {
       return text;
     }
+  }
+
+  private url(path: string): string {
+    return `${environment.apiBaseUrl}${path}`;
+  }
+
+  private networkError(targetUrl: string, error: unknown): ApiError {
+    const reason = error instanceof Error ? error.message : String(error);
+    return new ApiError(
+      `Failed to fetch ${targetUrl}. Check that the backend is running and that CORS allows the Electron/Vite renderer origin. Original error: ${reason}`,
+      0,
+      error,
+      targetUrl,
+    );
   }
 }
 

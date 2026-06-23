@@ -8,6 +8,25 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
+      if (
+        !origin ||
+        origin === 'null' ||
+        /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)
+      ) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS origin not allowed: ${origin}`));
+    },
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
   app.useGlobalPipes(

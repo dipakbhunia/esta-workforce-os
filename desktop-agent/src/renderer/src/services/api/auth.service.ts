@@ -1,13 +1,13 @@
-import type { AuthResponse, AuthUser } from '../../types/api';
+import { parseAuthResponse, type AuthUser } from '../../types/api';
 import { apiClient } from './api-client';
 import { tokenStorage } from '../storage/token-storage';
 
 export const authService = {
   async login(email: string, password: string): Promise<AuthUser> {
-    const response = await apiClient.request<AuthResponse>('/auth/login', {
+    const response = parseAuthResponse(await apiClient.request('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    });
+    }));
     await tokenStorage.set({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
