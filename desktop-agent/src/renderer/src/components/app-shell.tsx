@@ -1,29 +1,46 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/auth-context';
 
 export function AppShell() {
   const { user, logout } = useAuth();
+  const location = useLocation();
+  const onSettings = location.pathname === '/settings';
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Esta</p>
-          <h1>Workforce OS</h1>
+    <div className="agent-shell">
+      <header className="agent-header">
+        <div className="avatar" aria-hidden="true">
+          {initials(user?.firstName, user?.lastName)}
         </div>
-        <nav>
-          <NavLink to="/">Dashboard</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
-        </nav>
-        <div className="sidebar-footer">
+        <div className="identity">
+          <strong>
+            {user?.firstName} {user?.lastName}
+          </strong>
           <span>{user?.email}</span>
-          <button className="link-button" onClick={() => void logout()}>
-            Log out
-          </button>
         </div>
-      </aside>
-      <main className="content">
+        <Link
+          className="icon-button"
+          to={onSettings ? '/' : '/settings'}
+          aria-label={onSettings ? 'Back to attendance' : 'Open settings'}
+        >
+          {onSettings ? '←' : '⚙'}
+        </Link>
+      </header>
+      <main className="agent-content">
         <Outlet />
       </main>
+      <footer className="agent-footer">
+        <button className="sign-out-button" onClick={() => void logout()}>
+          Sign out
+        </button>
+        <span>Esta Workforce OS Agent</span>
+      </footer>
     </div>
   );
+}
+
+function initials(firstName = '', lastName = ''): string {
+  const first = firstName.trim()[0] ?? 'E';
+  const last = lastName.trim()[0] ?? '';
+  return `${first}${last}`.toUpperCase();
 }

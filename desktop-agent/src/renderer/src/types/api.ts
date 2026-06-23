@@ -62,6 +62,8 @@ export interface AttendanceRecord {
   punchInAt: string | null;
   punchOutAt: string | null;
   status: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT';
+  workedMinutes?: number;
+  breakMinutes?: number;
   breaks: Array<{ id: string; startedAt: string; endedAt: string | null }>;
 }
 

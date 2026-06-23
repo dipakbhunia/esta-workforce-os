@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, Menu, shell } from 'electron';
 import { join } from 'node:path';
 import type { DesktopSettings } from '../shared/contracts';
 import { DeviceIdentity } from './device/device-identity';
@@ -8,12 +8,15 @@ import { SecureTokenStore } from './storage/secure-token-store';
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1180,
-    height: 760,
-    minWidth: 960,
-    minHeight: 640,
+    width: 390,
+    height: 690,
+    minWidth: 360,
+    maxWidth: 430,
+    minHeight: 620,
+    maxHeight: 760,
+    resizable: true,
     show: false,
-    backgroundColor: '#f3f6fb',
+    backgroundColor: '#f4f4f2',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -37,6 +40,8 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
+
   const dataDirectory = app.getPath('userData');
   const tokenStore = new SecureTokenStore(
     new JsonFileStore(join(dataDirectory, 'auth.json'), {}),

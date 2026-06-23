@@ -25,12 +25,13 @@ export function LoginPage() {
   }
 
   return (
-    <div className="login-page">
-      <form className="login-card" onSubmit={submit}>
+    <div className="compact-login-page">
+      <form className="compact-login-card" onSubmit={submit}>
+        <div className="brand-mark">E</div>
         <p className="eyebrow">Esta Workforce OS</p>
-        <h1>Desktop Agent</h1>
-        <p className="muted">Sign in with your employee account.</p>
-        <label>
+        <h1>Employee Agent</h1>
+        <p className="muted">Sign in to manage your workday.</p>
+        <label className="field">
           Email
           <input
             type="email"
@@ -40,7 +41,7 @@ export function LoginPage() {
             required
           />
         </label>
-        <label>
+        <label className="field">
           Password
           <input
             type="password"
@@ -51,7 +52,7 @@ export function LoginPage() {
           />
         </label>
         {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={submitting}>
+        <button className="action-button action-green" disabled={submitting}>
           {submitting ? 'Signing in...' : 'Sign in'}
         </button>
       </form>

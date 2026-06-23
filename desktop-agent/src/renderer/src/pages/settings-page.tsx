@@ -28,19 +28,17 @@ export function SettingsPage() {
   }
 
   return (
-    <section>
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Local configuration</p>
-          <h2>Settings</h2>
-        </div>
-      </header>
-      <div className="settings-card">
-        <label>
+    <section className="compact-page">
+      <div className="section-heading">
+        <p className="eyebrow">Info</p>
+        <h2>Settings</h2>
+      </div>
+      <div className="info-panel">
+        <label className="field">
           Backend API
           <input value={environment.apiBaseUrl} disabled />
         </label>
-        <label>
+        <label className="field">
           Future heartbeat interval (milliseconds)
           <input
             type="number"
@@ -53,21 +51,21 @@ export function SettingsPage() {
             }
           />
         </label>
-        <button className="primary" onClick={() => void save()}>
-          Save local settings
+        <button className="small-action" onClick={() => void save()}>
+          Save
         </button>
         {saved && <span className="success">Saved</span>}
       </div>
-      <div className="settings-card">
-        <h3>Device information</h3>
-        <dl>
-          <dt>Identifier</dt>
+      <div className="info-panel">
+        <h3>Device</h3>
+        <dl className="compact-dl">
+          <dt>ID</dt>
           <dd>{device?.identifier ?? 'Loading...'}</dd>
           <dt>Platform</dt>
           <dd>{device ? `${device.platform} ${device.osVersion}` : 'Loading...'}</dd>
-          <dt>Architecture</dt>
+          <dt>Arch</dt>
           <dd>{device?.architecture ?? 'Loading...'}</dd>
-          <dt>Agent version</dt>
+          <dt>Version</dt>
           <dd>{device?.appVersion ?? 'Loading...'}</dd>
         </dl>
       </div>
