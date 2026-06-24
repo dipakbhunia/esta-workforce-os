@@ -60,7 +60,8 @@ export function AttendanceHomePage() {
   const isWorking = Boolean(attendance?.punchInAt && !attendance.punchOutAt);
   const isCompleted = Boolean(attendance?.punchOutAt);
   const statusText = useMemo(() => {
-    if (isCompleted) return `Shift completed (${attendance?.status ?? 'DONE'})`;
+    if (attendance?.status === 'AUTO_PUNCHED_OUT') return 'Auto punched out';
+    if (isCompleted) return 'Punched out';
     if (isWorking) return 'Currently working';
     return 'Ready to punch in';
   }, [attendance?.status, isCompleted, isWorking]);
