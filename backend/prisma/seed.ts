@@ -142,6 +142,34 @@ async function upsertShift(companyId: string) {
     : prisma.shift.create({ data });
 }
 
+async function upsertBreakPolicy(
+  companyId: string,
+  policy: {
+    name: string;
+    code: string;
+    allowedMinutes: number;
+    sortOrder: number;
+  },
+) {
+  const existingPolicy = await prisma.breakPolicy.findFirst({
+    where: { companyId, code: policy.code, deletedAt: null },
+  });
+  const data = {
+    companyId,
+    name: policy.name,
+    code: policy.code,
+    allowedMinutes: policy.allowedMinutes,
+    isPaid: false,
+    isActive: true,
+    autoPunchOutOnTimeout: true,
+    sortOrder: policy.sortOrder,
+    deletedAt: null,
+  };
+  return existingPolicy
+    ? prisma.breakPolicy.update({ where: { id: existingPolicy.id }, data })
+    : prisma.breakPolicy.create({ data });
+}
+
 async function main(): Promise<void> {
   const superAdminEmail =
     process.env.SEED_SUPER_ADMIN_EMAIL ?? 'superadmin@esta.local';
@@ -175,6 +203,32 @@ async function main(): Promise<void> {
   const department = await upsertDepartment(company.id, branch.id);
   const designation = await upsertDesignation(company.id, department.id);
   const shift = await upsertShift(company.id);
+  await Promise.all([
+    upsertBreakPolicy(company.id, {
+      name: 'Lunch Break',
+      code: 'LUNCH',
+      allowedMinutes: 60,
+      sortOrder: 10,
+    }),
+    upsertBreakPolicy(company.id, {
+      name: 'Tea Break',
+      code: 'TEA',
+      allowedMinutes: 15,
+      sortOrder: 20,
+    }),
+    upsertBreakPolicy(company.id, {
+      name: 'Short Break',
+      code: 'SHORT',
+      allowedMinutes: 15,
+      sortOrder: 30,
+    }),
+    upsertBreakPolicy(company.id, {
+      name: 'Custom Break',
+      code: 'CUSTOM',
+      allowedMinutes: 10,
+      sortOrder: 40,
+    }),
+  ]);
 
   const permissions = await Promise.all(
     permissionDefinitions.map(([key, description]) =>
@@ -330,6 +384,7 @@ async function main(): Promise<void> {
   console.log(`Company admin: ${companyAdmin.email}`);
   console.log('Company admin employee: EMP-ADMIN-001');
   console.log('Demo organization: MAIN / ADMIN / COMPANY_ADMIN / GENERAL');
+  console.log('Demo break policies: LUNCH / TEA / SHORT / CUSTOM');
 }
 
 main()

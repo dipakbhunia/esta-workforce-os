@@ -47,8 +47,12 @@ export class AttendanceController {
 
   @Post('break-start')
   @Roles(...attendanceRoles)
-  breakStart(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.breakStart(user);
+  @ApiOperation({ summary: 'Start a configured company break policy' })
+  breakStart(
+    @Body() dto: AttendanceActionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.breakStart(dto, user);
   }
 
   @Post('break-end')

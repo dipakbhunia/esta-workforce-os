@@ -34,11 +34,12 @@ export const attendanceService = {
       body: JSON.stringify({ note: 'Desktop agent' }),
     }),
 
-  breakStart: (breakType?: string, comment?: string) =>
+  breakStart: (breakPolicyId: string, comment?: string) =>
     apiClient.request<AttendanceRecord>('/attendance/break-start', {
       method: 'POST',
       body: JSON.stringify({
-        note: [breakType, comment].filter(Boolean).join(': '),
+        breakPolicyId,
+        comment,
       }),
     }),
 

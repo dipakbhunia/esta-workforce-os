@@ -39,8 +39,13 @@ const attendanceInclude = {
     },
   },
   logs: { orderBy: { occurredAt: 'asc' as const } },
-  breaks: { orderBy: { startedAt: 'asc' as const } },
+  breaks: {
+    orderBy: { startedAt: 'asc' as const },
+    include: { breakPolicy: true },
+  },
 } satisfies Prisma.AttendanceInclude;
+
+const AUTO_PUNCH_OUT_REASON = 'Break duration exceeded';
 
 @Injectable()
 export class AttendanceService {
@@ -158,26 +163,59 @@ export class AttendanceService {
     });
   }
 
-  async breakStart(actor: AuthenticatedUser) {
+  async breakStart(dto: AttendanceActionDto, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
+    if (!dto.breakPolicyId) {
+      throw new BadRequestException('breakPolicyId is required');
+    }
+    const breakPolicy = await this.prisma.breakPolicy.findFirst({
+      where: {
+        id: dto.breakPolicyId,
+        companyId: employee.companyId,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+    if (!breakPolicy) {
+      throw new BadRequestException('Active break policy not found');
+    }
     const attendance = await this.openAttendance(employee.id);
     if (attendance.breaks.some((item) => !item.endedAt)) {
       throw new BadRequestException('A break is already active');
     }
     await this.prisma.breakLog.create({
-      data: { attendanceId: attendance.id },
+      data: {
+        attendanceId: attendance.id,
+        breakPolicyId: breakPolicy.id,
+        breakTypeName: breakPolicy.name,
+        breakTypeCode: breakPolicy.code,
+        allowedMinutes: breakPolicy.allowedMinutes,
+        isPaid: breakPolicy.isPaid,
+        note: dto.comment?.trim() || dto.note?.trim(),
+      },
     });
     return this.findAttendance(attendance.id);
   }
 
   async breakEnd(actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
-    const attendance = await this.openAttendance(employee.id);
+    const attendance = await this.openAttendance(employee.id, false);
     const activeBreak = attendance.breaks.find((item) => !item.endedAt);
     if (!activeBreak) throw new BadRequestException('No active break found');
+    const autoPunched = await this.autoPunchOutIfBreakExpired(attendance, activeBreak);
+    if (autoPunched) return autoPunched;
+    const now = new Date();
+    const durationMinutes = this.breakDurationMinutes(activeBreak.startedAt, now);
     await this.prisma.breakLog.update({
       where: { id: activeBreak.id },
-      data: { endedAt: new Date() },
+      data: {
+        endedAt: now,
+        durationMinutes,
+        policyViolated:
+          activeBreak.allowedMinutes !== null &&
+          activeBreak.allowedMinutes !== undefined &&
+          durationMinutes > activeBreak.allowedMinutes,
+      },
     });
     return this.findAttendance(attendance.id);
   }
@@ -250,7 +288,7 @@ export class AttendanceService {
         employeeId: { in: employees.map((employee) => employee.id) },
         attendanceDate: date,
       },
-      select: { status: true, workedMinutes: true, breakMinutes: true },
+      include: { breaks: true },
     });
     const counts = Object.values(AttendanceStatus).reduce(
       (result, status) => ({ ...result, [status]: 0 }),
@@ -268,10 +306,52 @@ export class AttendanceService {
         0,
       ),
       totalBreakMinutes: records.reduce(
-        (total, record) => total + record.breakMinutes,
+        (total, record) => total + this.totalBreakMinutes(record.breaks),
         0,
       ),
+      breakPolicies: records.flatMap((record) =>
+        record.breaks
+          .filter((breakLog) => breakLog.breakTypeName)
+          .map((breakLog) => ({
+            name: breakLog.breakTypeName,
+            code: breakLog.breakTypeCode,
+            allowedMinutes: breakLog.allowedMinutes,
+            durationMinutes: breakLog.durationMinutes,
+            policyViolated: breakLog.policyViolated,
+            autoPunchOutAt: breakLog.autoPunchOutAt,
+          })),
+      ),
+      autoPunchedOut: records.some(
+        (record) => record.status === AttendanceStatus.AUTO_PUNCHED_OUT,
+      ),
     };
+  }
+
+  async autoPunchOutExpiredBreaks(): Promise<number> {
+    // TODO: Call this from a scheduler/queue worker once background jobs are introduced.
+    // For now, request-driven attendance operations also enforce this rule.
+    const openAttendances = await this.prisma.attendance.findMany({
+      where: {
+        punchInAt: { not: null },
+        punchOutAt: null,
+        breaks: {
+          some: {
+            endedAt: null,
+            allowedMinutes: { not: null },
+            breakPolicy: { autoPunchOutOnTimeout: true },
+          },
+        },
+      },
+      include: { breaks: { include: { breakPolicy: true } } },
+    });
+    let count = 0;
+    for (const attendance of openAttendances) {
+      const activeBreak = attendance.breaks.find((item) => !item.endedAt);
+      if (activeBreak && (await this.autoPunchOutIfBreakExpired(attendance, activeBreak))) {
+        count++;
+      }
+    }
+    return count;
   }
 
   private async ownActiveEmployee(actor: AuthenticatedUser) {
@@ -287,13 +367,20 @@ export class AttendanceService {
     return employee;
   }
 
-  private async openAttendance(employeeId: string) {
+  private async openAttendance(employeeId: string, enforceBreakTimeout = true) {
     const attendance = await this.prisma.attendance.findFirst({
       where: { employeeId, punchInAt: { not: null }, punchOutAt: null },
-      include: { breaks: true },
+      include: { breaks: { include: { breakPolicy: true } } },
       orderBy: { punchInAt: 'desc' },
     });
     if (!attendance) throw new BadRequestException('No open attendance found');
+    const activeBreak = attendance.breaks.find((item) => !item.endedAt);
+    if (enforceBreakTimeout && activeBreak) {
+      const autoPunched = await this.autoPunchOutIfBreakExpired(attendance, activeBreak);
+      if (autoPunched) {
+        throw new BadRequestException(AUTO_PUNCH_OUT_REASON);
+      }
+    }
     return attendance;
   }
 
@@ -336,5 +423,86 @@ export class AttendanceService {
     if (from && to && dateOnly(from) > dateOnly(to)) {
       throw new BadRequestException('dateFrom must not be after dateTo');
     }
+  }
+
+  private async autoPunchOutIfBreakExpired(
+    attendance: Prisma.AttendanceGetPayload<{
+      include: { breaks: { include: { breakPolicy: true } } };
+    }>,
+    activeBreak: Prisma.BreakLogGetPayload<{ include: { breakPolicy: true } }>,
+  ) {
+    if (
+      !activeBreak.allowedMinutes ||
+      !activeBreak.breakPolicy?.autoPunchOutOnTimeout
+    ) {
+      return null;
+    }
+    const timeoutAt = new Date(
+      activeBreak.startedAt.getTime() + activeBreak.allowedMinutes * 60000,
+    );
+    if (Date.now() <= timeoutAt.getTime()) return null;
+
+    const durationMinutes = this.breakDurationMinutes(
+      activeBreak.startedAt,
+      timeoutAt,
+    );
+    const breakMinutes = this.totalBreakMinutes([
+      ...attendance.breaks.filter((item) => item.id !== activeBreak.id),
+      {
+        ...activeBreak,
+        endedAt: timeoutAt,
+        durationMinutes,
+      },
+    ]);
+    const workedMinutes = Math.max(
+      0,
+      Math.floor((timeoutAt.getTime() - attendance.punchInAt!.getTime()) / 60000) -
+        breakMinutes,
+    );
+
+    await this.prisma.breakLog.update({
+      where: { id: activeBreak.id },
+      data: {
+        endedAt: timeoutAt,
+        durationMinutes,
+        policyViolated: true,
+        autoPunchOutAt: timeoutAt,
+      },
+    });
+    return this.prisma.attendance.update({
+      where: { id: attendance.id },
+      data: {
+        punchOutAt: timeoutAt,
+        breakMinutes,
+        workedMinutes,
+        status: AttendanceStatus.AUTO_PUNCHED_OUT,
+        autoPunchOutReason: AUTO_PUNCH_OUT_REASON,
+        notes: attendance.notes
+          ? `${attendance.notes}; ${AUTO_PUNCH_OUT_REASON}`
+          : AUTO_PUNCH_OUT_REASON,
+        logs: {
+          create: {
+            type: AttendanceLogType.PUNCH_OUT,
+            occurredAt: timeoutAt,
+            note: AUTO_PUNCH_OUT_REASON,
+          },
+        },
+      },
+      include: attendanceInclude,
+    });
+  }
+
+  private breakDurationMinutes(startedAt: Date, endedAt: Date): number {
+    return Math.max(0, Math.ceil((endedAt.getTime() - startedAt.getTime()) / 60000));
+  }
+
+  private totalBreakMinutes(
+    breaks: Array<{ startedAt: Date; endedAt: Date | null; durationMinutes?: number | null }>,
+  ): number {
+    return breaks.reduce((total, item) => {
+      if (typeof item.durationMinutes === 'number') return total + item.durationMinutes;
+      if (!item.endedAt) return total;
+      return total + this.breakDurationMinutes(item.startedAt, item.endedAt);
+    }, 0);
   }
 }

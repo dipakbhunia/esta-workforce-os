@@ -4,6 +4,10 @@ export function activeBreak(attendance: AttendanceRecord | null) {
   return attendance?.breaks.find((entry) => !entry.endedAt) ?? null;
 }
 
+export function latestBreak(attendance: AttendanceRecord | null) {
+  return attendance?.breaks.at(-1) ?? null;
+}
+
 export function totalBreakSeconds(attendance: AttendanceRecord | null, now = new Date()): number {
   if (!attendance) return 0;
   return attendance.breaks.reduce((total, entry) => {
@@ -39,4 +43,13 @@ export function formatDuration(totalSeconds: number): string {
   return [hours, minutes, seconds]
     .map((value) => String(value).padStart(2, '0'))
     .join(':');
+}
+
+export function remainingBreakSeconds(
+  attendance: AttendanceRecord | null,
+  now = new Date(),
+): number | null {
+  const current = activeBreak(attendance);
+  if (!current?.allowedMinutes) return null;
+  return Math.max(0, current.allowedMinutes * 60 - breakSeconds(attendance, now));
 }

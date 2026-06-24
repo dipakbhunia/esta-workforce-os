@@ -1,23 +1,41 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { attendanceService } from '../services/api/attendance.service';
-
-const breakTypes = ['Lunch Break', 'Tea Break', 'Short Break', 'Custom Break'];
+import { breakPolicyService } from '../services/api/break-policy.service';
+import type { BreakPolicy } from '../types/api';
 
 export function BreakSelectionPage() {
   const navigate = useNavigate();
-  const [breakType, setBreakType] = useState(breakTypes[0]);
+  const [policies, setPolicies] = useState<BreakPolicy[]>([]);
+  const [selectedPolicyId, setSelectedPolicyId] = useState('');
   const [comment, setComment] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await breakPolicyService.listActive();
+        setPolicies(data);
+        setSelectedPolicyId(data[0]?.id ?? '');
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'Unable to load break policies');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError('');
     try {
-      await attendanceService.breakStart(breakType, comment.trim());
-      navigate('/break-active', { replace: true, state: { breakType } });
+      const selected = policies.find((policy) => policy.id === selectedPolicyId);
+      if (!selected) throw new Error('Select a break policy');
+      await attendanceService.breakStart(selected.id, comment.trim());
+      navigate('/break-active', { replace: true, state: { breakPolicy: selected } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to start break');
     } finally {
@@ -33,16 +51,23 @@ export function BreakSelectionPage() {
       </div>
       <form className="break-form" onSubmit={submit}>
         <div className="radio-list">
-          {breakTypes.map((type) => (
-            <label className="radio-row" key={type}>
+          {loading && <p className="status-message">Loading break policies...</p>}
+          {!loading && policies.length === 0 && (
+            <p className="error">No active break policies configured.</p>
+          )}
+          {policies.map((policy) => (
+            <label className="radio-row" key={policy.id}>
               <input
                 type="radio"
-                name="breakType"
-                value={type}
-                checked={breakType === type}
-                onChange={() => setBreakType(type)}
+                name="breakPolicyId"
+                value={policy.id}
+                checked={selectedPolicyId === policy.id}
+                onChange={() => setSelectedPolicyId(policy.id)}
               />
-              <span>{type}</span>
+              <span>
+                {policy.name}
+                <small>{policy.allowedMinutes} min allowed</small>
+              </span>
             </label>
           ))}
         </div>
@@ -56,7 +81,10 @@ export function BreakSelectionPage() {
           />
         </label>
         {error && <p className="error">{error}</p>}
-        <button className="action-button action-blue" disabled={submitting}>
+        <button
+          className="action-button action-blue"
+          disabled={submitting || loading || policies.length === 0}
+        >
           {submitting ? 'Starting...' : 'Start Break'}
         </button>
         <Link className="text-link" to="/">

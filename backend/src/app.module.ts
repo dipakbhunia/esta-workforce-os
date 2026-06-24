@@ -5,6 +5,7 @@ import { environmentValidationSchema } from './config/environment.validation';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
+import { BreakPoliciesModule } from './modules/break-policies/break-policies.module';
 import { BranchesModule } from './modules/branches/branches.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
@@ -31,6 +32,7 @@ import { UsersModule } from './modules/users/users.module';
     DatabaseModule,
     AuthModule,
     AttendanceModule,
+    BreakPoliciesModule,
     CompaniesModule,
     BranchesModule,
     DepartmentsModule,

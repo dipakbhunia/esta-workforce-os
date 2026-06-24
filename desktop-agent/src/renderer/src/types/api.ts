@@ -61,10 +61,22 @@ export interface AttendanceRecord {
   id: string;
   punchInAt: string | null;
   punchOutAt: string | null;
-  status: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT';
+  status: 'PRESENT' | 'LATE' | 'HALF_DAY' | 'ABSENT' | 'AUTO_PUNCHED_OUT';
   workedMinutes?: number;
   breakMinutes?: number;
-  breaks: Array<{ id: string; startedAt: string; endedAt: string | null }>;
+  autoPunchOutReason?: string | null;
+  breaks: Array<{
+    id: string;
+    startedAt: string;
+    endedAt: string | null;
+    durationMinutes?: number | null;
+    allowedMinutes?: number | null;
+    breakPolicyId?: string | null;
+    breakTypeName?: string | null;
+    breakTypeCode?: string | null;
+    policyViolated?: boolean;
+    autoPunchOutAt?: string | null;
+  }>;
 }
 
 export interface RegisteredDevice {
@@ -74,4 +86,16 @@ export interface RegisteredDevice {
   platform: string;
   status: 'ACTIVE' | 'INACTIVE' | 'REVOKED';
   lastSeenAt: string | null;
+}
+
+export interface BreakPolicy {
+  id: string;
+  companyId: string;
+  name: string;
+  code: string;
+  allowedMinutes: number;
+  isPaid: boolean;
+  isActive: boolean;
+  autoPunchOutOnTimeout: boolean;
+  sortOrder: number;
 }

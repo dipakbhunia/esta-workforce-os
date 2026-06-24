@@ -53,6 +53,7 @@ enum AttendanceStatus {
   LATE
   HALF_DAY
   ABSENT
+  AUTO_PUNCHED_OUT
 }
 
 enum AttendanceLogType {
@@ -74,31 +75,32 @@ enum MonitoringDeviceStatus {
 }
 
 model Company {
-  id           String        @id @default(uuid()) @db.Uuid
-  name         String
-  slug         String
-  status       CompanyStatus @default(TRIAL)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  deletedAt    DateTime?
-  branches     Branch[]
-  departments  Department[]
-  designations Designation[]
-  shifts       Shift[]
-  users        User[]
-  employees    Employee[]
-  attendances  Attendance[]
-  leaveTypes   LeaveType[]
-  leaveRequests LeaveRequest[]
-  leaveBalances LeaveBalance[]
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String
+  slug              String
+  status            CompanyStatus      @default(TRIAL)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  deletedAt         DateTime?
+  branches          Branch[]
+  departments       Department[]
+  designations      Designation[]
+  shifts            Shift[]
+  users             User[]
+  employees         Employee[]
+  attendances       Attendance[]
+  leaveTypes        LeaveType[]
+  leaveRequests     LeaveRequest[]
+  leaveBalances     LeaveBalance[]
+  breakPolicies     BreakPolicy[]
   monitoringDevices MonitoringDevice[]
-  heartbeats Heartbeat[]
-  activitySessions ActivitySession[]
-  screenshots Screenshot[]
+  heartbeats        Heartbeat[]
+  activitySessions  ActivitySession[]
+  screenshots       Screenshot[]
   applicationUsages ApplicationUsage[]
-  websiteUsages WebsiteUsage[]
-  roles        Role[]
-  auditLogs    AuditLog[]
+  websiteUsages     WebsiteUsage[]
+  roles             Role[]
+  auditLogs         AuditLog[]
 
   @@index([status])
   @@index([slug])
@@ -106,15 +108,15 @@ model Company {
 }
 
 model Branch {
-  id          String        @id @default(uuid()) @db.Uuid
-  companyId   String        @db.Uuid
+  id          String       @id @default(uuid()) @db.Uuid
+  companyId   String       @db.Uuid
   name        String
   code        String
   address     String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   deletedAt   DateTime?
-  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   departments Department[]
   users       User[]
   employees   Employee[]
@@ -166,17 +168,17 @@ model Designation {
 }
 
 model Shift {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @db.Uuid
+  id        String     @id @default(uuid()) @db.Uuid
+  companyId String     @db.Uuid
   name      String
   code      String
   startTime String
   endTime   String
-  timezone  String   @default("UTC")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  timezone  String     @default("UTC")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
   deletedAt DateTime?
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users     User[]
   employees Employee[]
 
@@ -219,19 +221,19 @@ model User {
 }
 
 model Employee {
-  id                           String         @id @default(uuid()) @db.Uuid
-  userId                       String         @unique @db.Uuid
-  companyId                    String         @db.Uuid
-  branchId                     String?        @db.Uuid
-  departmentId                 String?        @db.Uuid
-  designationId                String?        @db.Uuid
-  shiftId                      String?        @db.Uuid
-  reportingManagerId           String?        @db.Uuid
+  id                           String             @id @default(uuid()) @db.Uuid
+  userId                       String             @unique @db.Uuid
+  companyId                    String             @db.Uuid
+  branchId                     String?            @db.Uuid
+  departmentId                 String?            @db.Uuid
+  designationId                String?            @db.Uuid
+  shiftId                      String?            @db.Uuid
+  reportingManagerId           String?            @db.Uuid
   employeeCode                 String
-  joiningDate                  DateTime       @db.Date
+  joiningDate                  DateTime           @db.Date
   employmentType               EmploymentType
   workMode                     WorkMode
-  status                       EmployeeStatus @default(ACTIVE)
+  status                       EmployeeStatus     @default(ACTIVE)
   phone                        String?
   alternatePhone               String?
   personalEmail                String?
@@ -245,20 +247,20 @@ model Employee {
   postalCode                   String?
   country                      String?
   documents                    Json?
-  createdAt                    DateTime       @default(now())
-  updatedAt                    DateTime       @updatedAt
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
   deletedAt                    DateTime?
-  user                         User           @relation(fields: [userId], references: [id], onDelete: Restrict)
-  company                      Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  branch                       Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  department                   Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  designation                  Designation?   @relation(fields: [designationId], references: [id], onDelete: SetNull)
-  shift                        Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
-  reportingManager             Employee?      @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
-  directReports                Employee[]     @relation("EmployeeReporting")
+  user                         User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  company                      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch                       Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department                   Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation                  Designation?       @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  shift                        Shift?             @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  reportingManager             Employee?          @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
+  directReports                Employee[]         @relation("EmployeeReporting")
   attendances                  Attendance[]
-  leaveRequests                LeaveRequest[] @relation("LeaveRequestEmployee")
-  approvedLeaveRequests        LeaveRequest[] @relation("LeaveRequestApprover")
+  leaveRequests                LeaveRequest[]     @relation("LeaveRequestEmployee")
+  approvedLeaveRequests        LeaveRequest[]     @relation("LeaveRequestApprover")
   leaveBalances                LeaveBalance[]
   monitoringDevices            MonitoringDevice[]
   heartbeats                   Heartbeat[]
@@ -279,27 +281,28 @@ model Employee {
 }
 
 model Attendance {
-  id              String           @id @default(uuid()) @db.Uuid
-  companyId       String           @db.Uuid
-  employeeId      String           @db.Uuid
-  attendanceDate  DateTime         @db.Date
-  punchInAt       DateTime?
-  punchOutAt      DateTime?
-  status          AttendanceStatus @default(PRESENT)
-  workedMinutes   Int              @default(0)
-  breakMinutes    Int              @default(0)
-  lateMinutes     Int              @default(0)
-  expectedMinutes Int
-  shiftStartTime  String
-  shiftEndTime    String
-  shiftTimezone   String
-  notes           String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  company         Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee        Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  logs            AttendanceLog[]
-  breaks          BreakLog[]
+  id                 String           @id @default(uuid()) @db.Uuid
+  companyId          String           @db.Uuid
+  employeeId         String           @db.Uuid
+  attendanceDate     DateTime         @db.Date
+  punchInAt          DateTime?
+  punchOutAt         DateTime?
+  status             AttendanceStatus @default(PRESENT)
+  workedMinutes      Int              @default(0)
+  breakMinutes       Int              @default(0)
+  lateMinutes        Int              @default(0)
+  expectedMinutes    Int
+  shiftStartTime     String
+  shiftEndTime       String
+  shiftTimezone      String
+  notes              String?
+  autoPunchOutReason String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  logs               AttendanceLog[]
+  breaks             BreakLog[]
 
   @@unique([employeeId, attendanceDate])
   @@index([companyId, attendanceDate])
@@ -319,30 +322,64 @@ model AttendanceLog {
 }
 
 model BreakLog {
-  id           String     @id @default(uuid()) @db.Uuid
-  attendanceId String     @db.Uuid
-  startedAt    DateTime   @default(now())
-  endedAt      DateTime?
-  attendance   Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  id              String       @id @default(uuid()) @db.Uuid
+  attendanceId    String       @db.Uuid
+  breakPolicyId   String?      @db.Uuid
+  breakTypeName   String?
+  breakTypeCode   String?
+  allowedMinutes  Int?
+  isPaid          Boolean?
+  startedAt       DateTime     @default(now())
+  endedAt         DateTime?
+  durationMinutes Int?
+  policyViolated  Boolean      @default(false)
+  autoPunchOutAt  DateTime?
+  note            String?
+  attendance      Attendance   @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  breakPolicy     BreakPolicy? @relation(fields: [breakPolicyId], references: [id], onDelete: SetNull)
 
   @@index([attendanceId, startedAt])
+  @@index([breakPolicyId])
+  @@index([policyViolated])
+}
+
+model BreakPolicy {
+  id                    String     @id @default(uuid()) @db.Uuid
+  companyId             String     @db.Uuid
+  name                  String
+  code                  String
+  allowedMinutes        Int
+  isPaid                Boolean    @default(false)
+  isActive              Boolean    @default(true)
+  autoPunchOutOnTimeout Boolean    @default(true)
+  sortOrder             Int        @default(0)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  deletedAt             DateTime?
+  company               Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  breaks                BreakLog[]
+
+  @@index([companyId])
+  @@index([companyId, code])
+  @@index([companyId, isActive])
+  @@index([deletedAt])
 }
 
 model LeaveType {
-  id             String         @id @default(uuid()) @db.Uuid
-  companyId      String         @db.Uuid
-  name           String
-  code           String
-  description    String?
-  defaultDays    Float          @default(0)
-  requiresApproval Boolean      @default(true)
-  managerCanApprove Boolean     @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  deletedAt      DateTime?
-  company        Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  requests       LeaveRequest[]
-  balances       LeaveBalance[]
+  id                String         @id @default(uuid()) @db.Uuid
+  companyId         String         @db.Uuid
+  name              String
+  code              String
+  description       String?
+  defaultDays       Float          @default(0)
+  requiresApproval  Boolean        @default(true)
+  managerCanApprove Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  deletedAt         DateTime?
+  company           Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requests          LeaveRequest[]
+  balances          LeaveBalance[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -350,25 +387,25 @@ model LeaveType {
 }
 
 model LeaveRequest {
-  id           String             @id @default(uuid()) @db.Uuid
-  companyId    String             @db.Uuid
-  employeeId   String             @db.Uuid
-  leaveTypeId  String             @db.Uuid
-  startDate    DateTime           @db.Date
-  endDate      DateTime           @db.Date
-  totalDays    Float
-  reason       String?
-  status       LeaveRequestStatus @default(PENDING)
-  approverId   String?            @db.Uuid
-  reviewedAt   DateTime?
+  id            String             @id @default(uuid()) @db.Uuid
+  companyId     String             @db.Uuid
+  employeeId    String             @db.Uuid
+  leaveTypeId   String             @db.Uuid
+  startDate     DateTime           @db.Date
+  endDate       DateTime           @db.Date
+  totalDays     Float
+  reason        String?
+  status        LeaveRequestStatus @default(PENDING)
+  approverId    String?            @db.Uuid
+  reviewedAt    DateTime?
   reviewComment String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  deletedAt    DateTime?
-  company      Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee     Employee           @relation("LeaveRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  leaveType    LeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
-  approver     Employee?          @relation("LeaveRequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee      Employee           @relation("LeaveRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType     LeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  approver      Employee?          @relation("LeaveRequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
 
   @@index([companyId, status])
   @@index([employeeId, startDate])
