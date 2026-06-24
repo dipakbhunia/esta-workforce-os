@@ -5,11 +5,18 @@ import { useAuth } from '../context/auth-context';
 import { attendanceService } from '../services/api/attendance.service';
 import { deviceService, type DeviceState } from '../services/api/device.service';
 import { employeeService } from '../services/api/employee.service';
-import { heartbeatApiService, type HeartbeatPayload } from '../services/api/heartbeat.service';
+import {
+  heartbeatApiService,
+  type HeartbeatPayload,
+} from '../services/api/heartbeat.service';
 import { HeartbeatService } from '../services/monitoring/heartbeat.service';
 import { OfflineQueueService } from '../services/offline/offline-queue.service';
 import { SyncManager } from '../services/offline/sync-manager';
-import type { AttendanceRecord, EmployeeProfile } from '../types/api';
+import type {
+  AttendanceRecord,
+  AttendanceSummary,
+  EmployeeProfile,
+} from '../types/api';
 import {
   activeBreak,
   formatDuration,
@@ -25,6 +32,8 @@ export function AttendanceHomePage() {
   const [employee, setEmployee] = useState<EmployeeProfile | null>(null);
   const [device, setDevice] = useState<DeviceState | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
+  const [attendanceSummary, setAttendanceSummary] =
+    useState<AttendanceSummary | null>(null);
   const [busy, setBusy] = useState<BusyAction>('loading');
   const [message, setMessage] = useState('');
   const [now, setNow] = useState(() => new Date());
@@ -43,7 +52,7 @@ export function AttendanceHomePage() {
     setBusy('loading');
     setMessage('');
     try {
-      await attendanceService.getSummary();
+      const summary = await attendanceService.getSummary();
       const [profile, registeredDevice, today, latest] = await Promise.all([
         employeeService.getCurrent(user),
         deviceService.register(),
@@ -52,8 +61,9 @@ export function AttendanceHomePage() {
       ]);
       setEmployee(profile);
       setDevice(registeredDevice);
-      setAttendance(today);
-      const autoPunchedRecord = [today, latest].find(
+      setAttendanceSummary(summary);
+      setAttendance(summary.latestSession ?? today);
+      const autoPunchedRecord = [summary.latestSession, today, latest].find(
         (record) =>
           record?.status === 'AUTO_PUNCHED_OUT' &&
           record.autoPunchOutReason === 'Device offline / heartbeat lost',
@@ -81,14 +91,25 @@ export function AttendanceHomePage() {
     if (activeBreak(attendance)) navigate('/break-active', { replace: true });
   }, [attendance, navigate]);
 
-  const isWorking = Boolean(attendance?.punchInAt && !attendance.punchOutAt);
-  const isCompleted = Boolean(attendance?.punchOutAt);
+  const isWorking = attendanceSummary
+    ? ['PUNCHED_IN', 'ON_BREAK'].includes(attendanceSummary.currentState)
+    : Boolean(attendance?.punchInAt && !attendance.punchOutAt);
+  const isCompleted = attendanceSummary
+    ? ['PUNCHED_OUT', 'AUTO_PUNCHED_OUT'].includes(
+        attendanceSummary.currentState,
+      )
+    : Boolean(attendance?.punchOutAt);
+  const canPunchIn = attendanceSummary?.canPunchIn ?? !isCompleted;
   const statusText = useMemo(() => {
-    if (attendance?.status === 'AUTO_PUNCHED_OUT') return 'Auto punched out';
+    if (attendanceSummary?.currentState === 'AUTO_PUNCHED_OUT') {
+      return 'Auto punched out';
+    }
+    if (attendanceSummary?.currentState === 'PUNCHED_OUT') return 'Punched out';
+    if (attendanceSummary?.currentState === 'ON_BREAK') return 'On break';
     if (isCompleted) return 'Punched out';
     if (isWorking) return 'Currently working';
     return 'Ready to punch in';
-  }, [attendance?.status, isCompleted, isWorking]);
+  }, [attendanceSummary?.currentState, isCompleted, isWorking]);
 
   useEffect(() => {
     if (!device || !isWorking) {
@@ -116,6 +137,7 @@ export function AttendanceHomePage() {
     setBusy('punchIn');
     setMessage('');
     try {
+      setAttendanceSummary(null);
       setAttendance(await attendanceService.punchIn());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch in failed');
@@ -129,6 +151,7 @@ export function AttendanceHomePage() {
     setMessage('');
     try {
       setAttendance(await attendanceService.punchOut());
+      setAttendanceSummary(await attendanceService.getSummary());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch out failed');
     } finally {
@@ -166,10 +189,10 @@ export function AttendanceHomePage() {
       {!isWorking && (
         <button
           className="action-button action-green"
-          disabled={Boolean(busy) || isCompleted}
+          disabled={Boolean(busy) || !canPunchIn}
           onClick={() => void punchIn()}
         >
-          {isCompleted ? 'Punched Out' : busy === 'punchIn' ? 'Punching In...' : 'Punch In'}
+          {!canPunchIn ? 'Punched Out' : busy === 'punchIn' ? 'Punching In...' : 'Punch In'}
         </button>
       )}
 

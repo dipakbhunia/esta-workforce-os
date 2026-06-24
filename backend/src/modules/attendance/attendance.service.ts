@@ -47,6 +47,20 @@ const attendanceInclude = {
 
 const AUTO_PUNCH_OUT_REASON = 'Break duration exceeded';
 const HEARTBEAT_LOSS_REASON = 'Device offline / heartbeat lost';
+const PREVIOUS_DAY_CLOSE_REASON = 'Previous attendance day auto closed';
+
+type AttendanceCurrentState =
+  | 'READY_TO_PUNCH_IN'
+  | 'PUNCHED_IN'
+  | 'ON_BREAK'
+  | 'PUNCHED_OUT'
+  | 'AUTO_PUNCHED_OUT';
+
+type AttendancePolicyConfig = {
+  attendanceDayStartTime: string;
+  allowMultiplePunchSessions: boolean;
+  autoClosePreviousDayOpenSession: boolean;
+};
 
 @Injectable()
 export class AttendanceService {
@@ -57,14 +71,42 @@ export class AttendanceService {
     if (!employee.shift) {
       throw new BadRequestException('An active shift is required to punch in');
     }
+    const policy = await this.activeAttendancePolicy(employee.companyId);
     const now = new Date();
     const key = dateKey(
       now,
       employee.shift.timezone,
-      employee.shift.startTime,
-      employee.shift.endTime,
+      policy.attendanceDayStartTime,
     );
     const attendanceDate = dateOnly(key);
+
+    if (policy.autoClosePreviousDayOpenSession) {
+      await this.autoClosePreviousDayOpenSessions(employee.id, attendanceDate);
+    }
+
+    const openSession = await this.prisma.attendance.findFirst({
+      where: { employeeId: employee.id, punchInAt: { not: null }, punchOutAt: null },
+      orderBy: { punchInAt: 'desc' },
+    });
+    if (openSession) {
+      throw new BadRequestException('Already punched in');
+    }
+
+    if (!policy.allowMultiplePunchSessions) {
+      const closedSession = await this.prisma.attendance.findFirst({
+        where: {
+          employeeId: employee.id,
+          attendanceDate,
+          punchInAt: { not: null },
+          punchOutAt: { not: null },
+        },
+        orderBy: { punchOutAt: 'desc' },
+      });
+      if (closedSession) {
+        throw new BadRequestException('Already punched out for this attendance day');
+      }
+    }
+
     const shiftStart = zonedDateTimeToUtc(
       key,
       employee.shift.startTime,
@@ -74,45 +116,35 @@ export class AttendanceService {
       0,
       Math.floor((now.getTime() - shiftStart.getTime()) / 60000) - 15,
     );
-    try {
-      return await this.prisma.attendance.create({
-        data: {
-          companyId: employee.companyId,
-          employeeId: employee.id,
-          attendanceDate,
-          punchInAt: now,
-          status:
-            lateMinutes > 0 ? AttendanceStatus.LATE : AttendanceStatus.PRESENT,
-          lateMinutes,
-          expectedMinutes: expectedShiftMinutes(
-            employee.shift.startTime,
-            employee.shift.endTime,
-          ),
-          shiftStartTime: employee.shift.startTime,
-          shiftEndTime: employee.shift.endTime,
-          shiftTimezone: employee.shift.timezone,
-          notes: dto.note?.trim(),
-          logs: {
-            create: {
-              type: AttendanceLogType.PUNCH_IN,
-              occurredAt: now,
-              note: dto.note?.trim(),
-            },
+
+    return this.prisma.attendance.create({
+      data: {
+        companyId: employee.companyId,
+        employeeId: employee.id,
+        attendanceDate,
+        punchInAt: now,
+        status:
+          lateMinutes > 0 ? AttendanceStatus.LATE : AttendanceStatus.PRESENT,
+        lateMinutes,
+        expectedMinutes: expectedShiftMinutes(
+          employee.shift.startTime,
+          employee.shift.endTime,
+        ),
+        shiftStartTime: employee.shift.startTime,
+        shiftEndTime: employee.shift.endTime,
+        shiftTimezone: employee.shift.timezone,
+        notes: dto.note?.trim(),
+        logs: {
+          create: {
+            type: AttendanceLogType.PUNCH_IN,
+            occurredAt: now,
+            note: dto.note?.trim(),
           },
         },
-        include: attendanceInclude,
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new BadRequestException('Already punched in for this shift date');
-      }
-      throw error;
-    }
+      },
+      include: attendanceInclude,
+    });
   }
-
   async punchOut(dto: AttendanceActionDto, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
     const attendance = await this.openAttendance(employee.id);
@@ -347,7 +379,24 @@ export class AttendanceService {
 
   async summary(query: AttendanceSummaryQueryDto, actor: AuthenticatedUser) {
     await this.enforceStaleAttendanceSessions(await this.enforcementScope(actor));
-    const date = dateOnly(query.date ?? new Date().toISOString().slice(0, 10));
+    const ownEmployee = await this.prisma.employee.findFirst({
+      where: { userId: actor.id, deletedAt: null },
+      include: { shift: true },
+    });
+    const ownPolicy = ownEmployee
+      ? await this.activeAttendancePolicy(ownEmployee.companyId)
+      : null;
+    const date = query.date
+      ? dateOnly(query.date)
+      : ownEmployee?.shift && ownPolicy
+        ? dateOnly(
+            dateKey(
+              new Date(),
+              ownEmployee.shift.timezone,
+              ownPolicy.attendanceDayStartTime,
+            ),
+          )
+        : dateOnly(new Date().toISOString().slice(0, 10));
     const employeeWhere = await this.employeeVisibilityWhere(actor);
     const employees = await this.prisma.employee.findMany({
       where: { ...employeeWhere, deletedAt: null, status: EmployeeStatus.ACTIVE },
@@ -358,7 +407,8 @@ export class AttendanceService {
         employeeId: { in: employees.map((employee) => employee.id) },
         attendanceDate: date,
       },
-      include: { breaks: true },
+      include: { ...attendanceInclude, breaks: { orderBy: { startedAt: 'asc' }, include: { breakPolicy: true } } },
+      orderBy: [{ punchInAt: 'asc' }],
     });
     const counts = Object.values(AttendanceStatus).reduce(
       (result, status) => ({ ...result, [status]: 0 }),
@@ -366,11 +416,27 @@ export class AttendanceService {
     );
     records.forEach((record) => counts[record.status]++);
     counts.ABSENT = Math.max(0, employees.length - records.length);
+
+    const stateRecords = ownEmployee
+      ? records.filter((record) => record.employeeId === ownEmployee.id)
+      : records;
+    const latestSession = [...stateRecords].sort(
+      (left, right) =>
+        (right.punchInAt?.getTime() ?? 0) - (left.punchInAt?.getTime() ?? 0),
+    )[0] ?? null;
+    const ownState = ownEmployee
+      ? await this.punchInState(ownEmployee.id, date, ownPolicy ?? undefined)
+      : { canPunchIn: false, currentState: 'READY_TO_PUNCH_IN' as AttendanceCurrentState };
+
     return {
       date: date.toISOString().slice(0, 10),
       totalEmployees: employees.length,
       recorded: records.length,
       counts,
+      sessions: records,
+      latestSession,
+      canPunchIn: ownState.canPunchIn,
+      currentState: ownState.currentState,
       totalWorkedMinutes: records.reduce(
         (total, record) => total + record.workedMinutes,
         0,
@@ -396,7 +462,6 @@ export class AttendanceService {
       ),
     };
   }
-
   async autoPunchOutExpiredBreaks(): Promise<number> {
     // TODO: Call this from a scheduler/queue worker once background jobs are introduced.
     // For now, request-driven attendance operations also enforce this rule.
@@ -489,6 +554,155 @@ export class AttendanceService {
     return { id: own.id };
   }
 
+  private async activeAttendancePolicy(
+    companyId: string,
+  ): Promise<AttendancePolicyConfig> {
+    const policy = await this.prisma.attendancePolicy.findFirst({
+      where: { companyId, isActive: true },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        attendanceDayStartTime: true,
+        allowMultiplePunchSessions: true,
+        autoClosePreviousDayOpenSession: true,
+      },
+    });
+    return {
+      attendanceDayStartTime: policy?.attendanceDayStartTime ?? '00:00',
+      allowMultiplePunchSessions: policy?.allowMultiplePunchSessions ?? true,
+      autoClosePreviousDayOpenSession:
+        policy?.autoClosePreviousDayOpenSession ?? true,
+    };
+  }
+
+  private async punchInState(
+    employeeId: string,
+    attendanceDate: Date,
+    policy?: AttendancePolicyConfig,
+  ): Promise<{ canPunchIn: boolean; currentState: AttendanceCurrentState }> {
+    let activePolicy = policy;
+    if (!activePolicy) {
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { companyId: true },
+      });
+      activePolicy = employee
+        ? await this.activeAttendancePolicy(employee.companyId)
+        : {
+            attendanceDayStartTime: '00:00',
+            allowMultiplePunchSessions: true,
+            autoClosePreviousDayOpenSession: true,
+          };
+    }
+    const openSession = await this.prisma.attendance.findFirst({
+      where: { employeeId, punchInAt: { not: null }, punchOutAt: null },
+      include: { breaks: true },
+      orderBy: { punchInAt: 'desc' },
+    });
+    if (openSession) {
+      return {
+        canPunchIn: false,
+        currentState: openSession.breaks.some((breakLog) => !breakLog.endedAt)
+          ? 'ON_BREAK'
+          : 'PUNCHED_IN',
+      };
+    }
+
+    const latestSameDay = await this.prisma.attendance.findFirst({
+      where: { employeeId, attendanceDate, punchInAt: { not: null } },
+      orderBy: { punchInAt: 'desc' },
+    });
+    if (!latestSameDay) {
+      return { canPunchIn: true, currentState: 'READY_TO_PUNCH_IN' };
+    }
+    return {
+      canPunchIn: activePolicy.allowMultiplePunchSessions,
+      currentState:
+        latestSameDay.status === AttendanceStatus.AUTO_PUNCHED_OUT
+          ? 'AUTO_PUNCHED_OUT'
+          : 'PUNCHED_OUT',
+    };
+  }
+
+  private async autoClosePreviousDayOpenSessions(
+    employeeId: string,
+    currentAttendanceDate: Date,
+  ): Promise<number> {
+    const openSessions = await this.prisma.attendance.findMany({
+      where: {
+        employeeId,
+        attendanceDate: { lt: currentAttendanceDate },
+        punchInAt: { not: null },
+        punchOutAt: null,
+      },
+      include: { breaks: { include: { breakPolicy: true } } },
+    });
+
+    let closed = 0;
+    for (const session of openSessions) {
+      const policy = await this.activeAttendancePolicy(session.companyId);
+      const nextDate = new Date(session.attendanceDate);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      const nextKey = nextDate.toISOString().slice(0, 10);
+      const boundary = zonedDateTimeToUtc(
+        nextKey,
+        policy.attendanceDayStartTime,
+        session.shiftTimezone,
+      );
+      const punchOutAt =
+        boundary.getTime() > session.punchInAt!.getTime()
+          ? boundary
+          : session.punchInAt!;
+      const adjustedBreaks = await Promise.all(
+        session.breaks.map(async (breakLog) => {
+          if (breakLog.endedAt) return breakLog;
+          const durationMinutes = this.breakDurationMinutes(
+            breakLog.startedAt,
+            punchOutAt,
+          );
+          await this.prisma.breakLog.update({
+            where: { id: breakLog.id },
+            data: {
+              endedAt: punchOutAt,
+              durationMinutes,
+              policyViolated:
+                breakLog.allowedMinutes !== null &&
+                breakLog.allowedMinutes !== undefined &&
+                durationMinutes > breakLog.allowedMinutes,
+            },
+          });
+          return { ...breakLog, endedAt: punchOutAt, durationMinutes };
+        }),
+      );
+      const breakMinutes = this.totalBreakMinutes(adjustedBreaks);
+      const workedMinutes = Math.max(
+        0,
+        Math.floor((punchOutAt.getTime() - session.punchInAt!.getTime()) / 60000) -
+          breakMinutes,
+      );
+      await this.prisma.attendance.update({
+        where: { id: session.id },
+        data: {
+          punchOutAt,
+          breakMinutes,
+          workedMinutes,
+          status: AttendanceStatus.AUTO_PUNCHED_OUT,
+          autoPunchOutReason: PREVIOUS_DAY_CLOSE_REASON,
+          notes: session.notes
+            ? `${session.notes}; ${PREVIOUS_DAY_CLOSE_REASON}`
+            : PREVIOUS_DAY_CLOSE_REASON,
+          logs: {
+            create: {
+              type: AttendanceLogType.PUNCH_OUT,
+              occurredAt: punchOutAt,
+              note: PREVIOUS_DAY_CLOSE_REASON,
+            },
+          },
+        },
+      });
+      closed++;
+    }
+    return closed;
+  }
   private validateDateRange(from?: string, to?: string): void {
     if (from && to && dateOnly(from) > dateOnly(to)) {
       throw new BadRequestException('dateFrom must not be after dateTo');

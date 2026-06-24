@@ -305,7 +305,6 @@ model Attendance {
   logs               AttendanceLog[]
   breaks             BreakLog[]
 
-  @@unique([employeeId, attendanceDate])
   @@index([companyId, attendanceDate])
   @@index([employeeId, attendanceDate])
   @@index([status])
@@ -433,14 +432,17 @@ model LeaveBalance {
 }
 
 model AttendancePolicy {
-  id                          String   @id @default(uuid()) @db.Uuid
-  companyId                   String   @db.Uuid
-  autoPunchOutOnHeartbeatLoss Boolean  @default(true)
-  heartbeatTimeoutMinutes     Int      @default(30)
-  isActive                    Boolean  @default(true)
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
-  company                     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  id                              String   @id @default(uuid()) @db.Uuid
+  companyId                       String   @db.Uuid
+  autoPunchOutOnHeartbeatLoss     Boolean  @default(true)
+  heartbeatTimeoutMinutes         Int      @default(30)
+  attendanceDayStartTime          String   @default("00:00")
+  allowMultiplePunchSessions      Boolean  @default(true)
+  autoClosePreviousDayOpenSession Boolean  @default(true)
+  isActive                        Boolean  @default(true)
+  createdAt                       DateTime @default(now())
+  updatedAt                       DateTime @updatedAt
+  company                         Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
   @@index([companyId, isActive])
 }

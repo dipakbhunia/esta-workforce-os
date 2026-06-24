@@ -34,15 +34,13 @@ export function localParts(date: Date, timeZone: string) {
 export function dateKey(
   now: Date,
   timeZone: string,
-  shiftStart: string,
-  shiftEnd: string,
+  attendanceDayStartTime = '00:00',
 ): string {
   const local = localParts(now, timeZone);
-  const overnight = timeToMinutes(shiftEnd) <= timeToMinutes(shiftStart);
-  const beforeEnd =
-    local.hour * 60 + local.minute < timeToMinutes(shiftEnd);
+  const dayStartMinutes = timeToMinutes(attendanceDayStartTime);
+  const localMinutes = local.hour * 60 + local.minute;
   const date = new Date(Date.UTC(local.year, local.month - 1, local.day));
-  if (overnight && beforeEnd) date.setUTCDate(date.getUTCDate() - 1);
+  if (localMinutes < dayStartMinutes) date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
 }
 

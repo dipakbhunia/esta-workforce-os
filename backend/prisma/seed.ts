@@ -177,6 +177,9 @@ async function upsertAttendancePolicy(companyId: string) {
     companyId,
     autoPunchOutOnHeartbeatLoss: true,
     heartbeatTimeoutMinutes: 30,
+    attendanceDayStartTime: '00:00',
+    allowMultiplePunchSessions: true,
+    autoClosePreviousDayOpenSession: true,
     isActive: true,
   };
   return existingPolicy
@@ -400,7 +403,7 @@ async function main(): Promise<void> {
   console.log('Company admin employee: EMP-ADMIN-001');
   console.log('Demo organization: MAIN / ADMIN / COMPANY_ADMIN / GENERAL');
   console.log('Demo break policies: LUNCH / TEA / SHORT / CUSTOM');
-  console.log('Demo attendance policy: heartbeat loss auto punch-out / 30 minutes');
+  console.log('Demo attendance policy: heartbeat loss auto punch-out / 30 minutes / multi-session enabled');
 }
 
 main()

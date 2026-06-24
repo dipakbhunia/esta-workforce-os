@@ -79,11 +79,22 @@ export interface AttendanceRecord {
   }>;
 }
 
+export type AttendanceCurrentState =
+  | 'READY_TO_PUNCH_IN'
+  | 'PUNCHED_IN'
+  | 'ON_BREAK'
+  | 'PUNCHED_OUT'
+  | 'AUTO_PUNCHED_OUT';
+
 export interface AttendanceSummary {
   date: string;
   totalEmployees: number;
   recorded: number;
   counts: Record<string, number>;
+  sessions: AttendanceRecord[];
+  latestSession: AttendanceRecord | null;
+  canPunchIn: boolean;
+  currentState: AttendanceCurrentState;
   totalWorkedMinutes: number;
   totalBreakMinutes: number;
   autoPunchedOut: boolean;

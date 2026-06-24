@@ -27,7 +27,11 @@ export class AttendanceController {
 
   @Post('punch-in')
   @Roles(...attendanceRoles)
-  @ApiOperation({ summary: 'Punch in for the authenticated employee' })
+  @ApiOperation({
+    summary: 'Punch in for the authenticated employee',
+    description:
+      'Uses the active AttendancePolicy to compute the attendance day, close stale previous-day open sessions when enabled, and decide whether closed same-day sessions allow another punch-in.',
+  })
   punchIn(
     @Body() dto: AttendanceActionDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -76,7 +80,7 @@ export class AttendanceController {
   @ApiOperation({
     summary: 'Get a daily attendance summary',
     description:
-      'Also enforces company heartbeat-loss auto punch-out for stale open attendance sessions before calculating the summary. Future BullMQ/cron scheduling will call the same enforcement service method.',
+      'Also enforces company heartbeat-loss auto punch-out for stale open attendance sessions before calculating the summary. Returns sessions, latestSession, canPunchIn, and currentState for desktop status handling. Future BullMQ/cron scheduling will call the same enforcement service method.',
   })
   summary(
     @Query() query: AttendanceSummaryQueryDto,
