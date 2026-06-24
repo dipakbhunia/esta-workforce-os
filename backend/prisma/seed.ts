@@ -169,6 +169,20 @@ async function upsertBreakPolicy(
     ? prisma.breakPolicy.update({ where: { id: existingPolicy.id }, data })
     : prisma.breakPolicy.create({ data });
 }
+async function upsertAttendancePolicy(companyId: string) {
+  const existingPolicy = await prisma.attendancePolicy.findFirst({
+    where: { companyId },
+  });
+  const data = {
+    companyId,
+    autoPunchOutOnHeartbeatLoss: true,
+    heartbeatTimeoutMinutes: 30,
+    isActive: true,
+  };
+  return existingPolicy
+    ? prisma.attendancePolicy.update({ where: { id: existingPolicy.id }, data })
+    : prisma.attendancePolicy.create({ data });
+}
 
 async function main(): Promise<void> {
   const superAdminEmail =
@@ -203,6 +217,7 @@ async function main(): Promise<void> {
   const department = await upsertDepartment(company.id, branch.id);
   const designation = await upsertDesignation(company.id, department.id);
   const shift = await upsertShift(company.id);
+  await upsertAttendancePolicy(company.id);
   await Promise.all([
     upsertBreakPolicy(company.id, {
       name: 'Lunch Break',
@@ -385,6 +400,7 @@ async function main(): Promise<void> {
   console.log('Company admin employee: EMP-ADMIN-001');
   console.log('Demo organization: MAIN / ADMIN / COMPANY_ADMIN / GENERAL');
   console.log('Demo break policies: LUNCH / TEA / SHORT / CUSTOM');
+  console.log('Demo attendance policy: heartbeat loss auto punch-out / 30 minutes');
 }
 
 main()

@@ -46,6 +46,7 @@ const attendanceInclude = {
 } satisfies Prisma.AttendanceInclude;
 
 const AUTO_PUNCH_OUT_REASON = 'Break duration exceeded';
+const HEARTBEAT_LOSS_REASON = 'Device offline / heartbeat lost';
 
 @Injectable()
 export class AttendanceService {
@@ -220,6 +221,74 @@ export class AttendanceService {
     return this.findAttendance(attendance.id);
   }
 
+  async enforceStaleAttendanceSessions(scope?: {
+    companyId?: string;
+    employeeId?: string;
+  }): Promise<number> {
+    // TODO: Call this from BullMQ/cron once scheduled background enforcement exists.
+    const now = new Date();
+    const openAttendances = await this.prisma.attendance.findMany({
+      where: {
+        punchInAt: { not: null },
+        punchOutAt: null,
+        ...(scope?.companyId ? { companyId: scope.companyId } : {}),
+        ...(scope?.employeeId ? { employeeId: scope.employeeId } : {}),
+        company: {
+          attendancePolicies: {
+            some: {
+              isActive: true,
+              autoPunchOutOnHeartbeatLoss: true,
+            },
+          },
+        },
+      },
+      include: {
+        breaks: { include: { breakPolicy: true } },
+        company: {
+          include: {
+            attendancePolicies: {
+              where: {
+                isActive: true,
+                autoPunchOutOnHeartbeatLoss: true,
+              },
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+
+    let enforced = 0;
+    for (const attendance of openAttendances) {
+      const policy = attendance.company.attendancePolicies[0];
+      if (!policy || policy.heartbeatTimeoutMinutes <= 0) continue;
+
+      const latestHeartbeat = await this.prisma.heartbeat.findFirst({
+        where: {
+          companyId: attendance.companyId,
+          employeeId: attendance.employeeId,
+          recordedAt: { gte: attendance.punchInAt! },
+        },
+        orderBy: { recordedAt: 'desc' },
+        select: { recordedAt: true },
+      });
+      if (!latestHeartbeat) continue;
+
+      const timeoutAt = new Date(
+        latestHeartbeat.recordedAt.getTime() +
+          policy.heartbeatTimeoutMinutes * 60000,
+      );
+      if (now.getTime() <= timeoutAt.getTime()) continue;
+
+      await this.autoPunchOutForHeartbeatLoss(
+        attendance,
+        latestHeartbeat.recordedAt,
+      );
+      enforced++;
+    }
+    return enforced;
+  }
   async findAll(query: AttendanceQueryDto, actor: AuthenticatedUser) {
     this.validateDateRange(query.dateFrom, query.dateTo);
     const visibility = await this.visibilityWhere(actor);
@@ -277,6 +346,7 @@ export class AttendanceService {
   }
 
   async summary(query: AttendanceSummaryQueryDto, actor: AuthenticatedUser) {
+    await this.enforceStaleAttendanceSessions(await this.enforcementScope(actor));
     const date = dateOnly(query.date ?? new Date().toISOString().slice(0, 10));
     const employeeWhere = await this.employeeVisibilityWhere(actor);
     const employees = await this.prisma.employee.findMany({
@@ -425,6 +495,82 @@ export class AttendanceService {
     }
   }
 
+  private async enforcementScope(actor: AuthenticatedUser): Promise<{
+    companyId?: string;
+    employeeId?: string;
+  }> {
+    if (
+      actor.roles.includes(RoleName.COMPANY_ADMIN) ||
+      actor.roles.includes(RoleName.HR)
+    ) {
+      return actor.companyId ? { companyId: actor.companyId } : {};
+    }
+    const own = await this.prisma.employee.findFirst({
+      where: { userId: actor.id, deletedAt: null },
+      select: { id: true, companyId: true },
+    });
+    return own ? { companyId: own.companyId, employeeId: own.id } : {};
+  }
+
+  private async autoPunchOutForHeartbeatLoss(
+    attendance: Prisma.AttendanceGetPayload<{
+      include: {
+        breaks: { include: { breakPolicy: true } };
+        company: { include: { attendancePolicies: true } };
+      };
+    }>,
+    punchOutAt: Date,
+  ) {
+    const adjustedBreaks = await Promise.all(
+      attendance.breaks.map(async (breakLog) => {
+        if (breakLog.endedAt) return breakLog;
+        const durationMinutes = this.breakDurationMinutes(
+          breakLog.startedAt,
+          punchOutAt,
+        );
+        await this.prisma.breakLog.update({
+          where: { id: breakLog.id },
+          data: {
+            endedAt: punchOutAt,
+            durationMinutes,
+            policyViolated:
+              breakLog.allowedMinutes !== null &&
+              breakLog.allowedMinutes !== undefined &&
+              durationMinutes > breakLog.allowedMinutes,
+          },
+        });
+        return { ...breakLog, endedAt: punchOutAt, durationMinutes };
+      }),
+    );
+    const breakMinutes = this.totalBreakMinutes(adjustedBreaks);
+    const workedMinutes = Math.max(
+      0,
+      Math.floor((punchOutAt.getTime() - attendance.punchInAt!.getTime()) / 60000) -
+        breakMinutes,
+    );
+
+    return this.prisma.attendance.update({
+      where: { id: attendance.id },
+      data: {
+        punchOutAt,
+        breakMinutes,
+        workedMinutes,
+        status: AttendanceStatus.AUTO_PUNCHED_OUT,
+        autoPunchOutReason: HEARTBEAT_LOSS_REASON,
+        notes: attendance.notes
+          ? `${attendance.notes}; ${HEARTBEAT_LOSS_REASON}`
+          : HEARTBEAT_LOSS_REASON,
+        logs: {
+          create: {
+            type: AttendanceLogType.PUNCH_OUT,
+            occurredAt: punchOutAt,
+            note: HEARTBEAT_LOSS_REASON,
+          },
+        },
+      },
+      include: attendanceInclude,
+    });
+  }
   private async autoPunchOutIfBreakExpired(
     attendance: Prisma.AttendanceGetPayload<{
       include: { breaks: { include: { breakPolicy: true } } };

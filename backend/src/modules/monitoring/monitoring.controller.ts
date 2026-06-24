@@ -38,7 +38,11 @@ export class MonitoringController {
   }
 
   @Post('heartbeats')
-  @ApiOperation({ summary: 'Receive a heartbeat from an owned monitoring device' })
+  @ApiOperation({
+    summary: 'Receive a heartbeat from an owned monitoring device',
+    description:
+      'Before recording a new heartbeat, the backend enforces stale open attendance sessions. If the latest previous heartbeat exceeded the company heartbeat timeout, attendance is auto punched out at that previous heartbeat timestamp.',
+  })
   receiveHeartbeat(
     @Body() dto: HeartbeatDto,
     @CurrentUser() user: AuthenticatedUser,

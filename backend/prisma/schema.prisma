@@ -75,32 +75,33 @@ enum MonitoringDeviceStatus {
 }
 
 model Company {
-  id                String             @id @default(uuid()) @db.Uuid
-  name              String
-  slug              String
-  status            CompanyStatus      @default(TRIAL)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  deletedAt         DateTime?
-  branches          Branch[]
-  departments       Department[]
-  designations      Designation[]
-  shifts            Shift[]
-  users             User[]
-  employees         Employee[]
-  attendances       Attendance[]
-  leaveTypes        LeaveType[]
-  leaveRequests     LeaveRequest[]
-  leaveBalances     LeaveBalance[]
-  breakPolicies     BreakPolicy[]
-  monitoringDevices MonitoringDevice[]
-  heartbeats        Heartbeat[]
-  activitySessions  ActivitySession[]
-  screenshots       Screenshot[]
-  applicationUsages ApplicationUsage[]
-  websiteUsages     WebsiteUsage[]
-  roles             Role[]
-  auditLogs         AuditLog[]
+  id                 String             @id @default(uuid()) @db.Uuid
+  name               String
+  slug               String
+  status             CompanyStatus      @default(TRIAL)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  deletedAt          DateTime?
+  branches           Branch[]
+  departments        Department[]
+  designations       Designation[]
+  shifts             Shift[]
+  users              User[]
+  employees          Employee[]
+  attendances        Attendance[]
+  leaveTypes         LeaveType[]
+  leaveRequests      LeaveRequest[]
+  leaveBalances      LeaveBalance[]
+  breakPolicies      BreakPolicy[]
+  attendancePolicies AttendancePolicy[]
+  monitoringDevices  MonitoringDevice[]
+  heartbeats         Heartbeat[]
+  activitySessions   ActivitySession[]
+  screenshots        Screenshot[]
+  applicationUsages  ApplicationUsage[]
+  websiteUsages      WebsiteUsage[]
+  roles              Role[]
+  auditLogs          AuditLog[]
 
   @@index([status])
   @@index([slug])
@@ -429,6 +430,19 @@ model LeaveBalance {
 
   @@unique([employeeId, leaveTypeId, year])
   @@index([companyId, year])
+}
+
+model AttendancePolicy {
+  id                          String   @id @default(uuid()) @db.Uuid
+  companyId                   String   @db.Uuid
+  autoPunchOutOnHeartbeatLoss Boolean  @default(true)
+  heartbeatTimeoutMinutes     Int      @default(30)
+  isActive                    Boolean  @default(true)
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+  company                     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, isActive])
 }
 
 model MonitoringDevice {

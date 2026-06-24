@@ -73,7 +73,11 @@ export class AttendanceController {
 
   @Get('summary')
   @Roles(...attendanceRoles)
-  @ApiOperation({ summary: 'Get a daily attendance summary' })
+  @ApiOperation({
+    summary: 'Get a daily attendance summary',
+    description:
+      'Also enforces company heartbeat-loss auto punch-out for stale open attendance sessions before calculating the summary. Future BullMQ/cron scheduling will call the same enforcement service method.',
+  })
   summary(
     @Query() query: AttendanceSummaryQueryDto,
     @CurrentUser() user: AuthenticatedUser,

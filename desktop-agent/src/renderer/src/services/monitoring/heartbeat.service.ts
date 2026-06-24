@@ -1,3 +1,4 @@
+import type { HeartbeatPayload } from '../api/heartbeat.service';
 import type { DeviceState } from '../api/device.service';
 import type { OfflineQueue } from '../offline/offline-queue.service';
 import type { SyncManager } from '../offline/sync-manager';
@@ -15,8 +16,8 @@ export class HeartbeatService implements MonitoringService {
 
   async start(): Promise<void> {
     if (this.timer) return;
+    await this.queueHeartbeat();
     this.timer = setInterval(() => void this.queueHeartbeat(), this.intervalMs);
-    // TODO: Start only after explicit monitoring policy and consent checks.
   }
 
   async stop(): Promise<void> {
@@ -25,12 +26,17 @@ export class HeartbeatService implements MonitoringService {
   }
 
   async queueHeartbeat(): Promise<void> {
-    await this.queue.enqueue('heartbeat', {
+    const payload: HeartbeatPayload = {
       deviceId: this.device.registration.id,
       recordedAt: new Date().toISOString(),
       idleSeconds: 0,
       isOnline: navigator.onLine,
-    });
+      metadata: {
+        source: 'desktop-agent',
+      },
+    };
+    await this.queue.enqueue('heartbeat', payload);
+    await this.retry();
   }
 
   retry(): Promise<void> {

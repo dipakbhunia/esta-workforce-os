@@ -16,6 +16,7 @@ import {
   paginationArgs,
 } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
+import { AttendanceService } from '../attendance/attendance.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
@@ -37,7 +38,10 @@ const deviceSelect = {
 
 @Injectable()
 export class MonitoringService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly attendanceService: AttendanceService,
+  ) {}
 
   async registerDevice(dto: RegisterDeviceDto, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
@@ -73,6 +77,11 @@ export class MonitoringService {
 
   async receiveHeartbeat(dto: HeartbeatDto, actor: AuthenticatedUser) {
     const device = await this.ownedActiveDevice(dto.deviceId, actor);
+    const enforcedStaleSessions =
+      await this.attendanceService.enforceStaleAttendanceSessions({
+        companyId: device.companyId,
+        employeeId: device.employeeId,
+      });
     const recordedAt = dto.recordedAt ? new Date(dto.recordedAt) : new Date();
     const [heartbeat] = await this.prisma.$transaction([
       this.prisma.heartbeat.create({
@@ -91,7 +100,7 @@ export class MonitoringService {
         data: { lastSeenAt: recordedAt },
       }),
     ]);
-    return heartbeat;
+    return { ...heartbeat, enforcedStaleSessions };
   }
 
   async uploadActivity(dto: UploadActivityDto, actor: AuthenticatedUser) {

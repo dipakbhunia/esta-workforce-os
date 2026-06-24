@@ -79,6 +79,16 @@ export interface AttendanceRecord {
   }>;
 }
 
+export interface AttendanceSummary {
+  date: string;
+  totalEmployees: number;
+  recorded: number;
+  counts: Record<string, number>;
+  totalWorkedMinutes: number;
+  totalBreakMinutes: number;
+  autoPunchedOut: boolean;
+}
+
 export interface RegisteredDevice {
   id: string;
   deviceIdentifier: string;
@@ -98,4 +108,15 @@ export interface BreakPolicy {
   isActive: boolean;
   autoPunchOutOnTimeout: boolean;
   sortOrder: number;
+}
+
+export interface HeartbeatResponse {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  deviceId: string;
+  recordedAt: string;
+  idleSeconds: number;
+  isOnline: boolean;
+  enforcedStaleSessions?: number;
 }

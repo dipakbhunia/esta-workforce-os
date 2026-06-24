@@ -1,5 +1,6 @@
 import type {
   AttendanceRecord,
+  AttendanceSummary,
   PaginatedResponse,
 } from '../../types/api';
 import { apiClient } from './api-client';
@@ -21,6 +22,16 @@ export const attendanceService = {
     >(`/attendance?dateFrom=${date}&dateTo=${date}&limit=1`);
     return response.data[0] ?? null;
   },
+
+  async getLatest(): Promise<AttendanceRecord | null> {
+    const response = await apiClient.request<
+      PaginatedResponse<AttendanceRecord>
+    >('/attendance?limit=1');
+    return response.data[0] ?? null;
+  },
+
+  getSummary: () =>
+    apiClient.request<AttendanceSummary>('/attendance/summary'),
 
   punchIn: () =>
     apiClient.request<AttendanceRecord>('/attendance/punch-in', {
