@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+﻿import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AuthTokens,
   DesktopSettings,
@@ -21,6 +21,10 @@ const api: EstaDesktopApi = {
     get: () => ipcRenderer.invoke(ipcChannels.settingsGet),
     update: (settings: Partial<DesktopSettings>) =>
       ipcRenderer.invoke(ipcChannels.settingsUpdate, settings),
+  },
+  system: {
+    getIdleTimeSeconds: () =>
+      ipcRenderer.invoke(ipcChannels.systemGetIdleTimeSeconds),
   },
   app: {
     getVersion: () => ipcRenderer.invoke(ipcChannels.appGetVersion),

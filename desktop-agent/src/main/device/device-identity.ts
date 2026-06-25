@@ -1,7 +1,4 @@
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { app } = require('electron') as typeof import('electron');
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { arch, hostname, platform, release } from 'node:os';
 import type { DeviceInformation } from '../../shared/contracts';
 import { JsonFileStore } from '../storage/json-file-store';
@@ -11,7 +8,10 @@ interface DeviceIdentityState {
 }
 
 export class DeviceIdentity {
-  constructor(private readonly store: JsonFileStore<DeviceIdentityState>) {}
+  constructor(
+    private readonly store: JsonFileStore<DeviceIdentityState>,
+    private readonly appVersion: string,
+  ) {}
 
   async getInformation(): Promise<DeviceInformation> {
     const state = await this.store.read();
@@ -25,7 +25,7 @@ export class DeviceIdentity {
       platform: platform(),
       osVersion: release(),
       architecture: arch(),
-      appVersion: app.getVersion(),
+      appVersion: this.appVersion,
     };
   }
 }

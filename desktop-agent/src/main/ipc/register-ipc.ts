@@ -1,6 +1,4 @@
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { app, ipcMain } = require('electron') as typeof import('electron');
+﻿import { app, ipcMain } from 'electron';
 import type { AuthTokens, DesktopSettings } from '../../shared/contracts';
 import { ipcChannels } from '../../shared/ipc-channels';
 import { DeviceIdentity } from '../device/device-identity';
@@ -11,6 +9,7 @@ export interface AppIpcActions {
   setAuthenticated(authenticated: boolean): void;
   showAndFocus(): void;
   applyStartupSetting(settings: DesktopSettings): void;
+  getSystemIdleTimeSeconds(): number;
 }
 
 export function registerIpcHandlers(
@@ -45,4 +44,9 @@ export function registerIpcHandlers(
     actions.setAuthenticated(authenticated),
   );
   ipcMain.handle(ipcChannels.appShowAndFocus, () => actions.showAndFocus());
+  ipcMain.handle(ipcChannels.systemGetIdleTimeSeconds, () =>
+    actions.getSystemIdleTimeSeconds(),
+  );
 }
+
+

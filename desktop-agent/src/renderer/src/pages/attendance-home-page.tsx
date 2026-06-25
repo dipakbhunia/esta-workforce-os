@@ -29,9 +29,12 @@ import {
 } from '../utils/attendance-time';
 
 type BusyAction = 'loading' | 'punchIn' | 'punchOut' | null;
+type IdleModalMode = 'warning' | 'punchedOut' | null;
 
 const IDLE_NOTE = 'Auto punched out due to idle time';
 const OFFLINE_NOTE = 'Device offline / heartbeat lost';
+const IDLE_CHECK_INTERVAL_MS = 15000;
+const IDLE_WARNING_COUNTDOWN_SECONDS = 60;
 const actionIconProps = { size: 20, strokeWidth: 2.2, 'aria-hidden': true } as const;
 
 export function AttendanceHomePage() {
@@ -46,11 +49,12 @@ export function AttendanceHomePage() {
   const [liveStatus, setLiveStatus] = useState<LiveStatusResponse | null>(null);
   const [busy, setBusy] = useState<BusyAction>('loading');
   const [message, setMessage] = useState('');
-  const [idleAlertVisible, setIdleAlertVisible] = useState(false);
+  const [idleModalMode, setIdleModalMode] = useState<IdleModalMode>(null);
+  const [idleCountdownSeconds, setIdleCountdownSeconds] = useState<number | null>(null);
   const [idleAutoPunchedOut, setIdleAutoPunchedOut] = useState(false);
   const [now, setNow] = useState(() => new Date());
-  const lastActivityAt = useRef(Date.now());
   const idlePunchOutRunning = useRef(false);
+  const idleWarningActive = useRef(false);
   const heartbeatQueue = useRef(new OfflineQueueService());
   const syncManager = useRef(
     new SyncManager(heartbeatQueue.current, {
@@ -164,53 +168,101 @@ export function AttendanceHomePage() {
   }, [device, isWorking]);
 
   useEffect(() => {
-    const markActivity = () => {
-      lastActivityAt.current = Date.now();
-    };
-    window.addEventListener('mousemove', markActivity);
-    window.addEventListener('mousedown', markActivity);
-    window.addEventListener('keydown', markActivity);
-    window.addEventListener('touchstart', markActivity);
-    return () => {
-      window.removeEventListener('mousemove', markActivity);
-      window.removeEventListener('mousedown', markActivity);
-      window.removeEventListener('keydown', markActivity);
-      window.removeEventListener('touchstart', markActivity);
-    };
-  }, []);
+    const timeoutSeconds = Math.ceil((settings?.idleTimeoutMs ?? 300000) / 1000);
+    const shouldMonitorIdle =
+      attendanceSummary?.currentState === 'PUNCHED_IN' ||
+      attendanceSummary?.currentState === 'ON_BREAK';
 
-  useEffect(() => {
-    const timeoutMs = settings?.idleTimeoutMs ?? 300000;
-    if (attendanceSummary?.currentState !== 'PUNCHED_IN' || timeoutMs <= 0) {
-      lastActivityAt.current = Date.now();
+    if (!shouldMonitorIdle || timeoutSeconds <= 0) {
+      cancelIdleWarning();
       return;
     }
 
-    const timer = window.setInterval(() => {
-      const idleForMs = Date.now() - lastActivityAt.current;
-      if (idleForMs >= timeoutMs) void autoPunchOutForIdle();
-    }, 5000);
+    const checkIdle = async () => {
+      const systemIdleSeconds = await window.esta.system.getIdleTimeSeconds();
+      if (systemIdleSeconds < timeoutSeconds) {
+        cancelIdleWarning();
+        return;
+      }
+      if (!idleWarningActive.current && !idlePunchOutRunning.current) {
+        await startIdleWarning();
+      }
+    };
+
+    void checkIdle();
+    const timer = window.setInterval(() => void checkIdle(), IDLE_CHECK_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [attendanceSummary?.currentState, settings?.idleTimeoutMs]);
+
+  useEffect(() => {
+    if (idleModalMode !== 'warning') return;
+
+    let remainingSeconds = IDLE_WARNING_COUNTDOWN_SECONDS;
+    const timeoutSeconds = Math.ceil((settings?.idleTimeoutMs ?? 300000) / 1000);
+    setIdleCountdownSeconds(remainingSeconds);
+
+    const timer = window.setInterval(async () => {
+      const systemIdleSeconds = await window.esta.system.getIdleTimeSeconds();
+      if (systemIdleSeconds < timeoutSeconds) {
+        cancelIdleWarning();
+        return;
+      }
+
+      remainingSeconds -= 1;
+      setIdleCountdownSeconds(remainingSeconds);
+      if (remainingSeconds <= 0) {
+        window.clearInterval(timer);
+        const latestIdleSeconds = await window.esta.system.getIdleTimeSeconds();
+        if (latestIdleSeconds >= timeoutSeconds) {
+          void autoPunchOutForIdle();
+        } else {
+          cancelIdleWarning();
+        }
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [idleModalMode, settings?.idleTimeoutMs]);
+
+  async function startIdleWarning(): Promise<void> {
+    idleWarningActive.current = true;
+    setIdleModalMode('warning');
+    setIdleCountdownSeconds(IDLE_WARNING_COUNTDOWN_SECONDS);
+    await window.esta.app.showAndFocus();
+    void playIdleAlertSound();
+  }
+
+  function cancelIdleWarning(): void {
+    idleWarningActive.current = false;
+    setIdleModalMode((current) => (current === 'warning' ? null : current));
+    setIdleCountdownSeconds(null);
+  }
 
   async function autoPunchOutForIdle() {
     if (idlePunchOutRunning.current) return;
     idlePunchOutRunning.current = true;
     try {
+      if (attendanceSummary?.currentState === 'ON_BREAK') {
+        await attendanceService.breakEnd();
+      }
       const record = await attendanceService.punchOut(IDLE_NOTE);
       const summary = await attendanceService.getSummary();
       setAttendance(record);
       setAttendanceSummary(summary);
+      if (employee) {
+        setLiveStatus(await liveStatusService.getByEmployee(employee.id).catch(() => null));
+      }
       setIdleAutoPunchedOut(true);
-      setIdleAlertVisible(true);
+      setIdleModalMode('punchedOut');
+      setIdleCountdownSeconds(null);
       setMessage(IDLE_NOTE);
       await window.esta.app.showAndFocus();
-      void playIdleAlertSound();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Idle auto punch-out failed');
+      cancelIdleWarning();
     } finally {
       idlePunchOutRunning.current = false;
-      lastActivityAt.current = Date.now();
+      idleWarningActive.current = false;
     }
   }
 
@@ -225,7 +277,6 @@ export function AttendanceHomePage() {
       if (employee) {
         setLiveStatus(await liveStatusService.getByEmployee(employee.id).catch(() => null));
       }
-      lastActivityAt.current = Date.now();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch in failed');
     } finally {
@@ -242,6 +293,7 @@ export function AttendanceHomePage() {
       if (employee) {
         setLiveStatus(await liveStatusService.getByEmployee(employee.id).catch(() => null));
       }
+      cancelIdleWarning();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch out failed');
     } finally {
@@ -322,14 +374,26 @@ export function AttendanceHomePage() {
       </button>
       {message && <p className="status-message">{message}</p>}
 
-      {idleAlertVisible && (
+      {idleModalMode && (
         <div className="modal-backdrop" role="alertdialog" aria-modal="true">
           <div className="modal-card">
-            <p className="eyebrow">Idle timeout</p>
-            <h2>You were auto punched out because of idle time.</h2>
+            <p className="eyebrow">
+              {idleModalMode === 'warning' ? 'Idle warning' : 'Idle timeout'}
+            </p>
+            {idleModalMode === 'warning' ? (
+              <>
+                <h2>You appear idle.</h2>
+                <p className="muted setting-note">
+                  Activity on your computer will cancel this warning. Auto punch-out in{' '}
+                  <strong>{idleCountdownSeconds ?? IDLE_WARNING_COUNTDOWN_SECONDS}s</strong>.
+                </p>
+              </>
+            ) : (
+              <h2>You were auto punched out because of idle time.</h2>
+            )}
             <button
               className="small-action"
-              onClick={() => setIdleAlertVisible(false)}
+              onClick={() => setIdleModalMode(null)}
             >
               OK
             </button>
@@ -370,4 +434,3 @@ function liveStatusLabel(status: LiveStatusResponse): string {
   if (status.status === 'AUTO_PUNCHED_OUT') return 'Auto punched out';
   return 'Online';
 }
-

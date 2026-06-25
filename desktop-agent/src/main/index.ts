@@ -1,18 +1,26 @@
-import { createRequire } from 'node:module';
-import { join } from 'node:path';
+﻿import { join } from 'node:path';
+import { app, BrowserWindow, Menu, nativeImage, powerMonitor, shell, Tray } from 'electron';
 import type {
   BrowserWindow as BrowserWindowType,
   Event,
   Tray as TrayType,
 } from 'electron';
-const require = createRequire(import.meta.url);
-const { app, BrowserWindow, Menu, nativeImage, shell, Tray } = require('electron') as typeof import('electron');
 import type { DesktopSettings } from '../shared/contracts';
 import { ipcChannels } from '../shared/ipc-channels';
 import { DeviceIdentity } from './device/device-identity';
 import { registerIpcHandlers } from './ipc/register-ipc';
 import { JsonFileStore } from './storage/json-file-store';
 import { SecureTokenStore } from './storage/secure-token-store';
+
+if (process.env.ELECTRON_RUN_AS_NODE) {
+  throw new Error(
+    'Electron main process cannot start while ELECTRON_RUN_AS_NODE is set. Run: Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue',
+  );
+}
+
+if (!app) {
+  throw new Error('Electron app API is unavailable. Make sure the app is launched by Electron, not plain Node.');
+}
 
 let mainWindow: BrowserWindowType | null = null;
 let tray: TrayType | null = null;
@@ -151,6 +159,7 @@ app.whenReady().then(async () => {
   );
   const deviceIdentity = new DeviceIdentity(
     new JsonFileStore(join(dataDirectory, 'device.json'), {}),
+    app.getVersion(),
   );
   const settings = new JsonFileStore<DesktopSettings>(
     join(dataDirectory, 'settings.json'),
@@ -162,6 +171,7 @@ app.whenReady().then(async () => {
     setAuthenticated,
     showAndFocus: showAndFocusWindow,
     applyStartupSetting,
+    getSystemIdleTimeSeconds: () => powerMonitor.getSystemIdleTime(),
   });
   createWindow();
 
@@ -178,3 +188,5 @@ app.on('window-all-closed', () => {
   if (process.platform === 'darwin') return;
   if (!isAuthenticated || isQuitting) app.quit();
 });
+
+

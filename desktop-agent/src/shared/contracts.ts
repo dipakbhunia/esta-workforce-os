@@ -1,4 +1,4 @@
-export interface AuthTokens {
+﻿export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
@@ -30,6 +30,9 @@ export interface EstaDesktopApi {
   settings: {
     get: () => Promise<DesktopSettings>;
     update: (settings: Partial<DesktopSettings>) => Promise<DesktopSettings>;
+  };
+  system: {
+    getIdleTimeSeconds: () => Promise<number>;
   };
   app: {
     getVersion: () => Promise<string>;

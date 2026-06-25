@@ -84,8 +84,10 @@ export function SettingsPage() {
           />
         </label>
         <p className="muted setting-note">
-          Idle detection currently watches mouse and keyboard activity inside this app window only.
-          OS-level idle detection is planned for a future safe native API integration.
+          Idle detection uses OS-level aggregate idle time from Electron powerMonitor.
+          It does not read typed keys, mouse coordinates, screenshots, apps, or websites.
+          TODO: Replace this local timeout with a company-wise idle timeout policy from the backend.
+          TODO: Review macOS permissions during packaging hardening if needed.
         </p>
         <button className="small-action" onClick={() => void save()}>
           Save
@@ -116,4 +118,3 @@ function defaultSettings(): DesktopSettings {
     startWithWindows: true,
   };
 }
-
