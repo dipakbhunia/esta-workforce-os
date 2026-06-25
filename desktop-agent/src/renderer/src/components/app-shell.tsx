@@ -1,5 +1,8 @@
+﻿import { ArrowLeft, LogOut, Settings as SettingsIcon } from 'lucide-react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/auth-context';
+
+const iconProps = { size: 20, strokeWidth: 2.2, 'aria-hidden': true } as const;
 
 export function AppShell() {
   const { user, logout } = useAuth();
@@ -21,9 +24,10 @@ export function AppShell() {
         <Link
           className="icon-button"
           to={onSettings ? '/' : '/settings'}
-          aria-label={onSettings ? 'Back to attendance' : 'Open settings'}
+          aria-label={onSettings ? 'Back to attendance' : 'Settings'}
+          title={onSettings ? 'Back to attendance' : 'Settings'}
         >
-          {onSettings ? '<' : 'Settings'}
+          {onSettings ? <ArrowLeft {...iconProps} /> : <SettingsIcon {...iconProps} />}
         </Link>
       </header>
       <main className="agent-content">
@@ -31,7 +35,10 @@ export function AppShell() {
       </main>
       <footer className="agent-footer">
         <button className="sign-out-button" onClick={() => void logout()}>
-          Sign out
+          <span className="button-content">
+            <LogOut size={18} strokeWidth={2.2} aria-hidden="true" />
+            Sign out
+          </span>
         </button>
         <span>Esta Workforce OS Agent</span>
       </footer>

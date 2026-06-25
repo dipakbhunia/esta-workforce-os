@@ -1,3 +1,4 @@
+﻿import { Coffee, Play, RotateCw, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { DesktopSettings } from '@shared/contracts';
@@ -29,6 +30,7 @@ type BusyAction = 'loading' | 'punchIn' | 'punchOut' | null;
 
 const IDLE_NOTE = 'Auto punched out due to idle time';
 const OFFLINE_NOTE = 'Device offline / heartbeat lost';
+const actionIconProps = { size: 20, strokeWidth: 2.2, 'aria-hidden': true } as const;
 
 export function AttendanceHomePage() {
   const { user } = useAuth();
@@ -265,7 +267,10 @@ export function AttendanceHomePage() {
           disabled={Boolean(busy) || !canPunchIn}
           onClick={() => void punchIn()}
         >
-          {!canPunchIn ? 'Punched Out' : busy === 'punchIn' ? 'Punching In...' : 'Punch In'}
+          <span className="button-content">
+            <Play {...actionIconProps} />
+            {!canPunchIn ? 'Punched Out' : busy === 'punchIn' ? 'Punching In...' : 'Punch In'}
+          </span>
         </button>
       )}
 
@@ -276,20 +281,29 @@ export function AttendanceHomePage() {
             disabled={Boolean(busy)}
             onClick={() => void punchOut()}
           >
-            {busy === 'punchOut' ? 'Punching Out...' : 'Punch Out'}
+            <span className="button-content">
+              <Square {...actionIconProps} />
+              {busy === 'punchOut' ? 'Punching Out...' : 'Punch Out'}
+            </span>
           </button>
           <button
             className="action-button action-blue"
             disabled={Boolean(busy)}
             onClick={() => navigate('/break')}
           >
-            Start Break
+            <span className="button-content">
+              <Coffee {...actionIconProps} />
+              Start Break
+            </span>
           </button>
         </div>
       )}
 
       <button className="refresh-link" onClick={() => void load()}>
-        Refresh status
+        <span className="link-button-content">
+          <RotateCw size={18} strokeWidth={2.2} aria-hidden="true" />
+          Refresh status
+        </span>
       </button>
       {message && <p className="status-message">{message}</p>}
 

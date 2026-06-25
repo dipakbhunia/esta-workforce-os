@@ -1,3 +1,4 @@
+﻿import { Pause } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { attendanceService } from '../services/api/attendance.service';
@@ -99,7 +100,10 @@ export function BreakActivePage() {
         disabled={ending || isAutoPunchedOut || !currentBreak}
         onClick={() => void endBreak()}
       >
-        {ending ? 'Ending...' : 'End Break'}
+        <span className="button-content">
+          <Pause size={20} strokeWidth={2.2} aria-hidden="true" />
+          {ending ? 'Ending...' : 'End Break'}
+        </span>
       </button>
       {message && <p className="error">{message}</p>}
     </section>

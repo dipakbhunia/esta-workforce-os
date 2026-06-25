@@ -17,6 +17,7 @@
     "package:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
+    "lucide-react": "^1.21.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router-dom": "7.17.0"

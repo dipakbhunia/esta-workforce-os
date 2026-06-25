@@ -1,8 +1,11 @@
+﻿import { ArrowLeft, Coffee } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../services/api/attendance.service';
 import { breakPolicyService } from '../services/api/break-policy.service';
 import type { BreakPolicy } from '../types/api';
+
+const iconProps = { size: 18, strokeWidth: 2.2, 'aria-hidden': true } as const;
 
 export function BreakSelectionPage() {
   const navigate = useNavigate();
@@ -85,10 +88,16 @@ export function BreakSelectionPage() {
           className="action-button action-blue"
           disabled={submitting || loading || policies.length === 0}
         >
-          {submitting ? 'Starting...' : 'Start Break'}
+          <span className="button-content">
+            <Coffee size={20} strokeWidth={2.2} aria-hidden="true" />
+            {submitting ? 'Starting...' : 'Start Break'}
+          </span>
         </button>
         <button className="text-link" type="button" onClick={() => navigate('/')}>
-          Go Back
+          <span className="link-button-content">
+            <ArrowLeft {...iconProps} />
+            Go Back
+          </span>
         </button>
       </form>
     </section>

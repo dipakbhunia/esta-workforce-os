@@ -1,3 +1,4 @@
+﻿import { Info as CircleInfo } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type {
   DesktopSettings,
@@ -30,7 +31,10 @@ export function SettingsPage() {
   return (
     <section className="compact-page settings-page">
       <div className="section-heading">
-        <p className="eyebrow">Info</p>
+        <p className="eyebrow heading-with-icon">
+          <CircleInfo size={18} strokeWidth={2.2} aria-hidden="true" />
+          Info
+        </p>
         <h2>Settings</h2>
       </div>
       <div className="info-panel">
@@ -112,3 +116,4 @@ function defaultSettings(): DesktopSettings {
     startWithWindows: true,
   };
 }
+
