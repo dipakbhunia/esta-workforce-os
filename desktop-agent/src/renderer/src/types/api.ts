@@ -65,6 +65,7 @@ export interface AttendanceRecord {
   workedMinutes?: number;
   breakMinutes?: number;
   autoPunchOutReason?: string | null;
+  isOpen?: boolean;
   breaks: Array<{
     id: string;
     startedAt: string;
@@ -88,6 +89,7 @@ export type AttendanceCurrentState =
 
 export interface AttendanceSummary {
   date: string;
+  serverNow: string;
   totalEmployees: number;
   recorded: number;
   counts: Record<string, number>;
@@ -95,6 +97,8 @@ export interface AttendanceSummary {
   latestSession: AttendanceRecord | null;
   canPunchIn: boolean;
   currentState: AttendanceCurrentState;
+  totalWorkedSeconds: number;
+  totalBreakSeconds: number;
   totalWorkedMinutes: number;
   totalBreakMinutes: number;
   autoPunchedOut: boolean;

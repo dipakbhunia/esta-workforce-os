@@ -417,34 +417,44 @@ export class AttendanceService {
     records.forEach((record) => counts[record.status]++);
     counts.ABSENT = Math.max(0, employees.length - records.length);
 
+    const serverNow = new Date();
     const stateRecords = ownEmployee
       ? records.filter((record) => record.employeeId === ownEmployee.id)
       : records;
-    const latestSession = [...stateRecords].sort(
+    const latestSessionRaw = [...stateRecords].sort(
       (left, right) =>
         (right.punchInAt?.getTime() ?? 0) - (left.punchInAt?.getTime() ?? 0),
     )[0] ?? null;
     const ownState = ownEmployee
       ? await this.punchInState(ownEmployee.id, date, ownPolicy ?? undefined)
       : { canPunchIn: false, currentState: 'READY_TO_PUNCH_IN' as AttendanceCurrentState };
+    const totalWorkedSeconds = stateRecords.reduce(
+      (total, record) => total + this.liveWorkedSeconds(record, serverNow),
+      0,
+    );
+    const totalBreakSeconds = stateRecords.reduce(
+      (total, record) => total + this.liveBreakSeconds(record.breaks, serverNow),
+      0,
+    );
+    const sessions = records.map((record) => this.withSessionState(record));
+    const latestSession = latestSessionRaw
+      ? this.withSessionState(latestSessionRaw)
+      : null;
 
     return {
       date: date.toISOString().slice(0, 10),
+      serverNow: serverNow.toISOString(),
       totalEmployees: employees.length,
       recorded: records.length,
       counts,
-      sessions: records,
+      sessions,
       latestSession,
       canPunchIn: ownState.canPunchIn,
       currentState: ownState.currentState,
-      totalWorkedMinutes: records.reduce(
-        (total, record) => total + record.workedMinutes,
-        0,
-      ),
-      totalBreakMinutes: records.reduce(
-        (total, record) => total + this.totalBreakMinutes(record.breaks),
-        0,
-      ),
+      totalWorkedSeconds,
+      totalBreakSeconds,
+      totalWorkedMinutes: Math.floor(totalWorkedSeconds / 60),
+      totalBreakMinutes: Math.floor(totalBreakSeconds / 60),
       breakPolicies: records.flatMap((record) =>
         record.breaks
           .filter((breakLog) => breakLog.breakTypeName)
@@ -852,6 +862,47 @@ export class AttendanceService {
     });
   }
 
+  private withSessionState<T extends { punchInAt: Date | null; punchOutAt: Date | null }>(
+    record: T,
+  ): T & { isOpen: boolean } {
+    return {
+      ...record,
+      isOpen: Boolean(record.punchInAt && !record.punchOutAt),
+    };
+  }
+
+  private liveWorkedSeconds(
+    record: {
+      punchInAt: Date | null;
+      punchOutAt: Date | null;
+      breaks: Array<{ startedAt: Date; endedAt: Date | null }>;
+    },
+    now: Date,
+  ): number {
+    if (!record.punchInAt) return 0;
+    const end = record.punchOutAt ?? now;
+    const elapsedSeconds = Math.max(
+      0,
+      Math.floor((end.getTime() - record.punchInAt.getTime()) / 1000),
+    );
+    return Math.max(0, elapsedSeconds - this.liveBreakSeconds(record.breaks, end));
+  }
+
+  private liveBreakSeconds(
+    breaks: Array<{ startedAt: Date; endedAt: Date | null }>,
+    now: Date,
+  ): number {
+    return breaks.reduce((total, breakLog) => {
+      const end = breakLog.endedAt ?? now;
+      return (
+        total +
+        Math.max(
+          0,
+          Math.floor((end.getTime() - breakLog.startedAt.getTime()) / 1000),
+        )
+      );
+    }, 0);
+  }
   private breakDurationMinutes(startedAt: Date, endedAt: Date): number {
     return Math.max(0, Math.ceil((endedAt.getTime() - startedAt.getTime()) / 60000));
   }

@@ -21,8 +21,8 @@ import type {
 import {
   activeBreak,
   formatDuration,
-  totalBreakSeconds,
-  workingSeconds,
+  summaryBreakSeconds,
+  summaryWorkingSeconds,
 } from '../utils/attendance-time';
 
 type BusyAction = 'loading' | 'punchIn' | 'punchOut' | null;
@@ -241,7 +241,7 @@ export function AttendanceHomePage() {
 
       <div className="timer-block">
         <span>Working time</span>
-        <strong>{formatDuration(workingSeconds(attendance, now))}</strong>
+        <strong>{formatDuration(summaryWorkingSeconds(attendanceSummary, now))}</strong>
       </div>
 
       <div className="mini-stats">
@@ -251,7 +251,7 @@ export function AttendanceHomePage() {
         </div>
         <div>
           <span>Breaks</span>
-          <strong>{formatDuration(totalBreakSeconds(attendance, now))}</strong>
+          <strong>{formatDuration(summaryBreakSeconds(attendanceSummary, now))}</strong>
         </div>
         <div>
           <span>Device</span>

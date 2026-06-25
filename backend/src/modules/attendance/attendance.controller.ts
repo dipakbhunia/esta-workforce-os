@@ -80,7 +80,7 @@ export class AttendanceController {
   @ApiOperation({
     summary: 'Get a daily attendance summary',
     description:
-      'Also enforces company heartbeat-loss auto punch-out for stale open attendance sessions before calculating the summary. Returns sessions, latestSession, canPunchIn, and currentState for desktop status handling. Future BullMQ/cron scheduling will call the same enforcement service method.',
+      'Also enforces company heartbeat-loss auto punch-out for stale open attendance sessions before calculating the summary. Returns sessions, latestSession, canPunchIn, currentState, serverNow, totalWorkedSeconds, and totalBreakSeconds for desktop status and cumulative timer handling. Future BullMQ/cron scheduling will call the same enforcement service method.',
   })
   summary(
     @Query() query: AttendanceSummaryQueryDto,

@@ -1,4 +1,4 @@
-import type { AttendanceRecord } from '../types/api';
+import type { AttendanceRecord, AttendanceSummary } from '../types/api';
 
 export function activeBreak(attendance: AttendanceRecord | null) {
   return attendance?.breaks.find((entry) => !entry.endedAt) ?? null;
@@ -52,4 +52,44 @@ export function remainingBreakSeconds(
   const current = activeBreak(attendance);
   if (!current?.allowedMinutes) return null;
   return Math.max(0, current.allowedMinutes * 60 - breakSeconds(attendance, now));
+}
+
+export function summaryWorkingSeconds(
+  summary: AttendanceSummary | null,
+  now = new Date(),
+): number {
+  if (!summary) return 0;
+  const baseSeconds = summary.totalWorkedSeconds ?? summary.totalWorkedMinutes * 60;
+  if (
+    summary.currentState !== 'PUNCHED_IN' ||
+    !summary.latestSession?.isOpen ||
+    !summary.serverNow
+  ) {
+    return Math.max(0, baseSeconds);
+  }
+  const clientElapsedSinceSummary = Math.max(
+    0,
+    Math.floor((now.getTime() - new Date(summary.serverNow).getTime()) / 1000),
+  );
+  return Math.max(0, baseSeconds + clientElapsedSinceSummary);
+}
+
+export function summaryBreakSeconds(
+  summary: AttendanceSummary | null,
+  now = new Date(),
+): number {
+  if (!summary) return 0;
+  const baseSeconds = summary.totalBreakSeconds ?? summary.totalBreakMinutes * 60;
+  if (
+    summary.currentState !== 'ON_BREAK' ||
+    !summary.latestSession?.isOpen ||
+    !summary.serverNow
+  ) {
+    return Math.max(0, baseSeconds);
+  }
+  const clientElapsedSinceSummary = Math.max(
+    0,
+    Math.floor((now.getTime() - new Date(summary.serverNow).getTime()) / 1000),
+  );
+  return Math.max(0, baseSeconds + clientElapsedSinceSummary);
 }
