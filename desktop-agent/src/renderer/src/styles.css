@@ -462,3 +462,137 @@ input:disabled {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.agent-shell,
+.compact-login-page,
+.centered {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-shell {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.agent-content {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.agent-footer {
+  flex-shrink: 0;
+}
+
+.compact-page {
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.break-selection-page,
+.settings-page,
+.attendance-home {
+  min-width: 0;
+}
+
+.break-form,
+.radio-list,
+.info-panel,
+.mini-stats {
+  min-width: 0;
+}
+
+.icon-button {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.text-link {
+  cursor: pointer;
+}
+
+.checkbox-field {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.checkbox-field input {
+  width: auto;
+}
+
+.setting-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal-card {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 320px);
+  border-radius: 24px;
+  padding: 22px;
+  text-align: center;
+  background: #fff;
+  box-shadow: 0 22px 50px rgb(0 0 0 / 25%);
+}
+
+.modal-card h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.modal-card .small-action {
+  justify-self: center;
+}
+
+@media (max-height: 620px) {
+  .agent-header {
+    padding: 12px 14px;
+  }
+
+  .agent-content {
+    padding: 14px;
+  }
+
+  .agent-footer {
+    padding: 10px 14px 12px;
+  }
+
+  .timer-block {
+    padding: 14px 8px;
+  }
+
+  .timer-block strong {
+    font-size: 38px;
+  }
+
+  .action-button {
+    padding: 14px 18px;
+  }
+}

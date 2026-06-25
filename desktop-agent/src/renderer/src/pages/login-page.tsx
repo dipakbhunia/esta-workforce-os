@@ -3,12 +3,13 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/auth-context';
 
 export function LoginPage() {
-  const { user, login } = useAuth();
+  const { user, loading, login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  if (loading) return <div className="centered">Loading desktop agent...</div>;
   if (user) return <Navigate to="/" replace />;
 
   async function submit(event: FormEvent) {

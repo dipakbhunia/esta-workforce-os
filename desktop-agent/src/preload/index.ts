@@ -24,6 +24,14 @@ const api: EstaDesktopApi = {
   },
   app: {
     getVersion: () => ipcRenderer.invoke(ipcChannels.appGetVersion),
+    setAuthenticated: (authenticated: boolean) =>
+      ipcRenderer.invoke(ipcChannels.appSetAuthenticated, authenticated),
+    showAndFocus: () => ipcRenderer.invoke(ipcChannels.appShowAndFocus),
+    onSignOutRequested: (callback: () => void) => {
+      const listener = () => callback();
+      ipcRenderer.on(ipcChannels.appSignOutRequested, listener);
+      return () => ipcRenderer.removeListener(ipcChannels.appSignOutRequested, listener);
+    },
   },
 };
 

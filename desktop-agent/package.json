@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Cross-platform desktop agent foundation for Esta Workforce OS",
-  "main": "./out/main/index.js",
+  "main": "./out/main/index.cjs",
   "author": "Esta Workforce OS",
   "license": "UNLICENSED",
   "type": "module",

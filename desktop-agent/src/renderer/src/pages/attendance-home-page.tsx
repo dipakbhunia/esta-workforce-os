@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { DesktopSettings } from '@shared/contracts';
 import { environment } from '../config/environment';
 import { useAuth } from '../context/auth-context';
 import { attendanceService } from '../services/api/attendance.service';
@@ -26,17 +27,25 @@ import {
 
 type BusyAction = 'loading' | 'punchIn' | 'punchOut' | null;
 
+const IDLE_NOTE = 'Auto punched out due to idle time';
+const OFFLINE_NOTE = 'Device offline / heartbeat lost';
+
 export function AttendanceHomePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [employee, setEmployee] = useState<EmployeeProfile | null>(null);
   const [device, setDevice] = useState<DeviceState | null>(null);
+  const [settings, setSettings] = useState<DesktopSettings | null>(null);
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
   const [attendanceSummary, setAttendanceSummary] =
     useState<AttendanceSummary | null>(null);
   const [busy, setBusy] = useState<BusyAction>('loading');
   const [message, setMessage] = useState('');
+  const [idleAlertVisible, setIdleAlertVisible] = useState(false);
+  const [idleAutoPunchedOut, setIdleAutoPunchedOut] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const lastActivityAt = useRef(Date.now());
+  const idlePunchOutRunning = useRef(false);
   const heartbeatQueue = useRef(new OfflineQueueService());
   const syncManager = useRef(
     new SyncManager(heartbeatQueue.current, {
@@ -52,21 +61,26 @@ export function AttendanceHomePage() {
     setBusy('loading');
     setMessage('');
     try {
-      const summary = await attendanceService.getSummary();
+      const [loadedSettings, summary] = await Promise.all([
+        window.esta.settings.get(),
+        attendanceService.getSummary(),
+      ]);
       const [profile, registeredDevice, today, latest] = await Promise.all([
         employeeService.getCurrent(user),
         deviceService.register(),
         attendanceService.getToday(),
         attendanceService.getLatest(),
       ]);
+      setSettings(loadedSettings);
       setEmployee(profile);
       setDevice(registeredDevice);
       setAttendanceSummary(summary);
       setAttendance(summary.latestSession ?? today);
+      setIdleAutoPunchedOut(false);
       const autoPunchedRecord = [summary.latestSession, today, latest].find(
         (record) =>
           record?.status === 'AUTO_PUNCHED_OUT' &&
-          record.autoPunchOutReason === 'Device offline / heartbeat lost',
+          record.autoPunchOutReason === OFFLINE_NOTE,
       );
       if (autoPunchedRecord) {
         setMessage('Auto punched out due to device offline');
@@ -94,6 +108,7 @@ export function AttendanceHomePage() {
   const isWorking = attendanceSummary
     ? ['PUNCHED_IN', 'ON_BREAK'].includes(attendanceSummary.currentState)
     : Boolean(attendance?.punchInAt && !attendance.punchOutAt);
+  const isOnBreak = attendanceSummary?.currentState === 'ON_BREAK';
   const isCompleted = attendanceSummary
     ? ['PUNCHED_OUT', 'AUTO_PUNCHED_OUT'].includes(
         attendanceSummary.currentState,
@@ -101,6 +116,10 @@ export function AttendanceHomePage() {
     : Boolean(attendance?.punchOutAt);
   const canPunchIn = attendanceSummary?.canPunchIn ?? !isCompleted;
   const statusText = useMemo(() => {
+    if (idleAutoPunchedOut) return 'Auto punched out due to idle time';
+    if (message === 'Auto punched out due to device offline') {
+      return 'Auto punched out due to device offline';
+    }
     if (attendanceSummary?.currentState === 'AUTO_PUNCHED_OUT') {
       return 'Auto punched out';
     }
@@ -109,7 +128,7 @@ export function AttendanceHomePage() {
     if (isCompleted) return 'Punched out';
     if (isWorking) return 'Currently working';
     return 'Ready to punch in';
-  }, [attendanceSummary?.currentState, isCompleted, isWorking]);
+  }, [attendanceSummary?.currentState, idleAutoPunchedOut, isCompleted, isWorking, message]);
 
   useEffect(() => {
     if (!device || !isWorking) {
@@ -133,12 +152,66 @@ export function AttendanceHomePage() {
     };
   }, [device, isWorking]);
 
+  useEffect(() => {
+    const markActivity = () => {
+      lastActivityAt.current = Date.now();
+    };
+    window.addEventListener('mousemove', markActivity);
+    window.addEventListener('mousedown', markActivity);
+    window.addEventListener('keydown', markActivity);
+    window.addEventListener('touchstart', markActivity);
+    return () => {
+      window.removeEventListener('mousemove', markActivity);
+      window.removeEventListener('mousedown', markActivity);
+      window.removeEventListener('keydown', markActivity);
+      window.removeEventListener('touchstart', markActivity);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timeoutMs = settings?.idleTimeoutMs ?? 300000;
+    if (attendanceSummary?.currentState !== 'PUNCHED_IN' || timeoutMs <= 0) {
+      lastActivityAt.current = Date.now();
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      const idleForMs = Date.now() - lastActivityAt.current;
+      if (idleForMs >= timeoutMs) void autoPunchOutForIdle();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [attendanceSummary?.currentState, settings?.idleTimeoutMs]);
+
+  async function autoPunchOutForIdle() {
+    if (idlePunchOutRunning.current) return;
+    idlePunchOutRunning.current = true;
+    try {
+      const record = await attendanceService.punchOut(IDLE_NOTE);
+      const summary = await attendanceService.getSummary();
+      setAttendance(record);
+      setAttendanceSummary(summary);
+      setIdleAutoPunchedOut(true);
+      setIdleAlertVisible(true);
+      setMessage(IDLE_NOTE);
+      await window.esta.app.showAndFocus();
+      void playIdleAlertSound();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Idle auto punch-out failed');
+    } finally {
+      idlePunchOutRunning.current = false;
+      lastActivityAt.current = Date.now();
+    }
+  }
+
   async function punchIn() {
     setBusy('punchIn');
     setMessage('');
+    setIdleAutoPunchedOut(false);
     try {
       setAttendanceSummary(null);
       setAttendance(await attendanceService.punchIn());
+      setAttendanceSummary(await attendanceService.getSummary());
+      lastActivityAt.current = Date.now();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch in failed');
     } finally {
@@ -162,7 +235,7 @@ export function AttendanceHomePage() {
   return (
     <section className="attendance-home compact-page">
       <div className="status-row">
-        <span className={`status-dot ${isWorking ? 'online' : ''}`} />
+        <span className={`status-dot ${isWorking ? 'online' : ''} ${isOnBreak ? 'break' : ''}`} />
         <span>{statusText}</span>
       </div>
 
@@ -219,6 +292,42 @@ export function AttendanceHomePage() {
         Refresh status
       </button>
       {message && <p className="status-message">{message}</p>}
+
+      {idleAlertVisible && (
+        <div className="modal-backdrop" role="alertdialog" aria-modal="true">
+          <div className="modal-card">
+            <p className="eyebrow">Idle timeout</p>
+            <h2>You were auto punched out because of idle time.</h2>
+            <button
+              className="small-action"
+              onClick={() => setIdleAlertVisible(false)}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
+}
+
+async function playIdleAlertSound(): Promise<void> {
+  const audioWindow = window as Window &
+    typeof globalThis & { webkitAudioContext?: typeof AudioContext };
+  const AudioContextCtor = window.AudioContext || audioWindow.webkitAudioContext;
+  if (!AudioContextCtor) return;
+  const context = new AudioContextCtor();
+  for (let index = 0; index < 4; index++) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.08;
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    const start = context.currentTime + index * 0.45;
+    oscillator.start(start);
+    oscillator.stop(start + 0.12);
+  }
+  window.setTimeout(() => void context.close(), 2500);
 }

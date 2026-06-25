@@ -1,4 +1,6 @@
-import { app } from 'electron';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { app } = require('electron') as typeof import('electron');
 import { randomUUID } from 'node:crypto';
 import { arch, hostname, platform, release } from 'node:os';
 import type { DeviceInformation } from '../../shared/contracts';

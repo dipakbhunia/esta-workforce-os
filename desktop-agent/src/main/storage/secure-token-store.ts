@@ -1,4 +1,6 @@
-import { safeStorage } from 'electron';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { safeStorage } = require('electron') as typeof import('electron');
 import type { AuthTokens } from '../../shared/contracts';
 import { JsonFileStore } from './json-file-store';
 

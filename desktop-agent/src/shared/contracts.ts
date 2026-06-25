@@ -14,6 +14,8 @@ export interface DeviceInformation {
 
 export interface DesktopSettings {
   heartbeatIntervalMs: number;
+  idleTimeoutMs: number;
+  startWithWindows: boolean;
 }
 
 export interface EstaDesktopApi {
@@ -31,5 +33,8 @@ export interface EstaDesktopApi {
   };
   app: {
     getVersion: () => Promise<string>;
+    setAuthenticated: (authenticated: boolean) => Promise<void>;
+    showAndFocus: () => Promise<void>;
+    onSignOutRequested: (callback: () => void) => () => void;
   };
 }

@@ -28,7 +28,7 @@ export function SettingsPage() {
   }
 
   return (
-    <section className="compact-page">
+    <section className="compact-page settings-page">
       <div className="section-heading">
         <p className="eyebrow">Info</p>
         <h2>Settings</h2>
@@ -38,19 +38,51 @@ export function SettingsPage() {
           Backend API
           <input value={environment.apiBaseUrl} disabled />
         </label>
+        <label className="field checkbox-field">
+          <input
+            type="checkbox"
+            checked={settings?.startWithWindows ?? true}
+            onChange={(event) =>
+              setSettings((current) => ({
+                ...(current ?? defaultSettings()),
+                startWithWindows: event.target.checked,
+              }))
+            }
+          />
+          <span>Start app with Windows</span>
+        </label>
         <label className="field">
-          Future heartbeat interval (milliseconds)
+          Heartbeat interval (milliseconds)
           <input
             type="number"
             min={15000}
             value={settings?.heartbeatIntervalMs ?? 60000}
             onChange={(event) =>
-              setSettings({
+              setSettings((current) => ({
+                ...(current ?? defaultSettings()),
                 heartbeatIntervalMs: Number(event.target.value),
-              })
+              }))
             }
           />
         </label>
+        <label className="field">
+          Idle auto punch-out timeout (minutes)
+          <input
+            type="number"
+            min={1}
+            value={Math.round((settings?.idleTimeoutMs ?? 300000) / 60000)}
+            onChange={(event) =>
+              setSettings((current) => ({
+                ...(current ?? defaultSettings()),
+                idleTimeoutMs: Number(event.target.value) * 60000,
+              }))
+            }
+          />
+        </label>
+        <p className="muted setting-note">
+          Idle detection currently watches mouse and keyboard activity inside this app window only.
+          OS-level idle detection is planned for a future safe native API integration.
+        </p>
         <button className="small-action" onClick={() => void save()}>
           Save
         </button>
@@ -71,4 +103,12 @@ export function SettingsPage() {
       </div>
     </section>
   );
+}
+
+function defaultSettings(): DesktopSettings {
+  return {
+    heartbeatIntervalMs: 60000,
+    idleTimeoutMs: 300000,
+    startWithWindows: true,
+  };
 }

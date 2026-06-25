@@ -23,17 +23,38 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  async function applyUser(nextUser: AuthUser | null): Promise<void> {
+    setUser(nextUser);
+    await window.esta.app.setAuthenticated(Boolean(nextUser));
+  }
+
+  async function logoutUser(): Promise<void> {
+    await authService.logout();
+    await applyUser(null);
+  }
+
   useEffect(() => {
     void (async () => {
       try {
         const tokens = await tokenStorage.get();
-        if (tokens) setUser(await authService.me());
+        if (tokens) {
+          await applyUser(await authService.me());
+        } else {
+          await window.esta.app.setAuthenticated(false);
+        }
       } catch {
         await tokenStorage.clear();
+        await applyUser(null);
       } finally {
         setLoading(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    return window.esta.app.onSignOutRequested(() => {
+      void logoutUser();
+    });
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -41,12 +62,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       user,
       loading,
       async login(email, password) {
-        setUser(await authService.login(email, password));
+        await applyUser(await authService.login(email, password));
       },
-      async logout() {
-        await authService.logout();
-        setUser(null);
-      },
+      logout: logoutUser,
     }),
     [loading, user],
   );

@@ -23,7 +23,7 @@ export function AppShell() {
           to={onSettings ? '/' : '/settings'}
           aria-label={onSettings ? 'Back to attendance' : 'Open settings'}
         >
-          {onSettings ? '←' : '⚙'}
+          {onSettings ? '<' : 'Settings'}
         </Link>
       </header>
       <main className="agent-content">

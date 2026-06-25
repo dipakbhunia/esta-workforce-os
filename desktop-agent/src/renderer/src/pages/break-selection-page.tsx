@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../services/api/attendance.service';
 import { breakPolicyService } from '../services/api/break-policy.service';
 import type { BreakPolicy } from '../types/api';
@@ -44,7 +44,7 @@ export function BreakSelectionPage() {
   }
 
   return (
-    <section className="compact-page">
+    <section className="compact-page break-selection-page">
       <div className="section-heading">
         <p className="eyebrow">Break</p>
         <h2>Select break type</h2>
@@ -87,9 +87,9 @@ export function BreakSelectionPage() {
         >
           {submitting ? 'Starting...' : 'Start Break'}
         </button>
-        <Link className="text-link" to="/">
-          Cancel
-        </Link>
+        <button className="text-link" type="button" onClick={() => navigate('/')}>
+          Go Back
+        </button>
       </form>
     </section>
   );

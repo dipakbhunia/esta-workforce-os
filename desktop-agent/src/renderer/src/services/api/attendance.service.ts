@@ -39,10 +39,10 @@ export const attendanceService = {
       body: JSON.stringify({ note: 'Desktop agent' }),
     }),
 
-  punchOut: () =>
+  punchOut: (note = 'Desktop agent') =>
     apiClient.request<AttendanceRecord>('/attendance/punch-out', {
       method: 'POST',
-      body: JSON.stringify({ note: 'Desktop agent' }),
+      body: JSON.stringify({ note }),
     }),
 
   breakStart: (breakPolicyId: string, comment?: string) =>
