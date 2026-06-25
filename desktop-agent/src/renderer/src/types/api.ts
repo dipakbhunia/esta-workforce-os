@@ -1,4 +1,4 @@
-export type RoleName =
+﻿export type RoleName =
   | 'SUPER_ADMIN'
   | 'COMPANY_ADMIN'
   | 'HR'
@@ -134,4 +134,36 @@ export interface HeartbeatResponse {
   idleSeconds: number;
   isOnline: boolean;
   enforcedStaleSessions?: number;
+}
+export type LiveStatusValue =
+  | 'ONLINE'
+  | 'WORKING'
+  | 'ON_BREAK'
+  | 'AWAY'
+  | 'OFFLINE'
+  | 'PUNCHED_OUT'
+  | 'AUTO_PUNCHED_OUT';
+
+export type LiveHeartbeatState = 'ONLINE' | 'AWAY' | 'OFFLINE';
+
+export interface LiveStatusResponse {
+  employeeId: string;
+  employeeCode: string;
+  user: {
+    name: string;
+    email: string;
+  };
+  status: LiveStatusValue;
+  attendanceState: AttendanceCurrentState;
+  heartbeatState: LiveHeartbeatState;
+  lastHeartbeatAt: string | null;
+  isOnBreak: boolean;
+  punchedInAt: string | null;
+  punchedOutAt: string | null;
+  device: {
+    id: string;
+    name: string;
+    platform: string;
+    status: 'ACTIVE' | 'INACTIVE' | 'REVOKED';
+  } | null;
 }

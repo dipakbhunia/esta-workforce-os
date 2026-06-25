@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -19,10 +19,14 @@ import { PrismaService } from '../../database/prisma.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { HeartbeatDto } from './dto/heartbeat.dto';
+import { LiveStatusQueryDto, LiveStatusValue } from './dto/live-status-query.dto';
+import { LiveAttendanceState, LiveHeartbeatState, LiveStatusResponseDto } from './dto/live-status-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
 import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
+
+const DEFAULT_HEARTBEAT_TIMEOUT_MINUTES = 30;
 
 const deviceSelect = {
   id: true,
@@ -221,6 +225,59 @@ export class MonitoringService {
     }
   }
 
+  async liveStatus(query: LiveStatusQueryDto, actor: AuthenticatedUser) {
+    const visibility = await this.employeeVisibilityWhere(actor);
+    const filters: Prisma.EmployeeWhereInput[] = [
+      visibility,
+      { deletedAt: null, status: EmployeeStatus.ACTIVE },
+    ];
+    if (query.branchId) filters.push({ branchId: query.branchId });
+    if (query.departmentId) filters.push({ departmentId: query.departmentId });
+    if (query.search) {
+      filters.push({
+        OR: [
+          { employeeCode: { contains: query.search, mode: 'insensitive' } },
+          { user: { firstName: { contains: query.search, mode: 'insensitive' } } },
+          { user: { lastName: { contains: query.search, mode: 'insensitive' } } },
+          { user: { email: { contains: query.search, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    const where: Prisma.EmployeeWhereInput = { AND: filters };
+    const employees = await this.prisma.employee.findMany({
+      where,
+      orderBy: { employeeCode: 'asc' },
+      select: this.liveStatusEmployeeSelect(),
+    });
+    const statuses = await Promise.all(
+      employees.map((employee) => this.buildLiveStatus(employee)),
+    );
+    const filtered = query.status
+      ? statuses.filter((item) => item.status === query.status)
+      : statuses;
+    const total = filtered.length;
+    const start = (query.page - 1) * query.limit;
+    return paginatedResult(filtered.slice(start, start + query.limit), total, query);
+  }
+
+  async liveStatusByEmployee(
+    employeeId: string,
+    actor: AuthenticatedUser,
+  ): Promise<LiveStatusResponseDto> {
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        deletedAt: null,
+        status: EmployeeStatus.ACTIVE,
+        AND: [await this.employeeVisibilityWhere(actor)],
+      },
+      select: this.liveStatusEmployeeSelect(),
+    });
+    if (!employee) throw new NotFoundException('Employee live status not found');
+    return this.buildLiveStatus(employee);
+  }
+
   async summary(query: MonitoringSummaryQueryDto, actor: AuthenticatedUser) {
     const range = this.dateRange(query);
     const visibility = await this.employeeVisibilityWhere(actor);
@@ -384,6 +441,169 @@ export class MonitoringService {
     };
   }
 
+  private liveStatusEmployeeSelect() {
+    return {
+      id: true,
+      employeeCode: true,
+      companyId: true,
+      user: {
+        select: { firstName: true, lastName: true, email: true },
+      },
+      company: {
+        select: {
+          attendancePolicies: {
+            where: { isActive: true },
+            orderBy: { updatedAt: 'desc' as const },
+            take: 1,
+            select: { heartbeatTimeoutMinutes: true },
+          },
+        },
+      },
+      attendances: {
+        where: { punchInAt: { not: null } },
+        orderBy: { punchInAt: 'desc' as const },
+        take: 1,
+        select: {
+          id: true,
+          punchInAt: true,
+          punchOutAt: true,
+          status: true,
+          breaks: {
+            orderBy: { startedAt: 'desc' as const },
+            take: 1,
+            select: { endedAt: true },
+          },
+        },
+      },
+      heartbeats: {
+        orderBy: { recordedAt: 'desc' as const },
+        take: 1,
+        select: {
+          recordedAt: true,
+          isOnline: true,
+          device: { select: deviceSelect },
+        },
+      },
+      monitoringDevices: {
+        where: { deletedAt: null },
+        orderBy: { lastSeenAt: 'desc' as const },
+        take: 1,
+        select: deviceSelect,
+      },
+    } satisfies Prisma.EmployeeSelect;
+  }
+
+  private buildLiveStatus(
+    employee: Prisma.EmployeeGetPayload<{
+      select: ReturnType<MonitoringService['liveStatusEmployeeSelect']>;
+    }>,
+  ): LiveStatusResponseDto {
+    const latestAttendance = employee.attendances[0] ?? null;
+    const latestHeartbeat = employee.heartbeats[0] ?? null;
+    const fallbackDevice = employee.monitoringDevices[0] ?? null;
+    const device = latestHeartbeat?.device ?? fallbackDevice;
+    const isOpen = Boolean(latestAttendance?.punchInAt && !latestAttendance.punchOutAt);
+    const isOnBreak = Boolean(
+      isOpen && latestAttendance?.breaks.some((breakLog) => !breakLog.endedAt),
+    );
+    const attendanceState = this.liveAttendanceState(
+      latestAttendance,
+      isOpen,
+      isOnBreak,
+    );
+    const heartbeatTimeoutMinutes =
+      employee.company.attendancePolicies[0]?.heartbeatTimeoutMinutes ??
+      DEFAULT_HEARTBEAT_TIMEOUT_MINUTES;
+    const heartbeatState = this.liveHeartbeatState(
+      latestHeartbeat?.recordedAt ?? null,
+      latestHeartbeat?.isOnline ?? false,
+      heartbeatTimeoutMinutes,
+      isOpen,
+    );
+    const status = this.normalizedLiveStatus(
+      attendanceState,
+      heartbeatState,
+      isOpen,
+    );
+
+    return {
+      employeeId: employee.id,
+      employeeCode: employee.employeeCode,
+      user: {
+        name: `${employee.user.firstName} ${employee.user.lastName}`.trim(),
+        email: employee.user.email,
+      },
+      status,
+      attendanceState,
+      heartbeatState,
+      lastHeartbeatAt: latestHeartbeat?.recordedAt.toISOString() ?? null,
+      isOnBreak,
+      punchedInAt: latestAttendance?.punchInAt?.toISOString() ?? null,
+      punchedOutAt: latestAttendance?.punchOutAt?.toISOString() ?? null,
+      device: device
+        ? {
+            id: device.id,
+            name: device.deviceName,
+            platform: device.platform,
+            status: device.status,
+          }
+        : null,
+    };
+  }
+
+  private liveAttendanceState(
+    attendance:
+      | {
+          punchInAt: Date | null;
+          punchOutAt: Date | null;
+          status: string;
+        }
+      | null,
+    isOpen: boolean,
+    isOnBreak: boolean,
+  ): LiveAttendanceState {
+    if (!attendance) return LiveAttendanceState.READY_TO_PUNCH_IN;
+    if (isOpen && isOnBreak) return LiveAttendanceState.ON_BREAK;
+    if (isOpen) return LiveAttendanceState.PUNCHED_IN;
+    if (attendance.status === 'AUTO_PUNCHED_OUT') {
+      return LiveAttendanceState.AUTO_PUNCHED_OUT;
+    }
+    return LiveAttendanceState.PUNCHED_OUT;
+  }
+
+  private liveHeartbeatState(
+    lastHeartbeatAt: Date | null,
+    isOnline: boolean,
+    timeoutMinutes: number,
+    hasOpenAttendance: boolean,
+  ): LiveHeartbeatState {
+    if (!lastHeartbeatAt || !hasOpenAttendance || !isOnline) {
+      return LiveHeartbeatState.OFFLINE;
+    }
+    const timeoutMs = Math.max(timeoutMinutes, 1) * 60000;
+    const isFresh = Date.now() - lastHeartbeatAt.getTime() <= timeoutMs;
+    return isFresh ? LiveHeartbeatState.ONLINE : LiveHeartbeatState.AWAY;
+  }
+
+  private normalizedLiveStatus(
+    attendanceState: LiveAttendanceState,
+    heartbeatState: LiveHeartbeatState,
+    hasOpenAttendance: boolean,
+  ): LiveStatusValue {
+    if (attendanceState === LiveAttendanceState.AUTO_PUNCHED_OUT) {
+      return LiveStatusValue.AUTO_PUNCHED_OUT;
+    }
+    if (attendanceState === LiveAttendanceState.PUNCHED_OUT) {
+      return LiveStatusValue.PUNCHED_OUT;
+    }
+    if (!hasOpenAttendance) return LiveStatusValue.OFFLINE;
+    if (heartbeatState === LiveHeartbeatState.AWAY) return LiveStatusValue.AWAY;
+    if (heartbeatState === LiveHeartbeatState.OFFLINE) return LiveStatusValue.OFFLINE;
+    if (attendanceState === LiveAttendanceState.ON_BREAK) return LiveStatusValue.ON_BREAK;
+    if (attendanceState === LiveAttendanceState.PUNCHED_IN) return LiveStatusValue.WORKING;
+    return LiveStatusValue.ONLINE;
+  }
+
   private async ownActiveEmployee(actor: AuthenticatedUser) {
     const employee = await this.prisma.employee.findFirst({
       where: {
@@ -420,6 +640,7 @@ export class MonitoringService {
   private async employeeVisibilityWhere(
     actor: AuthenticatedUser,
   ): Promise<Prisma.EmployeeWhereInput> {
+    if (actor.roles.includes(RoleName.SUPER_ADMIN)) return {};
     if (
       actor.roles.includes(RoleName.COMPANY_ADMIN) ||
       actor.roles.includes(RoleName.HR)
@@ -459,3 +680,4 @@ export class MonitoringService {
     }
   }
 }
+

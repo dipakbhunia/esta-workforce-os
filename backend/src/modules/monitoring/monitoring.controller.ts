@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+﻿import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -7,6 +7,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { HeartbeatDto } from './dto/heartbeat.dto';
+import { LiveStatusQueryDto } from './dto/live-status-query.dto';
+import { LiveStatusResponseDto } from './dto/live-status-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
@@ -14,6 +16,7 @@ import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
 import { MonitoringService } from './monitoring.service';
 
 const monitoringRoles = [
+  RoleName.SUPER_ADMIN,
   RoleName.COMPANY_ADMIN,
   RoleName.HR,
   RoleName.MANAGER,
@@ -73,6 +76,34 @@ export class MonitoringController {
     return this.service.uploadScreenshot(dto, user);
   }
 
+  @Get('live-status')
+  @ApiOperation({
+    summary: 'List normalized employee live statuses',
+    description:
+      'Combines latest heartbeat, active attendance session, break state, punched-out state, and company heartbeat timeout policy into a normalized live status.',
+  })
+  @ApiOkResponse({ type: LiveStatusResponseDto, isArray: true })
+  liveStatus(
+    @Query() query: LiveStatusQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.liveStatus(query, user);
+  }
+
+  @Get('live-status/:employeeId')
+  @ApiOperation({
+    summary: 'Get normalized live status for one employee',
+    description:
+      'Applies the same tenant and reporting-line visibility rules as the live-status list endpoint.',
+  })
+  @ApiOkResponse({ type: LiveStatusResponseDto })
+  liveStatusByEmployee(
+    @Param('employeeId') employeeId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<LiveStatusResponseDto> {
+    return this.service.liveStatusByEmployee(employeeId, user);
+  }
+
   @Get('summary')
   @ApiOperation({ summary: 'Get paginated employee monitoring summaries' })
   summary(
@@ -82,3 +113,5 @@ export class MonitoringController {
     return this.service.summary(query, user);
   }
 }
+
+

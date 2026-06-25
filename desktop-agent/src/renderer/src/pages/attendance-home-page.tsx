@@ -11,6 +11,7 @@ import {
   heartbeatApiService,
   type HeartbeatPayload,
 } from '../services/api/heartbeat.service';
+import { liveStatusService } from '../services/api/live-status.service';
 import { HeartbeatService } from '../services/monitoring/heartbeat.service';
 import { OfflineQueueService } from '../services/offline/offline-queue.service';
 import { SyncManager } from '../services/offline/sync-manager';
@@ -18,6 +19,7 @@ import type {
   AttendanceRecord,
   AttendanceSummary,
   EmployeeProfile,
+  LiveStatusResponse,
 } from '../types/api';
 import {
   activeBreak,
@@ -41,6 +43,7 @@ export function AttendanceHomePage() {
   const [attendance, setAttendance] = useState<AttendanceRecord | null>(null);
   const [attendanceSummary, setAttendanceSummary] =
     useState<AttendanceSummary | null>(null);
+  const [liveStatus, setLiveStatus] = useState<LiveStatusResponse | null>(null);
   const [busy, setBusy] = useState<BusyAction>('loading');
   const [message, setMessage] = useState('');
   const [idleAlertVisible, setIdleAlertVisible] = useState(false);
@@ -73,10 +76,14 @@ export function AttendanceHomePage() {
         attendanceService.getToday(),
         attendanceService.getLatest(),
       ]);
+      const loadedLiveStatus = profile
+        ? await liveStatusService.getByEmployee(profile.id).catch(() => null)
+        : null;
       setSettings(loadedSettings);
       setEmployee(profile);
       setDevice(registeredDevice);
       setAttendanceSummary(summary);
+      setLiveStatus(loadedLiveStatus);
       setAttendance(summary.latestSession ?? today);
       setIdleAutoPunchedOut(false);
       const autoPunchedRecord = [summary.latestSession, today, latest].find(
@@ -122,6 +129,8 @@ export function AttendanceHomePage() {
     if (message === 'Auto punched out due to device offline') {
       return 'Auto punched out due to device offline';
     }
+    if (liveStatus?.status === 'AWAY') return 'Away - heartbeat delayed';
+    if (liveStatus?.status === 'OFFLINE' && isWorking) return 'Offline - waiting for sync';
     if (attendanceSummary?.currentState === 'AUTO_PUNCHED_OUT') {
       return 'Auto punched out';
     }
@@ -130,7 +139,7 @@ export function AttendanceHomePage() {
     if (isCompleted) return 'Punched out';
     if (isWorking) return 'Currently working';
     return 'Ready to punch in';
-  }, [attendanceSummary?.currentState, idleAutoPunchedOut, isCompleted, isWorking, message]);
+  }, [attendanceSummary?.currentState, idleAutoPunchedOut, isCompleted, isWorking, liveStatus?.status, message]);
 
   useEffect(() => {
     if (!device || !isWorking) {
@@ -213,6 +222,9 @@ export function AttendanceHomePage() {
       setAttendanceSummary(null);
       setAttendance(await attendanceService.punchIn());
       setAttendanceSummary(await attendanceService.getSummary());
+      if (employee) {
+        setLiveStatus(await liveStatusService.getByEmployee(employee.id).catch(() => null));
+      }
       lastActivityAt.current = Date.now();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch in failed');
@@ -227,6 +239,9 @@ export function AttendanceHomePage() {
     try {
       setAttendance(await attendanceService.punchOut());
       setAttendanceSummary(await attendanceService.getSummary());
+      if (employee) {
+        setLiveStatus(await liveStatusService.getByEmployee(employee.id).catch(() => null));
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Punch out failed');
     } finally {
@@ -257,7 +272,7 @@ export function AttendanceHomePage() {
         </div>
         <div>
           <span>Device</span>
-          <strong>{device?.registration.status ?? 'Syncing'}</strong>
+          <strong>{liveStatus ? liveStatusLabel(liveStatus) : device?.registration.status ?? 'Syncing'}</strong>
         </div>
       </div>
 
@@ -345,3 +360,14 @@ async function playIdleAlertSound(): Promise<void> {
   }
   window.setTimeout(() => void context.close(), 2500);
 }
+
+function liveStatusLabel(status: LiveStatusResponse): string {
+  if (status.status === 'WORKING') return 'Live: working';
+  if (status.status === 'ON_BREAK') return 'Live: on break';
+  if (status.status === 'AWAY') return 'Live: away';
+  if (status.status === 'OFFLINE') return 'Offline';
+  if (status.status === 'PUNCHED_OUT') return 'Punched out';
+  if (status.status === 'AUTO_PUNCHED_OUT') return 'Auto punched out';
+  return 'Online';
+}
+
