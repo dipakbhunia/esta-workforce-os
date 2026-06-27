@@ -28,7 +28,7 @@ export const navigation: NavGroup[] = [
     icon: Building2,
     permission: 'organization:manage',
     children: [
-      { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness, permission: 'organization:manage' },
+      { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness, permission: 'companies:manage' },
       { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'organization:manage' },
       { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'organization:manage' },
       { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'organization:manage' },

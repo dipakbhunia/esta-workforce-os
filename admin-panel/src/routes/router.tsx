@@ -2,12 +2,15 @@ import type { ReactElement } from 'react';
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
-import { ProtectedRoute, PublicRoute, RoleGuard, type Permission } from '@/features/auth';
+import { ProtectedRoute, PublicRoute, RoleGuard, type Permission, type RoleName } from '@/features/auth';
 import { AppLayout } from '@/layouts';
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/pages/DashboardPage'));
 const CompaniesPage = lazy(() => import('@/features/organization/pages/CompaniesPage'));
+const CompanyCreatePage = lazy(() => import('@/features/organization/pages/CompanyCreatePage'));
+const CompanyDetailsPage = lazy(() => import('@/features/organization/pages/CompanyDetailsPage'));
+const CompanyEditPage = lazy(() => import('@/features/organization/pages/CompanyEditPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const DepartmentsPage = lazy(() => import('@/features/organization/pages/DepartmentsPage'));
 const DesignationsPage = lazy(() => import('@/features/organization/pages/DesignationsPage'));
@@ -39,12 +42,11 @@ function lazyElement(element: ReactElement) {
   return <Suspense fallback={<LoadingSkeleton rows={8} />}>{element}</Suspense>;
 }
 
-function protectedElement(element: ReactElement, permission: Permission) {
-  return lazyElement(<RoleGuard permission={permission}>{element}</RoleGuard>);
+function protectedElement(element: ReactElement, permission: Permission, roles?: RoleName[]) {
+  return lazyElement(<RoleGuard permission={permission} roles={roles}>{element}</RoleGuard>);
 }
 
 const listRoutes: AppRoute[] = [
-  { path: 'organization/companies', element: <CompaniesPage />, permission: 'organization:manage' },
   { path: 'organization/branches', element: <BranchesPage />, permission: 'organization:manage' },
   { path: 'organization/departments', element: <DepartmentsPage />, permission: 'organization:manage' },
   { path: 'organization/designations', element: <DesignationsPage />, permission: 'organization:manage' },
@@ -79,6 +81,10 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: protectedElement(<DashboardPage />, 'dashboard:view') },
+          { path: 'organization/companies', element: protectedElement(<CompaniesPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
+          { path: 'organization/companies/create', element: protectedElement(<CompanyCreatePage />, 'companies:manage', ['SUPER_ADMIN']) },
+          { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
+          { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
           ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),

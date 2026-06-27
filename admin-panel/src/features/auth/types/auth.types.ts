@@ -27,6 +27,7 @@ export interface LoginCredentials {
 
 export type Permission =
   | 'dashboard:view'
+  | 'companies:manage'
   | 'organization:manage'
   | 'people:manage'
   | 'attendance:view'
