@@ -29,7 +29,7 @@ export const navigation: NavGroup[] = [
     permission: 'organization:manage',
     children: [
       { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness, permission: 'companies:manage' },
-      { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'organization:manage' },
+      { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'branches:view' },
       { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'organization:manage' },
       { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'organization:manage' },
       { label: 'Shifts', path: '/organization/shifts', icon: Clock3, permission: 'organization:manage' },

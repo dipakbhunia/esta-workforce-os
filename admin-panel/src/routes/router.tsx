@@ -12,6 +12,9 @@ const CompanyCreatePage = lazy(() => import('@/features/organization/pages/Compa
 const CompanyDetailsPage = lazy(() => import('@/features/organization/pages/CompanyDetailsPage'));
 const CompanyEditPage = lazy(() => import('@/features/organization/pages/CompanyEditPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
+const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
+const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
+const BranchEditPage = lazy(() => import('@/features/organization/pages/BranchEditPage'));
 const DepartmentsPage = lazy(() => import('@/features/organization/pages/DepartmentsPage'));
 const DesignationsPage = lazy(() => import('@/features/organization/pages/DesignationsPage'));
 const ShiftsPage = lazy(() => import('@/features/organization/pages/ShiftsPage'));
@@ -47,7 +50,6 @@ function protectedElement(element: ReactElement, permission: Permission, roles?:
 }
 
 const listRoutes: AppRoute[] = [
-  { path: 'organization/branches', element: <BranchesPage />, permission: 'organization:manage' },
   { path: 'organization/departments', element: <DepartmentsPage />, permission: 'organization:manage' },
   { path: 'organization/designations', element: <DesignationsPage />, permission: 'organization:manage' },
   { path: 'organization/shifts', element: <ShiftsPage />, permission: 'organization:manage' },
@@ -85,6 +87,10 @@ export const router = createBrowserRouter([
           { path: 'organization/companies/create', element: protectedElement(<CompanyCreatePage />, 'companies:manage', ['SUPER_ADMIN']) },
           { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
           { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
+          { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/branches/:id/edit', element: protectedElement(<BranchEditPage />, 'branches:manage', ['COMPANY_ADMIN', 'HR']) },
           ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),

@@ -28,6 +28,8 @@ export interface LoginCredentials {
 export type Permission =
   | 'dashboard:view'
   | 'companies:manage'
+  | 'branches:manage'
+  | 'branches:view'
   | 'organization:manage'
   | 'people:manage'
   | 'attendance:view'
