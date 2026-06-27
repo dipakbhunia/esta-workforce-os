@@ -30,6 +30,8 @@ export type Permission =
   | 'companies:manage'
   | 'branches:manage'
   | 'branches:view'
+  | 'departments:manage'
+  | 'departments:view'
   | 'organization:manage'
   | 'people:manage'
   | 'attendance:view'

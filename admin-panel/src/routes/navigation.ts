@@ -30,7 +30,7 @@ export const navigation: NavGroup[] = [
     children: [
       { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness, permission: 'companies:manage' },
       { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'branches:view' },
-      { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'organization:manage' },
+      { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'departments:view' },
       { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'organization:manage' },
       { label: 'Shifts', path: '/organization/shifts', icon: Clock3, permission: 'organization:manage' },
     ],
