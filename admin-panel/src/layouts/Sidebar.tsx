@@ -1,17 +1,21 @@
-﻿import { Box, Collapse, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Collapse, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
 import { ChevronDown, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { useAuth } from '@/features/auth';
 import { navigation } from '@/routes/navigation';
+import type { NavGroup, NavItem } from '@/types/navigation';
 
 export const SIDEBAR_WIDTH = 284;
 export const SIDEBAR_COLLAPSED_WIDTH = 84;
 
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const location = useLocation();
+  const { permissions, roles } = useAuth();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ Organization: true, People: true, Attendance: true });
-  const activeGroup = useMemo(() => navigation.find((group) => group.children?.some((item) => location.pathname.startsWith(item.path))), [location.pathname]);
+  const allowedNavigation = useMemo(() => filterNavigation(navigation, permissions, roles), [permissions, roles]);
+  const activeGroup = useMemo(() => allowedNavigation.find((group) => group.children?.some((item) => location.pathname.startsWith(item.path))), [allowedNavigation, location.pathname]);
 
   return (
     <Box sx={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH, transition: 'width 180ms ease', height: '100%', bgcolor: '#fff', borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
@@ -27,7 +31,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
         </IconButton>
       </Stack>
       <List sx={{ px: 1.25, py: 1, overflowY: 'auto' }}>
-        {navigation.map((group) => {
+        {allowedNavigation.map((group) => {
           const Icon = group.icon;
           const isGroupActive = activeGroup?.label === group.label || Boolean(group.path && location.pathname === group.path);
           if (!group.children && group.path) {
@@ -74,6 +78,30 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
   );
 }
 
+function filterNavigation(groups: NavGroup[], permissions: string[], roles: string[]) {
+  return groups.reduce<NavGroup[]>((visibleGroups, group) => {
+    const children = group.children?.filter((item) => isAllowed(item, permissions, roles));
+    const allowedGroup = isAllowed(group, permissions, roles);
+
+    if (group.children && children?.length) {
+      visibleGroups.push({ ...group, children });
+      return visibleGroups;
+    }
+
+    if (!group.children && allowedGroup) {
+      visibleGroups.push(group);
+    }
+
+    return visibleGroups;
+  }, []);
+}
+
+function isAllowed(item: NavGroup | NavItem, permissions: string[], roles: string[]) {
+  const permissionAllowed = !item.permission || permissions.includes(item.permission);
+  const roleAllowed = !item.roles?.length || item.roles.some((role) => roles.includes(role));
+  return permissionAllowed && roleAllowed;
+}
+
 function navItemSx(active: boolean, collapsed: boolean) {
   return {
     minHeight: 42,
@@ -90,4 +118,3 @@ function navItemSx(active: boolean, collapsed: boolean) {
 function iconSx(active: boolean) {
   return { minWidth: 34, color: active ? 'primary.main' : 'inherit' };
 }
-

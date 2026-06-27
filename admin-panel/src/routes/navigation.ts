@@ -1,4 +1,4 @@
-﻿import {
+import {
   Activity,
   BarChart3,
   BellRing,
@@ -22,53 +22,58 @@
 import type { NavGroup } from '@/types/navigation';
 
 export const navigation: NavGroup[] = [
-  { label: 'Dashboard', path: '/', icon: Gauge },
+  { label: 'Dashboard', path: '/', icon: Gauge, permission: 'dashboard:view' },
   {
     label: 'Organization',
     icon: Building2,
+    permission: 'organization:manage',
     children: [
-      { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness },
-      { label: 'Branches', path: '/organization/branches', icon: MapPin },
-      { label: 'Departments', path: '/organization/departments', icon: Network },
-      { label: 'Designations', path: '/organization/designations', icon: Layers3 },
-      { label: 'Shifts', path: '/organization/shifts', icon: Clock3 },
+      { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness, permission: 'organization:manage' },
+      { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'organization:manage' },
+      { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'organization:manage' },
+      { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'organization:manage' },
+      { label: 'Shifts', path: '/organization/shifts', icon: Clock3, permission: 'organization:manage' },
     ],
   },
   {
     label: 'People',
     icon: Users,
+    permission: 'people:manage',
     children: [
-      { label: 'Users', path: '/people/users', icon: UserCog },
-      { label: 'Employees', path: '/people/employees', icon: Users },
-      { label: 'Roles', path: '/people/roles', icon: ShieldCheck },
-      { label: 'Permissions', path: '/people/permissions', icon: Split },
+      { label: 'Users', path: '/people/users', icon: UserCog, permission: 'people:manage' },
+      { label: 'Employees', path: '/people/employees', icon: Users, permission: 'people:manage' },
+      { label: 'Roles', path: '/people/roles', icon: ShieldCheck, permission: 'people:manage' },
+      { label: 'Permissions', path: '/people/permissions', icon: Split, permission: 'people:manage' },
     ],
   },
   {
     label: 'Attendance',
     icon: CalendarCheck,
+    permission: 'attendance:view',
     children: [
-      { label: 'Attendance', path: '/attendance', icon: CalendarCheck },
-      { label: 'Attendance Policies', path: '/attendance/policies', icon: TimerReset },
-      { label: 'Break Policies', path: '/attendance/break-policies', icon: BellRing },
+      { label: 'Attendance', path: '/attendance', icon: CalendarCheck, permission: 'attendance:view' },
+      { label: 'Attendance Policies', path: '/attendance/policies', icon: TimerReset, permission: 'attendance:manage' },
+      { label: 'Break Policies', path: '/attendance/break-policies', icon: BellRing, permission: 'attendance:manage' },
     ],
   },
   {
     label: 'Leave',
     icon: FileText,
+    permission: 'leave:view',
     children: [
-      { label: 'Leave Types', path: '/leave/types', icon: FileText },
-      { label: 'Leave Requests', path: '/leave/requests', icon: Activity },
+      { label: 'Leave Types', path: '/leave/types', icon: FileText, permission: 'leave:manage' },
+      { label: 'Leave Requests', path: '/leave/requests', icon: Activity, permission: 'leave:view' },
     ],
   },
   {
     label: 'Monitoring',
     icon: MonitorDot,
+    permission: 'monitoring:view',
     children: [
-      { label: 'Live Status', path: '/monitoring/live-status', icon: MonitorDot },
-      { label: 'Employee Monitoring', path: '/monitoring/employees', icon: Activity },
+      { label: 'Live Status', path: '/monitoring/live-status', icon: MonitorDot, permission: 'monitoring:view' },
+      { label: 'Employee Monitoring', path: '/monitoring/employees', icon: Activity, permission: 'monitoring:view' },
     ],
   },
-  { label: 'Reports', path: '/reports', icon: BarChart3 },
-  { label: 'Settings', path: '/settings', icon: Settings },
+  { label: 'Reports', path: '/reports', icon: BarChart3, permission: 'reports:view' },
+  { label: 'Settings', path: '/settings', icon: Settings, permission: 'settings:view' },
 ];

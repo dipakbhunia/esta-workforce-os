@@ -1,9 +1,11 @@
-﻿import type { ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
+import { ProtectedRoute, PublicRoute, RoleGuard, type Permission } from '@/features/auth';
 import { AppLayout } from '@/layouts';
 
+const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/pages/DashboardPage'));
 const CompaniesPage = lazy(() => import('@/features/organization/pages/CompaniesPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
@@ -27,41 +29,62 @@ const CreatePage = lazy(() => import('@/pages/CreatePage'));
 const EditPage = lazy(() => import('@/pages/EditPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
+interface AppRoute {
+  path: string;
+  element: ReactElement;
+  permission: Permission;
+}
+
 function lazyElement(element: ReactElement) {
   return <Suspense fallback={<LoadingSkeleton rows={8} />}>{element}</Suspense>;
 }
 
-const listRoutes = [
-  { path: 'organization/companies', element: <CompaniesPage /> },
-  { path: 'organization/branches', element: <BranchesPage /> },
-  { path: 'organization/departments', element: <DepartmentsPage /> },
-  { path: 'organization/designations', element: <DesignationsPage /> },
-  { path: 'organization/shifts', element: <ShiftsPage /> },
-  { path: 'people/users', element: <UsersPage /> },
-  { path: 'people/employees', element: <EmployeesPage /> },
-  { path: 'people/roles', element: <RolesPage /> },
-  { path: 'people/permissions', element: <PermissionsPage /> },
-  { path: 'attendance', element: <AttendancePage /> },
-  { path: 'attendance/policies', element: <AttendancePoliciesPage /> },
-  { path: 'attendance/break-policies', element: <BreakPoliciesPage /> },
-  { path: 'leave/types', element: <LeaveTypesPage /> },
-  { path: 'leave/requests', element: <LeaveRequestsPage /> },
-  { path: 'monitoring/live-status', element: <LiveStatusPage /> },
-  { path: 'monitoring/employees', element: <EmployeeMonitoringPage /> },
-  { path: 'reports', element: <ReportsPage /> },
-  { path: 'settings', element: <SettingsPage /> },
+function protectedElement(element: ReactElement, permission: Permission) {
+  return lazyElement(<RoleGuard permission={permission}>{element}</RoleGuard>);
+}
+
+const listRoutes: AppRoute[] = [
+  { path: 'organization/companies', element: <CompaniesPage />, permission: 'organization:manage' },
+  { path: 'organization/branches', element: <BranchesPage />, permission: 'organization:manage' },
+  { path: 'organization/departments', element: <DepartmentsPage />, permission: 'organization:manage' },
+  { path: 'organization/designations', element: <DesignationsPage />, permission: 'organization:manage' },
+  { path: 'organization/shifts', element: <ShiftsPage />, permission: 'organization:manage' },
+  { path: 'people/users', element: <UsersPage />, permission: 'people:manage' },
+  { path: 'people/employees', element: <EmployeesPage />, permission: 'people:manage' },
+  { path: 'people/roles', element: <RolesPage />, permission: 'people:manage' },
+  { path: 'people/permissions', element: <PermissionsPage />, permission: 'people:manage' },
+  { path: 'attendance', element: <AttendancePage />, permission: 'attendance:view' },
+  { path: 'attendance/policies', element: <AttendancePoliciesPage />, permission: 'attendance:manage' },
+  { path: 'attendance/break-policies', element: <BreakPoliciesPage />, permission: 'attendance:manage' },
+  { path: 'leave/types', element: <LeaveTypesPage />, permission: 'leave:manage' },
+  { path: 'leave/requests', element: <LeaveRequestsPage />, permission: 'leave:view' },
+  { path: 'monitoring/live-status', element: <LiveStatusPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/employees', element: <EmployeeMonitoringPage />, permission: 'monitoring:view' },
+  { path: 'reports', element: <ReportsPage />, permission: 'reports:view' },
+  { path: 'settings', element: <SettingsPage />, permission: 'settings:view' },
 ];
 
 export const router = createBrowserRouter([
   {
-    path: '/',
-    element: <AppLayout />,
+    element: <PublicRoute />,
     children: [
-      { index: true, element: lazyElement(<DashboardPage />) },
-      ...listRoutes.map((route) => ({ ...route, element: lazyElement(route.element) })),
-      ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: lazyElement(<CreatePage />) })),
-      ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: lazyElement(<EditPage />) })),
-      { path: '*', element: lazyElement(<NotFoundPage />) },
+      { path: '/login', element: lazyElement(<LoginPage />) },
+    ],
+  },
+  {
+    element: <ProtectedRoute />,
+    children: [
+      {
+        path: '/',
+        element: <AppLayout />,
+        children: [
+          { index: true, element: protectedElement(<DashboardPage />, 'dashboard:view') },
+          ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
+          ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
+          ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),
+          { path: '*', element: lazyElement(<NotFoundPage />) },
+        ],
+      },
     ],
   },
 ]);
