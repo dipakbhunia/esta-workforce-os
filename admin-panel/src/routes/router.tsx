@@ -29,6 +29,9 @@ const ShiftDetailsPage = lazy(() => import('@/features/organization/pages/ShiftD
 const ShiftEditPage = lazy(() => import('@/features/organization/pages/ShiftEditPage'));
 const UsersPage = lazy(() => import('@/features/people/pages/UsersPage'));
 const EmployeesPage = lazy(() => import('@/features/people/pages/EmployeesPage'));
+const EmployeeCreatePage = lazy(() => import('@/features/people/pages/EmployeeCreatePage'));
+const EmployeeDetailsPage = lazy(() => import('@/features/people/pages/EmployeeDetailsPage'));
+const EmployeeEditPage = lazy(() => import('@/features/people/pages/EmployeeEditPage'));
 const RolesPage = lazy(() => import('@/features/people/pages/RolesPage'));
 const PermissionsPage = lazy(() => import('@/features/people/pages/PermissionsPage'));
 const AttendancePage = lazy(() => import('@/features/attendance/pages/AttendancePage'));
@@ -60,7 +63,6 @@ function protectedElement(element: ReactElement, permission: Permission, roles?:
 
 const listRoutes: AppRoute[] = [
   { path: 'people/users', element: <UsersPage />, permission: 'people:manage' },
-  { path: 'people/employees', element: <EmployeesPage />, permission: 'people:manage' },
   { path: 'people/roles', element: <RolesPage />, permission: 'people:manage' },
   { path: 'people/permissions', element: <PermissionsPage />, permission: 'people:manage' },
   { path: 'attendance', element: <AttendancePage />, permission: 'attendance:view' },
@@ -109,6 +111,10 @@ export const router = createBrowserRouter([
           { path: 'organization/shifts/create', element: protectedElement(<ShiftCreatePage />, 'shifts:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/shifts/:id', element: protectedElement(<ShiftDetailsPage />, 'shifts:view', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/shifts/:id/edit', element: protectedElement(<ShiftEditPage />, 'shifts:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'people/employees', element: protectedElement(<EmployeesPage />, 'employees:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'people/employees/create', element: protectedElement(<EmployeeCreatePage />, 'employees:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'people/employees/:id', element: protectedElement(<EmployeeDetailsPage />, 'employees:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'people/employees/:id/edit', element: protectedElement(<EmployeeEditPage />, 'employees:manage', ['COMPANY_ADMIN', 'HR']) },
           ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),

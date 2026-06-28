@@ -38,10 +38,10 @@ export const navigation: NavGroup[] = [
   {
     label: 'People',
     icon: Users,
-    permission: 'people:manage',
+    permission: 'employees:view',
     children: [
       { label: 'Users', path: '/people/users', icon: UserCog, permission: 'people:manage' },
-      { label: 'Employees', path: '/people/employees', icon: Users, permission: 'people:manage' },
+      { label: 'Employees', path: '/people/employees', icon: Users, permission: 'employees:view' },
       { label: 'Roles', path: '/people/roles', icon: ShieldCheck, permission: 'people:manage' },
       { label: 'Permissions', path: '/people/permissions', icon: Split, permission: 'people:manage' },
     ],

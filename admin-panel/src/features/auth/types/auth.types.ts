@@ -37,6 +37,8 @@ export type Permission =
   | 'shifts:manage'
   | 'shifts:view'
   | 'organization:manage'
+  | 'employees:manage'
+  | 'employees:view'
   | 'people:manage'
   | 'attendance:view'
   | 'attendance:manage'
