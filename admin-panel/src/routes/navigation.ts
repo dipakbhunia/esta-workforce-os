@@ -32,7 +32,7 @@ export const navigation: NavGroup[] = [
       { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'branches:view' },
       { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'departments:view' },
       { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'designations:view' },
-      { label: 'Shifts', path: '/organization/shifts', icon: Clock3, permission: 'organization:manage' },
+      { label: 'Shifts', path: '/organization/shifts', icon: Clock3, permission: 'shifts:view' },
     ],
   },
   {

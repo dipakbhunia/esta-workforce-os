@@ -24,6 +24,9 @@ const DesignationCreatePage = lazy(() => import('@/features/organization/pages/D
 const DesignationDetailsPage = lazy(() => import('@/features/organization/pages/DesignationDetailsPage'));
 const DesignationEditPage = lazy(() => import('@/features/organization/pages/DesignationEditPage'));
 const ShiftsPage = lazy(() => import('@/features/organization/pages/ShiftsPage'));
+const ShiftCreatePage = lazy(() => import('@/features/organization/pages/ShiftCreatePage'));
+const ShiftDetailsPage = lazy(() => import('@/features/organization/pages/ShiftDetailsPage'));
+const ShiftEditPage = lazy(() => import('@/features/organization/pages/ShiftEditPage'));
 const UsersPage = lazy(() => import('@/features/people/pages/UsersPage'));
 const EmployeesPage = lazy(() => import('@/features/people/pages/EmployeesPage'));
 const RolesPage = lazy(() => import('@/features/people/pages/RolesPage'));
@@ -56,7 +59,6 @@ function protectedElement(element: ReactElement, permission: Permission, roles?:
 }
 
 const listRoutes: AppRoute[] = [
-  { path: 'organization/shifts', element: <ShiftsPage />, permission: 'organization:manage' },
   { path: 'people/users', element: <UsersPage />, permission: 'people:manage' },
   { path: 'people/employees', element: <EmployeesPage />, permission: 'people:manage' },
   { path: 'people/roles', element: <RolesPage />, permission: 'people:manage' },
@@ -103,6 +105,10 @@ export const router = createBrowserRouter([
           { path: 'organization/designations/create', element: protectedElement(<DesignationCreatePage />, 'designations:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/designations/:id', element: protectedElement(<DesignationDetailsPage />, 'designations:view', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/designations/:id/edit', element: protectedElement(<DesignationEditPage />, 'designations:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/shifts', element: protectedElement(<ShiftsPage />, 'shifts:view', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/shifts/create', element: protectedElement(<ShiftCreatePage />, 'shifts:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/shifts/:id', element: protectedElement(<ShiftDetailsPage />, 'shifts:view', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/shifts/:id/edit', element: protectedElement(<ShiftEditPage />, 'shifts:manage', ['COMPANY_ADMIN', 'HR']) },
           ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),
