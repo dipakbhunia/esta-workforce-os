@@ -1,12 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Alert, Box, Button, CircularProgress, MenuItem, Stack, TextField, Typography } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { FormActions } from '@/components/form-actions';
 import { SectionCard } from '@/components/section-card';
-import { getBranches } from '../services/branches-api';
+import { useBranches } from '../hooks';
 import type { Department, DepartmentFormValues } from '../types/department.types';
 import { departmentCodeFromName, departmentDefaults, departmentFormSchema, toDepartmentPayload } from '../utils/department-form';
 
@@ -25,10 +24,7 @@ export function DepartmentForm({ department, loading = false, submitLabel, onSub
     defaultValues: initialValues.current,
   });
   const name = watch('name');
-  const branchesQuery = useQuery({
-    queryKey: ['branches', { selector: true }],
-    queryFn: () => getBranches({ page: 1, limit: 100 }),
-  });
+  const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data.data ?? [];
 
   useEffect(() => {

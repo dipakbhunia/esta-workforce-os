@@ -32,6 +32,8 @@ export type Permission =
   | 'branches:view'
   | 'departments:manage'
   | 'departments:view'
+  | 'designations:manage'
+  | 'designations:view'
   | 'organization:manage'
   | 'people:manage'
   | 'attendance:view'

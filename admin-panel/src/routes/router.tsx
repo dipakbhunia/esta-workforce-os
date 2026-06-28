@@ -20,6 +20,9 @@ const DepartmentCreatePage = lazy(() => import('@/features/organization/pages/De
 const DepartmentDetailsPage = lazy(() => import('@/features/organization/pages/DepartmentDetailsPage'));
 const DepartmentEditPage = lazy(() => import('@/features/organization/pages/DepartmentEditPage'));
 const DesignationsPage = lazy(() => import('@/features/organization/pages/DesignationsPage'));
+const DesignationCreatePage = lazy(() => import('@/features/organization/pages/DesignationCreatePage'));
+const DesignationDetailsPage = lazy(() => import('@/features/organization/pages/DesignationDetailsPage'));
+const DesignationEditPage = lazy(() => import('@/features/organization/pages/DesignationEditPage'));
 const ShiftsPage = lazy(() => import('@/features/organization/pages/ShiftsPage'));
 const UsersPage = lazy(() => import('@/features/people/pages/UsersPage'));
 const EmployeesPage = lazy(() => import('@/features/people/pages/EmployeesPage'));
@@ -53,7 +56,6 @@ function protectedElement(element: ReactElement, permission: Permission, roles?:
 }
 
 const listRoutes: AppRoute[] = [
-  { path: 'organization/designations', element: <DesignationsPage />, permission: 'organization:manage' },
   { path: 'organization/shifts', element: <ShiftsPage />, permission: 'organization:manage' },
   { path: 'people/users', element: <UsersPage />, permission: 'people:manage' },
   { path: 'people/employees', element: <EmployeesPage />, permission: 'people:manage' },
@@ -97,6 +99,10 @@ export const router = createBrowserRouter([
           { path: 'organization/departments/create', element: protectedElement(<DepartmentCreatePage />, 'departments:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/departments/:id', element: protectedElement(<DepartmentDetailsPage />, 'departments:view', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/departments/:id/edit', element: protectedElement(<DepartmentEditPage />, 'departments:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/designations', element: protectedElement(<DesignationsPage />, 'designations:view', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/designations/create', element: protectedElement(<DesignationCreatePage />, 'designations:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/designations/:id', element: protectedElement(<DesignationDetailsPage />, 'designations:view', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'organization/designations/:id/edit', element: protectedElement(<DesignationEditPage />, 'designations:manage', ['COMPANY_ADMIN', 'HR']) },
           ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
           ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),
