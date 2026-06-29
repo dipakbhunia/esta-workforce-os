@@ -35,6 +35,7 @@ const EmployeeEditPage = lazy(() => import('@/features/people/pages/EmployeeEdit
 const RolesPage = lazy(() => import('@/features/people/pages/RolesPage'));
 const PermissionsPage = lazy(() => import('@/features/people/pages/PermissionsPage'));
 const AttendancePage = lazy(() => import('@/features/attendance/pages/AttendancePage'));
+const AttendanceDetailsPage = lazy(() => import('@/features/attendance/pages/AttendanceDetailsPage'));
 const AttendancePoliciesPage = lazy(() => import('@/features/attendance/pages/AttendancePoliciesPage'));
 const BreakPoliciesPage = lazy(() => import('@/features/attendance/pages/BreakPoliciesPage'));
 const LeaveTypesPage = lazy(() => import('@/features/leave/pages/LeaveTypesPage'));
@@ -76,6 +77,8 @@ const listRoutes: AppRoute[] = [
   { path: 'settings', element: <SettingsPage />, permission: 'settings:view' },
 ];
 
+const formPlaceholderRoutes = listRoutes.filter((route) => route.path !== 'attendance');
+
 export const router = createBrowserRouter([
   {
     element: <PublicRoute />,
@@ -115,9 +118,12 @@ export const router = createBrowserRouter([
           { path: 'people/employees/create', element: protectedElement(<EmployeeCreatePage />, 'employees:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'people/employees/:id', element: protectedElement(<EmployeeDetailsPage />, 'employees:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'people/employees/:id/edit', element: protectedElement(<EmployeeEditPage />, 'employees:manage', ['COMPANY_ADMIN', 'HR']) },
-          ...listRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
-          ...listRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
-          ...listRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),
+          { path: 'attendance', element: protectedElement(<AttendancePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'attendance/create', element: lazyElement(<NotFoundPage />) },
+          { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
+          ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
+          ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),
           { path: '*', element: lazyElement(<NotFoundPage />) },
         ],
       },
