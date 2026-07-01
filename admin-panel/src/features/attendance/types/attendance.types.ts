@@ -33,11 +33,21 @@ export interface AttendanceBreak {
   breakTypeName?: string | null;
   breakTypeCode?: string | null;
   allowedMinutes?: number | null;
+  isPaid?: boolean | null;
   durationMinutes?: number | null;
   policyViolated?: boolean | null;
+  note?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
   autoPunchOutAt?: string | null;
+  breakPolicy?: {
+    id: string;
+    name: string;
+    code: string;
+    allowedMinutes: number;
+    isPaid: boolean;
+    autoPunchOutOnTimeout: boolean;
+  } | null;
 }
 
 export interface AttendanceRecord {
@@ -63,6 +73,48 @@ export interface AttendanceRecord {
   logs?: AttendanceLog[];
   breaks?: AttendanceBreak[];
   isOpen?: boolean;
+}
+
+export interface AttendanceDetail extends AttendanceRecord {
+  employeeCode: string;
+  user: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+  shift: {
+    startTime: string;
+    endTime: string;
+    timezone: string;
+  };
+  logs: AttendanceLog[];
+  breaks: AttendanceBreak[];
+}
+
+export type AttendanceTimelineEventType =
+  | 'PUNCH_IN'
+  | 'PUNCH_OUT'
+  | 'BREAK_START'
+  | 'BREAK_END'
+  | 'AUTO_PUNCH_OUT'
+  | 'HEARTBEAT_LOST';
+
+export type AttendanceTimelineEventSource = 'ATTENDANCE' | 'BREAK' | 'SYSTEM' | 'MONITORING';
+
+export interface AttendanceTimelineEvent {
+  eventId: string;
+  type: AttendanceTimelineEventType;
+  time: string;
+  title: string;
+  description: string;
+  source: AttendanceTimelineEventSource;
+  metadata: Record<string, unknown>;
+}
+
+export interface AttendanceTimeline {
+  attendanceId: string;
+  events: AttendanceTimelineEvent[];
 }
 
 export interface AttendanceListParams {

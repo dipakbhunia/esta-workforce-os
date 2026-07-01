@@ -41,6 +41,13 @@ export function formatMinutes(minutes?: number | null) {
   return `${hours}h ${remainingMinutes}m`;
 }
 
+export function formatSignedMinutes(minutes?: number | null) {
+  if (minutes === null || minutes === undefined || Number.isNaN(minutes)) return 'Not available';
+  if (minutes === 0) return 'On target';
+  const prefix = minutes > 0 ? '+' : '-';
+  return `${prefix}${formatMinutes(Math.abs(minutes))}`;
+}
+
 export function attendanceStatusTone(status?: AttendanceStatus | string | null): StatusTone {
   switch (status) {
     case 'PRESENT':
