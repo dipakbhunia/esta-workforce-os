@@ -44,6 +44,7 @@ const LiveStatusPage = lazy(() => import('@/features/monitoring/pages/LiveStatus
 const EmployeeMonitoringPage = lazy(() => import('@/features/monitoring/pages/EmployeeMonitoringPage'));
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage'));
 const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage'));
+const ComingSoonPage = lazy(() => import('@/pages/ComingSoonPage'));
 const CreatePage = lazy(() => import('@/pages/CreatePage'));
 const EditPage = lazy(() => import('@/pages/EditPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -52,6 +53,7 @@ interface AppRoute {
   path: string;
   element: ReactElement;
   permission: Permission;
+  roles?: RoleName[];
 }
 
 function lazyElement(element: ReactElement) {
@@ -63,13 +65,13 @@ function protectedElement(element: ReactElement, permission: Permission, roles?:
 }
 
 const listRoutes: AppRoute[] = [
-  { path: 'people/users', element: <UsersPage />, permission: 'people:manage' },
-  { path: 'people/roles', element: <RolesPage />, permission: 'people:manage' },
-  { path: 'people/permissions', element: <PermissionsPage />, permission: 'people:manage' },
-  { path: 'attendance', element: <AttendancePage />, permission: 'attendance:view' },
-  { path: 'attendance/policies', element: <AttendancePoliciesPage />, permission: 'attendance:manage' },
-  { path: 'attendance/break-policies', element: <BreakPoliciesPage />, permission: 'attendance:manage' },
-  { path: 'leave/types', element: <LeaveTypesPage />, permission: 'leave:manage' },
+  { path: 'people/users', element: <UsersPage />, permission: 'people:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
+  { path: 'people/roles', element: <RolesPage />, permission: 'people:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
+  { path: 'people/permissions', element: <PermissionsPage />, permission: 'people:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
+  { path: 'attendance', element: <AttendancePage />, permission: 'attendance:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
+  { path: 'attendance/policies', element: <AttendancePoliciesPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'attendance/break-policies', element: <BreakPoliciesPage />, permission: 'attendance:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
+  { path: 'leave/types', element: <LeaveTypesPage />, permission: 'leave:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'leave/requests', element: <LeaveRequestsPage />, permission: 'leave:view' },
   { path: 'monitoring/live-status', element: <LiveStatusPage />, permission: 'monitoring:view' },
   { path: 'monitoring/employees', element: <EmployeeMonitoringPage />, permission: 'monitoring:view' },
@@ -78,6 +80,32 @@ const listRoutes: AppRoute[] = [
 ];
 
 const formPlaceholderRoutes = listRoutes.filter((route) => route.path !== 'attendance');
+
+const comingSoonRoutes: AppRoute[] = [
+  { path: 'employees/documents', element: <ComingSoonPage />, permission: 'employees:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
+  { path: 'employees/onboarding', element: <ComingSoonPage />, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'employees/exit-management', element: <ComingSoonPage />, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'employees/assets', element: <ComingSoonPage />, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER'] },
+  { path: 'attendance/overtime-rules', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'attendance/holiday-calendar', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'leave/balance', element: <ComingSoonPage />, permission: 'leave:view' },
+  { path: 'monitoring/activity-timeline', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/screenshots', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/apps-urls', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/devices', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/idle-time', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/productivity', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'monitoring/alerts', element: <ComingSoonPage />, permission: 'monitoring:view' },
+  { path: 'reports/attendance', element: <ComingSoonPage />, permission: 'reports:view' },
+  { path: 'reports/employees', element: <ComingSoonPage />, permission: 'reports:view' },
+  { path: 'reports/leave', element: <ComingSoonPage />, permission: 'reports:view' },
+  { path: 'reports/monitoring', element: <ComingSoonPage />, permission: 'reports:view' },
+  { path: 'settings/company-profile', element: <ComingSoonPage />, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'settings/attendance', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'settings/desktop-agent', element: <ComingSoonPage />, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'settings/notifications', element: <ComingSoonPage />, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
+  { path: 'settings/general', element: <ComingSoonPage />, permission: 'settings:view' },
+];
 
 export const router = createBrowserRouter([
   {
@@ -94,10 +122,10 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: protectedElement(<DashboardPage />, 'dashboard:view') },
-          { path: 'organization/companies', element: protectedElement(<CompaniesPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
+          { path: 'organization/companies', element: protectedElement(<CompaniesPage />, 'companies:manage', ['SUPER_ADMIN']) },
           { path: 'organization/companies/create', element: protectedElement(<CompanyCreatePage />, 'companies:manage', ['SUPER_ADMIN']) },
-          { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
-          { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN']) },
+          { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', ['SUPER_ADMIN']) },
+          { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', ['SUPER_ADMIN']) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', ['COMPANY_ADMIN', 'HR']) },
@@ -118,12 +146,16 @@ export const router = createBrowserRouter([
           { path: 'people/employees/create', element: protectedElement(<EmployeeCreatePage />, 'employees:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'people/employees/:id', element: protectedElement(<EmployeeDetailsPage />, 'employees:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'people/employees/:id/edit', element: protectedElement(<EmployeeEditPage />, 'employees:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'settings/users', element: protectedElement(<UsersPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'settings/roles', element: protectedElement(<RolesPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'settings/permissions', element: protectedElement(<PermissionsPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
           { path: 'attendance', element: protectedElement(<AttendancePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/create', element: lazyElement(<NotFoundPage />) },
           { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
-          ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission) })),
-          ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission) })),
-          ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission) })),
+          ...comingSoonRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
+          ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
+          ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission, route.roles) })),
+          ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/:id/edit`, element: protectedElement(<EditPage />, route.permission, route.roles) })),
           { path: '*', element: lazyElement(<NotFoundPage />) },
         ],
       },

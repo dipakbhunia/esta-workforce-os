@@ -13,9 +13,10 @@ export const SIDEBAR_COLLAPSED_WIDTH = 84;
 export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const location = useLocation();
   const { permissions, roles } = useAuth();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ Organization: true, People: true, Attendance: true });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ Organization: true, Employees: true, Attendance: true, Settings: true });
   const allowedNavigation = useMemo(() => filterNavigation(navigation, permissions, roles), [permissions, roles]);
-  const activeGroup = useMemo(() => allowedNavigation.find((group) => group.children?.some((item) => location.pathname.startsWith(item.path))), [allowedNavigation, location.pathname]);
+  const activePath = useMemo(() => findActivePath(allowedNavigation, location.pathname), [allowedNavigation, location.pathname]);
+  const activeGroup = useMemo(() => allowedNavigation.find((group) => group.children?.some((item) => item.path === activePath)), [activePath, allowedNavigation]);
 
   return (
     <Box sx={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH, transition: 'width 180ms ease', height: '100%', bgcolor: '#fff', borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
@@ -33,7 +34,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
       <List sx={{ px: 1.25, py: 1, overflowY: 'auto' }}>
         {allowedNavigation.map((group) => {
           const Icon = group.icon;
-          const isGroupActive = activeGroup?.label === group.label || Boolean(group.path && location.pathname === group.path);
+          const isGroupActive = activeGroup?.label === group.label || Boolean(group.path && group.path === activePath);
           if (!group.children && group.path) {
             return (
               <Tooltip title={collapsed ? group.label : ''} placement="right" key={group.label}>
@@ -59,7 +60,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                   <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
                     {group.children?.map((item) => {
                       const ItemIcon = item.icon;
-                      const active = location.pathname.startsWith(item.path);
+                      const active = item.path === activePath;
                       return (
                         <ListItemButton key={item.path} component={NavLink} to={item.path} sx={{ ...navItemSx(active, false), ml: 1.5, minHeight: 38 }}>
                           <ListItemIcon sx={iconSx(active)}>{ItemIcon && <ItemIcon size={17} />}</ListItemIcon>
@@ -100,6 +101,17 @@ function isAllowed(item: NavGroup | NavItem, permissions: string[], roles: strin
   const permissionAllowed = !item.permission || permissions.includes(item.permission);
   const roleAllowed = !item.roles?.length || item.roles.some((role) => roles.includes(role));
   return permissionAllowed && roleAllowed;
+}
+
+function findActivePath(groups: NavGroup[], pathname: string) {
+  const paths = groups.flatMap((group) => [
+    ...(group.path ? [group.path] : []),
+    ...(group.children?.map((item) => item.path) ?? []),
+  ]);
+
+  return paths
+    .filter((path) => pathname === path || pathname.startsWith(`${path}/`))
+    .sort((left, right) => right.length - left.length)[0];
 }
 
 function navItemSx(active: boolean, collapsed: boolean) {
