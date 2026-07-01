@@ -1,5 +1,14 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -9,6 +18,10 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { AttendanceService } from './attendance.service';
 import { AttendanceActionDto } from './dto/attendance-action.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
+import {
+  AttendanceDetailResponseDto,
+  AttendanceTimelineResponseDto,
+} from './dto/attendance-response.dto';
 import { AttendanceSummaryQueryDto } from './dto/attendance-summary-query.dto';
 
 const attendanceRoles = [
@@ -87,5 +100,31 @@ export class AttendanceController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.summary(query, user);
+  }
+
+  @Get(':id/timeline')
+  @Roles(...attendanceRoles)
+  @ApiOperation({
+    summary: 'Get a normalized attendance timeline',
+    description:
+      'Returns ordered punch, break, auto punch-out, and heartbeat-loss events for a visible attendance session.',
+  })
+  @ApiOkResponse({ type: AttendanceTimelineResponseDto })
+  timeline(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<AttendanceTimelineResponseDto> {
+    return this.service.timeline(id, user);
+  }
+
+  @Get(':id')
+  @Roles(...attendanceRoles)
+  @ApiOperation({ summary: 'Get attendance session details by id' })
+  @ApiOkResponse({ type: AttendanceDetailResponseDto })
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<AttendanceDetailResponseDto> {
+    return this.service.findOne(id, user);
   }
 }

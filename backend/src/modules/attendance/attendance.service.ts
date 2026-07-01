@@ -19,6 +19,12 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { AttendanceActionDto } from './dto/attendance-action.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
+import {
+  AttendanceDetailResponseDto,
+  AttendanceResponseDto,
+  AttendanceTimelineEventDto,
+  AttendanceTimelineResponseDto,
+} from './dto/attendance-response.dto';
 import { AttendanceSummaryQueryDto } from './dto/attendance-summary-query.dto';
 import {
   dateKey,
@@ -44,6 +50,10 @@ const attendanceInclude = {
     include: { breakPolicy: true },
   },
 } satisfies Prisma.AttendanceInclude;
+
+type AttendanceWithDetails = Prisma.AttendanceGetPayload<{
+  include: typeof attendanceInclude;
+}>;
 
 const AUTO_PUNCH_OUT_REASON = 'Break duration exceeded';
 const HEARTBEAT_LOSS_REASON = 'Device offline / heartbeat lost';
@@ -472,6 +482,150 @@ export class AttendanceService {
       ),
     };
   }
+
+  async findOne(
+    id: string,
+    actor: AuthenticatedUser,
+  ): Promise<AttendanceDetailResponseDto> {
+    const attendance = await this.findVisibleAttendance(id, actor);
+    return this.toDetailResponse(attendance);
+  }
+
+  async timeline(
+    id: string,
+    actor: AuthenticatedUser,
+  ): Promise<AttendanceTimelineResponseDto> {
+    const attendance = await this.findVisibleAttendance(id, actor);
+    const events: AttendanceTimelineEventDto[] = [];
+
+    for (const log of attendance.logs) {
+      events.push({
+        eventId: `attendance-log:${log.id}`,
+        type: log.type,
+        time: log.occurredAt,
+        title: log.type === AttendanceLogType.PUNCH_IN ? 'Punched in' : 'Punched out',
+        description:
+          log.note ??
+          (log.type === AttendanceLogType.PUNCH_IN
+            ? 'Employee punched in for the attendance session.'
+            : 'Employee punched out from the attendance session.'),
+        source: 'ATTENDANCE',
+        metadata: {
+          logId: log.id,
+          attendanceId: attendance.id,
+          note: log.note,
+        },
+      });
+    }
+
+    for (const breakLog of attendance.breaks) {
+      events.push({
+        eventId: `break-start:${breakLog.id}`,
+        type: 'BREAK_START',
+        time: breakLog.startedAt,
+        title: `${breakLog.breakTypeName ?? 'Break'} started`,
+        description:
+          breakLog.note ??
+          `${breakLog.breakTypeName ?? 'Break'} started for this attendance session.`,
+        source: 'BREAK',
+        metadata: {
+          breakLogId: breakLog.id,
+          breakPolicyId: breakLog.breakPolicyId,
+          breakTypeCode: breakLog.breakTypeCode,
+          allowedMinutes: breakLog.allowedMinutes,
+          isPaid: breakLog.isPaid,
+        },
+      });
+
+      if (breakLog.endedAt) {
+        events.push({
+          eventId: `break-end:${breakLog.id}`,
+          type: 'BREAK_END',
+          time: breakLog.endedAt,
+          title: `${breakLog.breakTypeName ?? 'Break'} ended`,
+          description: breakLog.policyViolated
+            ? 'Break ended after the configured allowed duration.'
+            : `${breakLog.breakTypeName ?? 'Break'} ended for this attendance session.`,
+          source: 'BREAK',
+          metadata: {
+            breakLogId: breakLog.id,
+            breakPolicyId: breakLog.breakPolicyId,
+            durationMinutes: breakLog.durationMinutes,
+            allowedMinutes: breakLog.allowedMinutes,
+            policyViolated: breakLog.policyViolated,
+            autoPunchOutAt: breakLog.autoPunchOutAt,
+          },
+        });
+      }
+    }
+
+    if (attendance.status === AttendanceStatus.AUTO_PUNCHED_OUT && attendance.punchOutAt) {
+      events.push({
+        eventId: `auto-punch-out:${attendance.id}`,
+        type: 'AUTO_PUNCH_OUT',
+        time: attendance.punchOutAt,
+        title: 'Auto punched out',
+        description:
+          attendance.autoPunchOutReason ??
+          'Attendance session was automatically punched out by the system.',
+        source: 'SYSTEM',
+        metadata: {
+          attendanceId: attendance.id,
+          reason: attendance.autoPunchOutReason,
+          workedMinutes: attendance.workedMinutes,
+          breakMinutes: attendance.breakMinutes,
+        },
+      });
+    }
+
+    if (
+      attendance.autoPunchOutReason?.includes(HEARTBEAT_LOSS_REASON) &&
+      attendance.punchInAt
+    ) {
+      const latestHeartbeat = await this.prisma.heartbeat.findFirst({
+        where: {
+          companyId: attendance.companyId,
+          employeeId: attendance.employeeId,
+          recordedAt: {
+            gte: attendance.punchInAt,
+            ...(attendance.punchOutAt ? { lte: attendance.punchOutAt } : {}),
+          },
+        },
+        orderBy: { recordedAt: 'desc' },
+        select: {
+          id: true,
+          deviceId: true,
+          recordedAt: true,
+          idleSeconds: true,
+          isOnline: true,
+        },
+      });
+
+      events.push({
+        eventId: `heartbeat-lost:${attendance.id}`,
+        type: 'HEARTBEAT_LOST',
+        time: attendance.punchOutAt ?? latestHeartbeat?.recordedAt ?? attendance.punchInAt,
+        title: 'Heartbeat lost',
+        description: HEARTBEAT_LOSS_REASON,
+        source: 'MONITORING',
+        metadata: {
+          heartbeatId: latestHeartbeat?.id,
+          deviceId: latestHeartbeat?.deviceId,
+          lastHeartbeatAt: latestHeartbeat?.recordedAt,
+          idleSeconds: latestHeartbeat?.idleSeconds,
+          isOnline: latestHeartbeat?.isOnline,
+        },
+      });
+    }
+
+    return {
+      attendanceId: attendance.id,
+      events: events.sort(
+        (left, right) => left.time.getTime() - right.time.getTime(),
+      ),
+    };
+  }
+
   async autoPunchOutExpiredBreaks(): Promise<number> {
     // TODO: Call this from a scheduler/queue worker once background jobs are introduced.
     // For now, request-driven attendance operations also enforce this rule.
@@ -534,6 +688,78 @@ export class AttendanceService {
       where: { id },
       include: attendanceInclude,
     });
+  }
+
+  private async findVisibleAttendance(
+    id: string,
+    actor: AuthenticatedUser,
+  ): Promise<AttendanceWithDetails> {
+    const visibility = await this.visibilityWhere(actor);
+    const attendance = await this.prisma.attendance.findFirst({
+      where: { id, ...visibility },
+      include: attendanceInclude,
+    });
+    if (!attendance) throw new NotFoundException('Attendance not found');
+    return attendance;
+  }
+
+  private toBaseResponse(attendance: AttendanceWithDetails): AttendanceResponseDto {
+    return {
+      id: attendance.id,
+      employeeId: attendance.employeeId,
+      employee: attendance.employee,
+      employeeCode: attendance.employee.employeeCode,
+      user: attendance.employee.user,
+      attendanceDate: attendance.attendanceDate.toISOString().slice(0, 10),
+      punchInAt: attendance.punchInAt,
+      punchOutAt: attendance.punchOutAt,
+      workedMinutes: attendance.workedMinutes,
+      expectedMinutes: attendance.expectedMinutes,
+      breakMinutes: attendance.breakMinutes,
+      status: attendance.status,
+      autoPunchOutReason: attendance.autoPunchOutReason,
+      shift: {
+        startTime: attendance.shiftStartTime,
+        endTime: attendance.shiftEndTime,
+        timezone: attendance.shiftTimezone,
+      },
+      createdAt: attendance.createdAt,
+      updatedAt: attendance.updatedAt,
+    };
+  }
+
+  private toDetailResponse(
+    attendance: AttendanceWithDetails,
+  ): AttendanceDetailResponseDto {
+    return {
+      ...this.toBaseResponse(attendance),
+      logs: attendance.logs,
+      breaks: attendance.breaks.map((breakLog) => ({
+        id: breakLog.id,
+        breakPolicyId: breakLog.breakPolicyId,
+        breakTypeName: breakLog.breakTypeName,
+        breakTypeCode: breakLog.breakTypeCode,
+        allowedMinutes: breakLog.allowedMinutes,
+        isPaid: breakLog.isPaid,
+        startedAt: breakLog.startedAt,
+        endedAt: breakLog.endedAt,
+        durationMinutes: breakLog.durationMinutes,
+        policyViolated: breakLog.policyViolated,
+        autoPunchOutAt: breakLog.autoPunchOutAt,
+        note: breakLog.note,
+        breakPolicy: breakLog.breakPolicy
+          ? {
+              id: breakLog.breakPolicy.id,
+              name: breakLog.breakPolicy.name,
+              code: breakLog.breakPolicy.code,
+              allowedMinutes: breakLog.breakPolicy.allowedMinutes,
+              isPaid: breakLog.breakPolicy.isPaid,
+              autoPunchOutOnTimeout:
+                breakLog.breakPolicy.autoPunchOutOnTimeout,
+            }
+          : null,
+      })),
+    };
   }
 
   private async visibilityWhere(
