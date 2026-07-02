@@ -166,6 +166,8 @@ export default function AttendancePage() {
         toolbar={<></>}
         gridProps={{
           loading: attendanceQuery.isFetching,
+          rowHeight: 60,
+          columnHeaderHeight: 48,
           paginationMode: 'server',
           rowCount: attendanceQuery.data?.data.meta.total ?? 0,
           paginationModel: pagination,

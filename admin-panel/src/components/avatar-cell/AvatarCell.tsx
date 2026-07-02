@@ -3,13 +3,17 @@
 export function AvatarCell({ name, email }: { name: string; email?: string }) {
   const initials = name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, width: '100%', py: 0.5 }}>
       <Avatar sx={{ width: 34, height: 34, bgcolor: '#E0ECFF', color: '#1D4ED8', fontWeight: 800, fontSize: 13 }}>
         {initials}
       </Avatar>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography variant="body2" fontWeight={750} noWrap>{name}</Typography>
-        {email && <Typography variant="caption" color="text.secondary" noWrap>{email}</Typography>}
+      <Box sx={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        <Typography variant="body2" fontWeight={750} noWrap sx={{ lineHeight: 1.25 }}>{name}</Typography>
+        {email && (
+          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', lineHeight: 1.35 }}>
+            {email}
+          </Typography>
+        )}
       </Box>
     </Box>
   );

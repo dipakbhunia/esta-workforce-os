@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Eye, RotateCcw, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import { AvatarCell } from '@/components/avatar-cell';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable } from '@/components/data-table';
 import { DateRangePicker, createDateRangeValue } from '@/components/date-range-picker';
@@ -103,7 +104,7 @@ export default function AttendanceCorrectionsPage() {
       minWidth: 230,
       flex: 1,
       sortable: false,
-      valueGetter: (_, row) => correctionEmployeeName(row),
+      renderCell: ({ row }) => <AvatarCell name={correctionEmployeeName(row)} email={row.employee?.user?.email} />,
     },
     { field: 'employeeCode', headerName: 'Employee Code', minWidth: 150, valueGetter: (_, row) => row.employee?.employeeCode ?? '-' },
     { field: 'attendanceDate', headerName: 'Attendance Date', minWidth: 150, valueGetter: (_, row) => formatDate(row.attendance?.attendanceDate) },
@@ -229,6 +230,8 @@ export default function AttendanceCorrectionsPage() {
         toolbar={<></>}
         gridProps={{
           loading: correctionsQuery.isFetching,
+          rowHeight: 60,
+          columnHeaderHeight: 48,
           paginationMode: 'server',
           rowCount: correctionsQuery.data?.data.meta.total ?? 0,
           paginationModel: pagination,
