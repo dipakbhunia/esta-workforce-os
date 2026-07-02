@@ -1,15 +1,16 @@
-import { Alert, Button, IconButton, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
+import { Alert, IconButton, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
 import { type GridColDef, type GridPaginationModel } from '@mui/x-data-grid';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Download, Eye, RefreshCw, RotateCcw, X } from 'lucide-react';
+import { Check, Eye, RotateCcw, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
+import { DateRangeFilter, ExportButton, FilterToolbar, RefreshButton, ResetButton, SearchFilter } from '@/components/filter-toolbar';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { PageHeader } from '@/components/page-header';
-import { SearchBox } from '@/components/search-box';
+import { PageLayout } from '@/components/page-layout';
 import { StatusChip } from '@/components/status-chip';
 import { useAuth } from '@/features/auth';
 import { getEmployees } from '@/features/people/services/employees-api';
@@ -163,7 +164,7 @@ export default function AttendanceCorrectionsPage() {
   }
 
   return (
-    <Stack gap={3}>
+    <PageLayout>
       <PageHeader
         title="Attendance Corrections"
         description="Review attendance regularization requests and keep exceptions auditable."
@@ -174,52 +175,61 @@ export default function AttendanceCorrectionsPage() {
 
       <Alert severity="info">Sorting applies to the currently loaded page. Review permissions are still enforced by the backend.</Alert>
 
+      <FilterToolbar
+        actions={(
+          <>
+            <ResetButton onClick={resetFilters} />
+            <RefreshButton onClick={() => correctionsQuery.refetch()} />
+            <ExportButton onClick={() => setToast('Export will be connected in the reporting phase.')} />
+          </>
+        )}
+      >
+        <SearchFilter placeholder="Search reason, employee code or name" value={search} onChange={(value) => {
+          setSearch(value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} />
+        <TextField select label="Employee" size="small" value={employeeId} onChange={(event) => {
+          setEmployeeId(event.target.value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} sx={{ minWidth: { xs: '100%', md: 230 } }}>
+          <MenuItem value="">All employees</MenuItem>
+          {(employeesQuery.data?.data.data ?? []).map((employee) => (
+            <MenuItem key={employee.id} value={employee.id}>{employee.employeeCode} - {[employee.user?.firstName, employee.user?.lastName].filter(Boolean).join(' ') || employee.user?.email || 'Employee'}</MenuItem>
+          ))}
+        </TextField>
+        <TextField select label="Status" size="small" value={status} onChange={(event) => {
+          setStatus(event.target.value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} sx={{ minWidth: { xs: '100%', md: 155 } }}>
+          <MenuItem value="">All statuses</MenuItem>
+          {statuses.map((item) => <MenuItem key={item} value={item}>{formatEnum(item)}</MenuItem>)}
+        </TextField>
+        <TextField select label="Type" size="small" value={type} onChange={(event) => {
+          setType(event.target.value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} sx={{ minWidth: { xs: '100%', md: 220 } }}>
+          <MenuItem value="">All types</MenuItem>
+          {types.map((item) => <MenuItem key={item} value={item}>{correctionTypeLabel(item)}</MenuItem>)}
+        </TextField>
+        <DateRangeFilter
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFromChange={(value) => {
+            setDateFrom(value);
+            setPagination((current) => ({ ...current, page: 0 }));
+          }}
+          onDateToChange={(value) => {
+            setDateTo(value);
+            setPagination((current) => ({ ...current, page: 0 }));
+          }}
+        />
+      </FilterToolbar>
+
       <DataTable
         title="Correction Requests"
         rows={rows}
         columns={columns}
-        toolbar={(
-          <Stack direction={{ xs: 'column', xl: 'row' }} gap={1.25} alignItems={{ xs: 'stretch', xl: 'center' }}>
-            <SearchBox placeholder="Search reason, employee code or name" value={search} onChange={(value) => {
-              setSearch(value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} />
-            <TextField select label="Status" size="small" value={status} onChange={(event) => {
-              setStatus(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} sx={{ minWidth: 155 }}>
-              <MenuItem value="">All statuses</MenuItem>
-              {statuses.map((item) => <MenuItem key={item} value={item}>{formatEnum(item)}</MenuItem>)}
-            </TextField>
-            <TextField select label="Type" size="small" value={type} onChange={(event) => {
-              setType(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} sx={{ minWidth: 220 }}>
-              <MenuItem value="">All types</MenuItem>
-              {types.map((item) => <MenuItem key={item} value={item}>{correctionTypeLabel(item)}</MenuItem>)}
-            </TextField>
-            <TextField select label="Employee" size="small" value={employeeId} onChange={(event) => {
-              setEmployeeId(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} sx={{ minWidth: 230 }}>
-              <MenuItem value="">All employees</MenuItem>
-              {(employeesQuery.data?.data.data ?? []).map((employee) => (
-                <MenuItem key={employee.id} value={employee.id}>{employee.employeeCode} - {[employee.user?.firstName, employee.user?.lastName].filter(Boolean).join(' ') || employee.user?.email || 'Employee'}</MenuItem>
-              ))}
-            </TextField>
-            <TextField label="Date From" type="date" size="small" value={dateFrom} onChange={(event) => {
-              setDateFrom(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} InputLabelProps={{ shrink: true }} />
-            <TextField label="Date To" type="date" size="small" value={dateTo} onChange={(event) => {
-              setDateTo(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} InputLabelProps={{ shrink: true }} />
-            <Button variant="outlined" onClick={resetFilters}>Reset</Button>
-            <Button variant="outlined" startIcon={<RefreshCw size={17} />} onClick={() => correctionsQuery.refetch()}>Refresh</Button>
-            <Button variant="outlined" startIcon={<Download size={17} />} onClick={() => setToast('Export will be connected in the reporting phase.')}>Export</Button>
-          </Stack>
-        )}
+        toolbar={<></>}
         gridProps={{
           loading: correctionsQuery.isFetching,
           paginationMode: 'server',
@@ -260,6 +270,6 @@ export default function AttendanceCorrectionsPage() {
         onClose={() => setCancelTarget(null)}
         onConfirm={() => cancelTarget && cancelMutation.mutate(cancelTarget.id)}
       />
-    </Stack>
+    </PageLayout>
   );
 }

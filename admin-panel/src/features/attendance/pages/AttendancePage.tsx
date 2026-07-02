@@ -1,17 +1,19 @@
-import { Alert, Button, IconButton, MenuItem, Stack, TextField, Tooltip } from '@mui/material';
+import { Alert, IconButton, MenuItem, TextField, Tooltip } from '@mui/material';
 import { type GridColDef, type GridPaginationModel } from '@mui/x-data-grid';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarCheck, Download, Eye, RefreshCw, TimerReset, TriangleAlert, UserCheck, UserX } from 'lucide-react';
+import { CalendarCheck, Eye, TimerReset, TriangleAlert, UserCheck, UserX } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { AvatarCell } from '@/components/avatar-cell';
 import { DataTable } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
+import { DateRangeFilter, ExportButton, FilterToolbar, RefreshButton, ResetButton, SearchFilter } from '@/components/filter-toolbar';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { PageHeader } from '@/components/page-header';
-import { SearchBox } from '@/components/search-box';
+import { PageLayout } from '@/components/page-layout';
 import { StatCard } from '@/components/stat-card';
 import { StatusChip } from '@/components/status-chip';
+import { SummaryCardsContainer } from '@/components/summary-cards-container';
 import { getEmployees } from '@/features/people/services/employees-api';
 import { getAttendance, getAttendanceSummary } from '../services/attendance-api';
 import type { AttendanceRecord, AttendanceStatus } from '../types/attendance.types';
@@ -97,65 +99,74 @@ export default function AttendancePage() {
   }
 
   return (
-    <Stack gap={3}>
+    <PageLayout>
       <PageHeader
         title="Attendance"
         description="Review daily attendance sessions and exception classifications."
         breadcrumbs={['Admin', 'Attendance', 'Attendance']}
       />
 
-      <Stack sx={summaryGrid}>
+      <SummaryCardsContainer>
         <StatCard label="Present" value={String(counts.PRESENT ?? 0)} helper="Recorded as present" icon={UserCheck} tone="#16A34A" />
         <StatCard label="Late" value={String(counts.LATE ?? 0)} helper="Late arrivals" icon={TimerReset} tone="#F59E0B" />
         <StatCard label="Half Day" value={String(counts.HALF_DAY ?? 0)} helper="HR day classification" icon={CalendarCheck} tone="#F59E0B" />
         <StatCard label="Absent" value={String(counts.ABSENT ?? 0)} helper="No attendance record" icon={UserX} tone="#DC2626" />
         <StatCard label="Auto Punch Out" value={String(counts.AUTO_PUNCHED_OUT ?? 0)} helper="System closed sessions" icon={TriangleAlert} tone="#DC2626" />
-      </Stack>
+      </SummaryCardsContainer>
 
       <Alert severity="info">Sorting applies to the currently loaded page. Filters use backend-supported attendance fields only.</Alert>
+
+      <FilterToolbar
+        actions={(
+          <>
+            <ResetButton onClick={resetFilters} />
+            <RefreshButton onClick={() => {
+              void attendanceQuery.refetch();
+              void summaryQuery.refetch();
+            }} />
+            <ExportButton onClick={() => setToast('Export will be connected in the reporting phase.')} />
+          </>
+        )}
+      >
+        <SearchFilter placeholder="Search employee code or name" value={search} onChange={(value) => {
+          setSearch(value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} />
+        <TextField select label="Employee" size="small" value={employeeId} onChange={(event) => {
+          setEmployeeId(event.target.value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} sx={{ minWidth: { xs: '100%', md: 220 } }}>
+          <MenuItem value="">All employees</MenuItem>
+          {(employeesQuery.data?.data.data ?? []).map((employee) => (
+            <MenuItem key={employee.id} value={employee.id}>{employee.employeeCode} - {[employee.user?.firstName, employee.user?.lastName].filter(Boolean).join(' ') || employee.user?.email || 'Employee'}</MenuItem>
+          ))}
+        </TextField>
+        <TextField select label="Status" size="small" value={status} onChange={(event) => {
+          setStatus(event.target.value);
+          setPagination((current) => ({ ...current, page: 0 }));
+        }} sx={{ minWidth: { xs: '100%', md: 170 } }}>
+          <MenuItem value="">All statuses</MenuItem>
+          {attendanceStatuses.map((item) => <MenuItem key={item} value={item}>{formatEnum(item)}</MenuItem>)}
+        </TextField>
+        <DateRangeFilter
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onDateFromChange={(value) => {
+            setDateFrom(value);
+            setPagination((current) => ({ ...current, page: 0 }));
+          }}
+          onDateToChange={(value) => {
+            setDateTo(value);
+            setPagination((current) => ({ ...current, page: 0 }));
+          }}
+        />
+      </FilterToolbar>
 
       <DataTable
         title="Attendance Sessions"
         rows={rows}
         columns={columns}
-        toolbar={(
-          <Stack direction={{ xs: 'column', xl: 'row' }} gap={1.25} alignItems={{ xs: 'stretch', xl: 'center' }}>
-            <SearchBox placeholder="Search employee code or name" value={search} onChange={(value) => {
-              setSearch(value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} />
-            <TextField label="Date From" type="date" size="small" value={dateFrom} onChange={(event) => {
-              setDateFrom(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} InputLabelProps={{ shrink: true }} />
-            <TextField label="Date To" type="date" size="small" value={dateTo} onChange={(event) => {
-              setDateTo(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} InputLabelProps={{ shrink: true }} />
-            <TextField select label="Employee" size="small" value={employeeId} onChange={(event) => {
-              setEmployeeId(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} sx={{ minWidth: 220 }}>
-              <MenuItem value="">All employees</MenuItem>
-              {(employeesQuery.data?.data.data ?? []).map((employee) => (
-                <MenuItem key={employee.id} value={employee.id}>{employee.employeeCode} - {[employee.user?.firstName, employee.user?.lastName].filter(Boolean).join(' ') || employee.user?.email || 'Employee'}</MenuItem>
-              ))}
-            </TextField>
-            <TextField select label="Status" size="small" value={status} onChange={(event) => {
-              setStatus(event.target.value);
-              setPagination((current) => ({ ...current, page: 0 }));
-            }} sx={{ minWidth: 170 }}>
-              <MenuItem value="">All statuses</MenuItem>
-              {attendanceStatuses.map((item) => <MenuItem key={item} value={item}>{formatEnum(item)}</MenuItem>)}
-            </TextField>
-            <Button variant="outlined" onClick={resetFilters}>Reset</Button>
-            <Button variant="outlined" startIcon={<RefreshCw size={17} />} onClick={() => {
-              void attendanceQuery.refetch();
-              void summaryQuery.refetch();
-            }}>Refresh</Button>
-            <Button variant="outlined" startIcon={<Download size={17} />} onClick={() => setToast('Export will be connected in the reporting phase.')}>Export</Button>
-          </Stack>
-        )}
+        toolbar={<></>}
         gridProps={{
           loading: attendanceQuery.isFetching,
           paginationMode: 'server',
@@ -172,12 +183,6 @@ export default function AttendancePage() {
       {attendanceQuery.isError && <Alert severity="error">Attendance could not be loaded. Check backend availability and permissions.</Alert>}
       {summaryQuery.isError && <Alert severity="warning">Summary cards could not be refreshed right now.</Alert>}
       {toast && <Alert severity="info" onClose={() => setToast(null)}>{toast}</Alert>}
-    </Stack>
+    </PageLayout>
   );
 }
-
-const summaryGrid = {
-  display: 'grid',
-  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' },
-  gap: 2,
-};
