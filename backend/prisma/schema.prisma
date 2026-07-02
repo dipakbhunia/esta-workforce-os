@@ -61,6 +61,20 @@ enum AttendanceLogType {
   PUNCH_OUT
 }
 
+enum AttendanceCorrectionType {
+  MISSED_PUNCH_IN
+  MISSED_PUNCH_OUT
+  TIME_CORRECTION
+  FULL_DAY_REGULARIZATION
+}
+
+enum AttendanceCorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 enum LeaveRequestStatus {
   PENDING
   APPROVED
@@ -89,6 +103,7 @@ model Company {
   users              User[]
   employees          Employee[]
   attendances        Attendance[]
+  attendanceCorrectionRequests AttendanceCorrectionRequest[]
   leaveTypes         LeaveType[]
   leaveRequests      LeaveRequest[]
   leaveBalances      LeaveBalance[]
@@ -213,6 +228,8 @@ model User {
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]     @relation("AuditLogActor")
   employee      Employee?
+  requestedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequester")
+  reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
 
   @@index([companyId])
   @@index([branchId])
@@ -260,6 +277,7 @@ model Employee {
   reportingManager             Employee?          @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
   directReports                Employee[]         @relation("EmployeeReporting")
   attendances                  Attendance[]
+  attendanceCorrectionRequests AttendanceCorrectionRequest[]
   leaveRequests                LeaveRequest[]     @relation("LeaveRequestEmployee")
   approvedLeaveRequests        LeaveRequest[]     @relation("LeaveRequestApprover")
   leaveBalances                LeaveBalance[]
@@ -304,10 +322,44 @@ model Attendance {
   employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   logs               AttendanceLog[]
   breaks             BreakLog[]
+  correctionRequests AttendanceCorrectionRequest[]
 
   @@index([companyId, attendanceDate])
   @@index([employeeId, attendanceDate])
   @@index([status])
+}
+
+model AttendanceCorrectionRequest {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  companyId             String                     @db.Uuid
+  attendanceId          String                     @db.Uuid
+  employeeId            String                     @db.Uuid
+  requestedByUserId     String                     @db.Uuid
+  reviewedByUserId      String?                    @db.Uuid
+  type                  AttendanceCorrectionType
+  status                AttendanceCorrectionStatus @default(PENDING)
+  originalPunchInAt     DateTime?
+  originalPunchOutAt    DateTime?
+  requestedPunchInAt    DateTime?
+  requestedPunchOutAt   DateTime?
+  reason                String
+  reviewerComment       String?
+  reviewedAt            DateTime?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  deletedAt             DateTime?
+  company               Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  attendance            Attendance                 @relation(fields: [attendanceId], references: [id], onDelete: Restrict)
+  employee              Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  requestedBy           User                       @relation("AttendanceCorrectionRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reviewedBy            User?                      @relation("AttendanceCorrectionReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt])
+  @@index([attendanceId])
+  @@index([employeeId, status])
+  @@index([requestedByUserId, createdAt])
+  @@index([reviewedByUserId, reviewedAt])
+  @@index([deletedAt])
 }
 
 model AttendanceLog {
