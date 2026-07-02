@@ -63,6 +63,7 @@ export const navigation: NavGroup[] = [
     permission: 'attendance:view',
     children: [
       { label: 'Attendance', path: '/attendance', icon: CalendarCheck, permission: 'attendance:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
+      { label: 'Corrections', path: '/attendance/corrections', icon: ClipboardList, permission: 'attendance:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
       { label: 'Attendance Policies', path: '/attendance/policies', icon: TimerReset, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
       { label: 'Break Policies', path: '/attendance/break-policies', icon: BellRing, permission: 'attendance:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
       { label: 'Overtime Rules', path: '/attendance/overtime-rules', icon: Clock3, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },

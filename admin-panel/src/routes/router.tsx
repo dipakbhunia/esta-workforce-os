@@ -36,6 +36,9 @@ const RolesPage = lazy(() => import('@/features/people/pages/RolesPage'));
 const PermissionsPage = lazy(() => import('@/features/people/pages/PermissionsPage'));
 const AttendancePage = lazy(() => import('@/features/attendance/pages/AttendancePage'));
 const AttendanceDetailsPage = lazy(() => import('@/features/attendance/pages/AttendanceDetailsPage'));
+const AttendanceCorrectionsPage = lazy(() => import('@/features/attendance/pages/AttendanceCorrectionsPage'));
+const AttendanceCorrectionCreatePage = lazy(() => import('@/features/attendance/pages/AttendanceCorrectionCreatePage'));
+const AttendanceCorrectionDetailsPage = lazy(() => import('@/features/attendance/pages/AttendanceCorrectionDetailsPage'));
 const AttendancePoliciesPage = lazy(() => import('@/features/attendance/pages/AttendancePoliciesPage'));
 const BreakPoliciesPage = lazy(() => import('@/features/attendance/pages/BreakPoliciesPage'));
 const LeaveTypesPage = lazy(() => import('@/features/leave/pages/LeaveTypesPage'));
@@ -151,6 +154,9 @@ export const router = createBrowserRouter([
           { path: 'settings/permissions', element: protectedElement(<PermissionsPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
           { path: 'attendance', element: protectedElement(<AttendancePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/create', element: lazyElement(<NotFoundPage />) },
+          { path: 'attendance/corrections', element: protectedElement(<AttendanceCorrectionsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'attendance/corrections/create', element: protectedElement(<AttendanceCorrectionCreatePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'attendance/corrections/:id', element: protectedElement(<AttendanceCorrectionDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           ...comingSoonRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
