@@ -6,8 +6,9 @@ import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable } from '@/components/data-table';
+import { DateRangePicker, createDateRangeValue } from '@/components/date-range-picker';
 import { EmptyState } from '@/components/empty-state';
-import { DateRangeFilter, ExportButton, FilterToolbar, RefreshButton, ResetButton, SearchFilter } from '@/components/filter-toolbar';
+import { ExportButton, FilterToolbar, RefreshButton, ResetButton, SearchFilter } from '@/components/filter-toolbar';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { PageHeader } from '@/components/page-header';
 import { PageLayout } from '@/components/page-layout';
@@ -44,12 +45,13 @@ export default function AttendanceCorrectionsPage() {
   const [status, setStatus] = useState('');
   const [type, setType] = useState('');
   const [employeeId, setEmployeeId] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateRange, setDateRange] = useState(() => createDateRangeValue('currentMonth'));
   const [pagination, setPagination] = useState<GridPaginationModel>({ page: 0, pageSize: 20 });
   const [toast, setToast] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<{ request: AttendanceCorrectionRequest; status: 'APPROVED' | 'REJECTED' } | null>(null);
   const [cancelTarget, setCancelTarget] = useState<AttendanceCorrectionRequest | null>(null);
+  const dateFrom = dateRange.dateFrom;
+  const dateTo = dateRange.dateTo;
 
   const correctionsQuery = useQuery({
     queryKey: ['attendance-corrections', { page: pagination.page + 1, limit: pagination.pageSize, search, status, type, employeeId, dateFrom, dateTo }],
@@ -158,8 +160,7 @@ export default function AttendanceCorrectionsPage() {
     setStatus('');
     setType('');
     setEmployeeId('');
-    setDateFrom('');
-    setDateTo('');
+    setDateRange(createDateRangeValue('currentMonth'));
     setPagination((current) => ({ ...current, page: 0 }));
   }
 
@@ -211,15 +212,11 @@ export default function AttendanceCorrectionsPage() {
           <MenuItem value="">All types</MenuItem>
           {types.map((item) => <MenuItem key={item} value={item}>{correctionTypeLabel(item)}</MenuItem>)}
         </TextField>
-        <DateRangeFilter
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={(value) => {
-            setDateFrom(value);
-            setPagination((current) => ({ ...current, page: 0 }));
-          }}
-          onDateToChange={(value) => {
-            setDateTo(value);
+        <DateRangePicker
+          value={dateRange}
+          defaultPreset="currentMonth"
+          onChange={(value) => {
+            setDateRange(value);
             setPagination((current) => ({ ...current, page: 0 }));
           }}
         />

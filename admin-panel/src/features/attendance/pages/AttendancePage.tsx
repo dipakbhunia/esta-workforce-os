@@ -6,8 +6,9 @@ import { useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { AvatarCell } from '@/components/avatar-cell';
 import { DataTable } from '@/components/data-table';
+import { DateRangePicker, createDateRangeValue } from '@/components/date-range-picker';
 import { EmptyState } from '@/components/empty-state';
-import { DateRangeFilter, ExportButton, FilterToolbar, RefreshButton, ResetButton, SearchFilter } from '@/components/filter-toolbar';
+import { ExportButton, FilterToolbar, RefreshButton, ResetButton, SearchFilter } from '@/components/filter-toolbar';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { PageHeader } from '@/components/page-header';
 import { PageLayout } from '@/components/page-layout';
@@ -23,12 +24,13 @@ const attendanceStatuses: AttendanceStatus[] = ['PRESENT', 'LATE', 'HALF_DAY', '
 
 export default function AttendancePage() {
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateRange, setDateRange] = useState(() => createDateRangeValue('currentWeek'));
   const [employeeId, setEmployeeId] = useState('');
   const [status, setStatus] = useState('');
   const [pagination, setPagination] = useState<GridPaginationModel>({ page: 0, pageSize: 20 });
   const [toast, setToast] = useState<string | null>(null);
+  const dateFrom = dateRange.dateFrom;
+  const dateTo = dateRange.dateTo;
 
   const attendanceQuery = useQuery({
     queryKey: ['attendance', { page: pagination.page + 1, limit: pagination.pageSize, search, dateFrom, dateTo, employeeId, status }],
@@ -91,8 +93,7 @@ export default function AttendancePage() {
 
   function resetFilters() {
     setSearch('');
-    setDateFrom('');
-    setDateTo('');
+    setDateRange(createDateRangeValue('currentWeek'));
     setEmployeeId('');
     setStatus('');
     setPagination((current) => ({ ...current, page: 0 }));
@@ -148,15 +149,11 @@ export default function AttendancePage() {
           <MenuItem value="">All statuses</MenuItem>
           {attendanceStatuses.map((item) => <MenuItem key={item} value={item}>{formatEnum(item)}</MenuItem>)}
         </TextField>
-        <DateRangeFilter
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFromChange={(value) => {
-            setDateFrom(value);
-            setPagination((current) => ({ ...current, page: 0 }));
-          }}
-          onDateToChange={(value) => {
-            setDateTo(value);
+        <DateRangePicker
+          value={dateRange}
+          defaultPreset="currentWeek"
+          onChange={(value) => {
+            setDateRange(value);
             setPagination((current) => ({ ...current, page: 0 }));
           }}
         />
