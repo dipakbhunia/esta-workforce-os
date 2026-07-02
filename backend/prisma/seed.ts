@@ -169,6 +169,32 @@ async function upsertBreakPolicy(
     ? prisma.breakPolicy.update({ where: { id: existingPolicy.id }, data })
     : prisma.breakPolicy.create({ data });
 }
+
+async function upsertLeaveType(
+  companyId: string,
+  leaveType: {
+    name: string;
+    code: string;
+    defaultDays: number;
+  },
+) {
+  const existingLeaveType = await prisma.leaveType.findFirst({
+    where: { companyId, code: leaveType.code, deletedAt: null },
+  });
+  const data = {
+    companyId,
+    name: leaveType.name,
+    code: leaveType.code,
+    defaultDays: leaveType.defaultDays,
+    requiresApproval: true,
+    managerCanApprove: true,
+    deletedAt: null,
+  };
+  return existingLeaveType
+    ? prisma.leaveType.update({ where: { id: existingLeaveType.id }, data })
+    : prisma.leaveType.create({ data });
+}
+
 async function upsertAttendancePolicy(companyId: string) {
   const existingPolicy = await prisma.attendancePolicy.findFirst({
     where: { companyId },
@@ -245,6 +271,28 @@ async function main(): Promise<void> {
       code: 'CUSTOM',
       allowedMinutes: 10,
       sortOrder: 40,
+    }),
+  ]);
+  await Promise.all([
+    upsertLeaveType(company.id, {
+      name: 'Casual Leave',
+      code: 'CASUAL',
+      defaultDays: 12,
+    }),
+    upsertLeaveType(company.id, {
+      name: 'Sick Leave',
+      code: 'SICK',
+      defaultDays: 12,
+    }),
+    upsertLeaveType(company.id, {
+      name: 'Earned Leave',
+      code: 'EARNED',
+      defaultDays: 18,
+    }),
+    upsertLeaveType(company.id, {
+      name: 'Unpaid Leave',
+      code: 'UNPAID',
+      defaultDays: 0,
     }),
   ]);
 
@@ -403,6 +451,7 @@ async function main(): Promise<void> {
   console.log('Company admin employee: EMP-ADMIN-001');
   console.log('Demo organization: MAIN / ADMIN / COMPANY_ADMIN / GENERAL');
   console.log('Demo break policies: LUNCH / TEA / SHORT / CUSTOM');
+  console.log('Demo leave types: CASUAL / SICK / EARNED / UNPAID');
   console.log('Demo attendance policy: heartbeat loss auto punch-out / 30 minutes / multi-session enabled');
 }
 

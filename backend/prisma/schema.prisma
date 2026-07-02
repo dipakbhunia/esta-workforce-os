@@ -82,6 +82,13 @@ enum LeaveRequestStatus {
   CANCELLED
 }
 
+enum LeaveApprovalAction {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 enum MonitoringDeviceStatus {
   ACTIVE
   INACTIVE
@@ -107,6 +114,7 @@ model Company {
   leaveTypes         LeaveType[]
   leaveRequests      LeaveRequest[]
   leaveBalances      LeaveBalance[]
+  leaveApprovalHistories LeaveApprovalHistory[]
   breakPolicies      BreakPolicy[]
   attendancePolicies AttendancePolicy[]
   monitoringDevices  MonitoringDevice[]
@@ -230,6 +238,7 @@ model User {
   employee      Employee?
   requestedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequester")
   reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
+  leaveApprovalHistories         LeaveApprovalHistory[]        @relation("LeaveApprovalHistoryActor")
 
   @@index([companyId])
   @@index([branchId])
@@ -458,11 +467,29 @@ model LeaveRequest {
   employee      Employee           @relation("LeaveRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
   leaveType     LeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
   approver      Employee?          @relation("LeaveRequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  history       LeaveApprovalHistory[]
 
   @@index([companyId, status])
   @@index([employeeId, startDate])
   @@index([leaveTypeId])
   @@index([deletedAt])
+}
+
+model LeaveApprovalHistory {
+  id             String              @id @default(uuid()) @db.Uuid
+  companyId      String              @db.Uuid
+  leaveRequestId String              @db.Uuid
+  action         LeaveApprovalAction
+  actorUserId    String              @db.Uuid
+  comment        String?
+  createdAt      DateTime            @default(now())
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  leaveRequest   LeaveRequest        @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  actor          User                @relation("LeaveApprovalHistoryActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, createdAt])
+  @@index([leaveRequestId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model LeaveBalance {
