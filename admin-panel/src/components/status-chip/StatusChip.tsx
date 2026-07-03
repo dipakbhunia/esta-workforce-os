@@ -1,6 +1,6 @@
 ﻿import { Chip } from '@mui/material';
 
-type StatusTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
+export type StatusTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
 const toneMap: Record<StatusTone, { bg: string; color: string }> = {
   success: { bg: '#DCFCE7', color: '#166534' },

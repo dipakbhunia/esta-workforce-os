@@ -75,9 +75,9 @@ export const navigation: NavGroup[] = [
     icon: FileText,
     permission: 'leave:view',
     children: [
-      { label: 'Leave Requests', path: '/leave/requests', icon: Activity, permission: 'leave:view' },
+      { label: 'Leave Requests', path: '/leave/requests', icon: Activity, permission: 'leave:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
       { label: 'Leave Types', path: '/leave/types', icon: FileText, permission: 'leave:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Leave Balance', path: '/leave/balance', icon: ClipboardList, permission: 'leave:view' },
+      { label: 'Leave Balance', path: '/leave/balances', icon: ClipboardList, permission: 'leave:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
     ],
   },
   {

@@ -43,6 +43,9 @@ const AttendancePoliciesPage = lazy(() => import('@/features/attendance/pages/At
 const BreakPoliciesPage = lazy(() => import('@/features/attendance/pages/BreakPoliciesPage'));
 const LeaveTypesPage = lazy(() => import('@/features/leave/pages/LeaveTypesPage'));
 const LeaveRequestsPage = lazy(() => import('@/features/leave/pages/LeaveRequestsPage'));
+const LeaveRequestCreatePage = lazy(() => import('@/features/leave/pages/LeaveRequestCreatePage'));
+const LeaveRequestDetailsPage = lazy(() => import('@/features/leave/pages/LeaveRequestDetailsPage'));
+const LeaveBalancesPage = lazy(() => import('@/features/leave/pages/LeaveBalancesPage'));
 const LiveStatusPage = lazy(() => import('@/features/monitoring/pages/LiveStatusPage'));
 const EmployeeMonitoringPage = lazy(() => import('@/features/monitoring/pages/EmployeeMonitoringPage'));
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage'));
@@ -75,7 +78,6 @@ const listRoutes: AppRoute[] = [
   { path: 'attendance/policies', element: <AttendancePoliciesPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'attendance/break-policies', element: <BreakPoliciesPage />, permission: 'attendance:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
   { path: 'leave/types', element: <LeaveTypesPage />, permission: 'leave:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-  { path: 'leave/requests', element: <LeaveRequestsPage />, permission: 'leave:view' },
   { path: 'monitoring/live-status', element: <LiveStatusPage />, permission: 'monitoring:view' },
   { path: 'monitoring/employees', element: <EmployeeMonitoringPage />, permission: 'monitoring:view' },
   { path: 'reports', element: <ReportsPage />, permission: 'reports:view' },
@@ -91,7 +93,6 @@ const comingSoonRoutes: AppRoute[] = [
   { path: 'employees/assets', element: <ComingSoonPage />, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER'] },
   { path: 'attendance/overtime-rules', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'attendance/holiday-calendar', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-  { path: 'leave/balance', element: <ComingSoonPage />, permission: 'leave:view' },
   { path: 'monitoring/activity-timeline', element: <ComingSoonPage />, permission: 'monitoring:view' },
   { path: 'monitoring/screenshots', element: <ComingSoonPage />, permission: 'monitoring:view' },
   { path: 'monitoring/apps-urls', element: <ComingSoonPage />, permission: 'monitoring:view' },
@@ -158,6 +159,10 @@ export const router = createBrowserRouter([
           { path: 'attendance/corrections/create', element: protectedElement(<AttendanceCorrectionCreatePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/corrections/:id', element: protectedElement(<AttendanceCorrectionDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'leave/requests', element: protectedElement(<LeaveRequestsPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'leave/requests/create', element: protectedElement(<LeaveRequestCreatePage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'leave/requests/:id', element: protectedElement(<LeaveRequestDetailsPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'leave/balances', element: protectedElement(<LeaveBalancesPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           ...comingSoonRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission, route.roles) })),
