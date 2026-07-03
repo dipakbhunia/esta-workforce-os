@@ -28,6 +28,24 @@ export interface LeaveType {
   deletedAt?: string | null;
 }
 
+export interface LeaveTypePayload {
+  name: string;
+  code: string;
+  description?: string;
+  defaultDays?: number;
+  requiresApproval?: boolean;
+  managerCanApprove?: boolean;
+}
+
+export interface LeaveTypeFormValues {
+  name: string;
+  code: string;
+  description: string;
+  defaultDays: number;
+  requiresApproval: boolean;
+  managerCanApprove: boolean;
+}
+
 export interface LeaveRequestUser {
   id: string;
   firstName?: string | null;

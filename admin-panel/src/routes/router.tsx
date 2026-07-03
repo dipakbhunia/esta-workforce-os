@@ -42,6 +42,8 @@ const AttendanceCorrectionDetailsPage = lazy(() => import('@/features/attendance
 const AttendancePoliciesPage = lazy(() => import('@/features/attendance/pages/AttendancePoliciesPage'));
 const BreakPoliciesPage = lazy(() => import('@/features/attendance/pages/BreakPoliciesPage'));
 const LeaveTypesPage = lazy(() => import('@/features/leave/pages/LeaveTypesPage'));
+const LeaveTypeCreatePage = lazy(() => import('@/features/leave/pages/LeaveTypeCreatePage'));
+const LeaveTypeEditPage = lazy(() => import('@/features/leave/pages/LeaveTypeEditPage'));
 const LeaveRequestsPage = lazy(() => import('@/features/leave/pages/LeaveRequestsPage'));
 const LeaveRequestCreatePage = lazy(() => import('@/features/leave/pages/LeaveRequestCreatePage'));
 const LeaveRequestDetailsPage = lazy(() => import('@/features/leave/pages/LeaveRequestDetailsPage'));
@@ -84,7 +86,7 @@ const listRoutes: AppRoute[] = [
   { path: 'settings', element: <SettingsPage />, permission: 'settings:view' },
 ];
 
-const formPlaceholderRoutes = listRoutes.filter((route) => route.path !== 'attendance');
+const formPlaceholderRoutes = listRoutes.filter((route) => route.path !== 'attendance' && route.path !== 'leave/types');
 
 const comingSoonRoutes: AppRoute[] = [
   { path: 'employees/documents', element: <ComingSoonPage />, permission: 'employees:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
@@ -159,6 +161,8 @@ export const router = createBrowserRouter([
           { path: 'attendance/corrections/create', element: protectedElement(<AttendanceCorrectionCreatePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/corrections/:id', element: protectedElement(<AttendanceCorrectionDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'leave/types/create', element: protectedElement(<LeaveTypeCreatePage />, 'leave:manage', ['COMPANY_ADMIN', 'HR']) },
+          { path: 'leave/types/:id/edit', element: protectedElement(<LeaveTypeEditPage />, 'leave:manage', ['COMPANY_ADMIN', 'HR']) },
           { path: 'leave/requests', element: protectedElement(<LeaveRequestsPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'leave/requests/create', element: protectedElement(<LeaveRequestCreatePage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'leave/requests/:id', element: protectedElement(<LeaveRequestDetailsPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },

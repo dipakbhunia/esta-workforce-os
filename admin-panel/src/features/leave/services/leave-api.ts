@@ -8,12 +8,25 @@ import type {
   LeaveRequestListParams,
   LeaveType,
   LeaveTypeListParams,
+  LeaveTypePayload,
   PaginatedResponse,
   ReviewLeaveRequestPayload,
 } from '../types/leave.types';
 
 export function getLeaveTypes(params: LeaveTypeListParams = {}) {
   return http.get<PaginatedResponse<LeaveType>>('/leave-types', { params });
+}
+
+export function createLeaveType(payload: LeaveTypePayload) {
+  return http.post<LeaveType>('/leave-types', payload);
+}
+
+export function updateLeaveType(id: string, payload: LeaveTypePayload) {
+  return http.patch<LeaveType>(`/leave-types/${id}`, payload);
+}
+
+export function deleteLeaveType(id: string) {
+  return http.delete<LeaveType>(`/leave-types/${id}`);
 }
 
 export function getLeaveRequests(params: LeaveRequestListParams) {
