@@ -1,5 +1,6 @@
 ﻿import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ParseUUIDPipe } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -9,6 +10,14 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { LiveStatusQueryDto } from './dto/live-status-query.dto';
 import { LiveStatusResponseDto } from './dto/live-status-response.dto';
+import { MonitoringReadQueryDto } from './dto/monitoring-read-query.dto';
+import {
+  PaginatedMonitoringActivityResponseDto,
+  PaginatedMonitoringApplicationUsageResponseDto,
+  PaginatedMonitoringDeviceResponseDto,
+  PaginatedMonitoringScreenshotResponseDto,
+  PaginatedMonitoringWebsiteUsageResponseDto,
+} from './dto/monitoring-read-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
@@ -38,6 +47,111 @@ export class MonitoringController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.registerDevice(dto, user);
+  }
+
+  @Get('activity')
+  @ApiOperation({ summary: 'List employee monitoring activity sessions' })
+  @ApiOkResponse({ type: PaginatedMonitoringActivityResponseDto })
+  activity(
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.activity(query, user);
+  }
+
+  @Get('activity/:employeeId')
+  @ApiOperation({ summary: 'List monitoring activity sessions for one employee' })
+  @ApiOkResponse({ type: PaginatedMonitoringActivityResponseDto })
+  activityByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.activityByEmployee(employeeId, query, user);
+  }
+
+  @Get('screenshots')
+  @ApiOperation({ summary: 'List screenshot metadata' })
+  @ApiOkResponse({ type: PaginatedMonitoringScreenshotResponseDto })
+  screenshots(
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.screenshots(query, user);
+  }
+
+  @Get('screenshots/:employeeId')
+  @ApiOperation({ summary: 'List screenshot metadata for one employee' })
+  @ApiOkResponse({ type: PaginatedMonitoringScreenshotResponseDto })
+  screenshotsByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.screenshotsByEmployee(employeeId, query, user);
+  }
+
+  @Get('apps')
+  @ApiOperation({ summary: 'List application usage entries' })
+  @ApiOkResponse({ type: PaginatedMonitoringApplicationUsageResponseDto })
+  applications(
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.applications(query, user);
+  }
+
+  @Get('apps/:employeeId')
+  @ApiOperation({ summary: 'List application usage entries for one employee' })
+  @ApiOkResponse({ type: PaginatedMonitoringApplicationUsageResponseDto })
+  applicationsByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.applicationsByEmployee(employeeId, query, user);
+  }
+
+  @Get('websites')
+  @ApiOperation({ summary: 'List website usage entries' })
+  @ApiOkResponse({ type: PaginatedMonitoringWebsiteUsageResponseDto })
+  websites(
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.websites(query, user);
+  }
+
+  @Get('websites/:employeeId')
+  @ApiOperation({ summary: 'List website usage entries for one employee' })
+  @ApiOkResponse({ type: PaginatedMonitoringWebsiteUsageResponseDto })
+  websitesByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.websitesByEmployee(employeeId, query, user);
+  }
+
+  @Get('devices')
+  @ApiOperation({ summary: 'List monitoring devices' })
+  @ApiOkResponse({ type: PaginatedMonitoringDeviceResponseDto })
+  devices(
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.devices(query, user);
+  }
+
+  @Get('devices/:employeeId')
+  @ApiOperation({ summary: 'List monitoring devices for one employee' })
+  @ApiOkResponse({ type: PaginatedMonitoringDeviceResponseDto })
+  devicesByEmployee(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @Query() query: MonitoringReadQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.devicesByEmployee(employeeId, query, user);
   }
 
   @Post('heartbeats')

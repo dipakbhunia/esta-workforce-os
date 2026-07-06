@@ -21,6 +21,15 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { LiveStatusQueryDto, LiveStatusValue } from './dto/live-status-query.dto';
 import { LiveAttendanceState, LiveHeartbeatState, LiveStatusResponseDto } from './dto/live-status-response.dto';
+import { MonitoringReadQueryDto } from './dto/monitoring-read-query.dto';
+import {
+  MonitoringActivityResponseDto,
+  MonitoringApplicationUsageResponseDto,
+  MonitoringDeviceResponseDto,
+  MonitoringEmployeeDto,
+  MonitoringScreenshotResponseDto,
+  MonitoringWebsiteUsageResponseDto,
+} from './dto/monitoring-read-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
@@ -39,6 +48,14 @@ const deviceSelect = {
   lastSeenAt: true,
   registeredAt: true,
 } satisfies Prisma.MonitoringDeviceSelect;
+
+const monitoringEmployeeSelect = {
+  id: true,
+  employeeCode: true,
+  user: {
+    select: { firstName: true, lastName: true, email: true },
+  },
+} satisfies Prisma.EmployeeSelect;
 
 @Injectable()
 export class MonitoringService {
@@ -223,6 +240,127 @@ export class MonitoringService {
       }
       throw error;
     }
+  }
+
+  async activity(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
+    const where = await this.activityWhere(query, actor);
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.activitySession.findMany({
+        where,
+        ...paginationArgs(query),
+        orderBy: { startedAt: 'desc' },
+        include: {
+          employee: { select: monitoringEmployeeSelect },
+          applicationUsages: { orderBy: { startedAt: 'asc' } },
+          websiteUsages: { orderBy: { startedAt: 'asc' } },
+        },
+      }),
+      this.prisma.activitySession.count({ where }),
+    ]);
+    return paginatedResult(records.map((record) => this.mapActivity(record)), total, query);
+  }
+
+  async activityByEmployee(
+    employeeId: string,
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    return this.activity({ ...query, employeeId }, actor);
+  }
+
+  async screenshots(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
+    const where = await this.screenshotWhere(query, actor);
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.screenshot.findMany({
+        where,
+        ...paginationArgs(query),
+        orderBy: { capturedAt: 'desc' },
+        include: { employee: { select: monitoringEmployeeSelect } },
+      }),
+      this.prisma.screenshot.count({ where }),
+    ]);
+    return paginatedResult(records.map((record) => this.mapScreenshot(record)), total, query);
+  }
+
+  async screenshotsByEmployee(
+    employeeId: string,
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    return this.screenshots({ ...query, employeeId }, actor);
+  }
+
+  async applications(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
+    const where = await this.applicationWhere(query, actor);
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.applicationUsage.findMany({
+        where,
+        ...paginationArgs(query),
+        orderBy: { startedAt: 'desc' },
+        include: { employee: { select: monitoringEmployeeSelect } },
+      }),
+      this.prisma.applicationUsage.count({ where }),
+    ]);
+    return paginatedResult(records.map((record) => this.mapApplication(record)), total, query);
+  }
+
+  async applicationsByEmployee(
+    employeeId: string,
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    return this.applications({ ...query, employeeId }, actor);
+  }
+
+  async websites(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
+    const where = await this.websiteWhere(query, actor);
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.websiteUsage.findMany({
+        where,
+        ...paginationArgs(query),
+        orderBy: { startedAt: 'desc' },
+        include: { employee: { select: monitoringEmployeeSelect } },
+      }),
+      this.prisma.websiteUsage.count({ where }),
+    ]);
+    return paginatedResult(records.map((record) => this.mapWebsite(record)), total, query);
+  }
+
+  async websitesByEmployee(
+    employeeId: string,
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    return this.websites({ ...query, employeeId }, actor);
+  }
+
+  async devices(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
+    const where = await this.deviceWhere(query, actor);
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.monitoringDevice.findMany({
+        where,
+        ...paginationArgs(query),
+        orderBy: { registeredAt: 'desc' },
+        include: {
+          employee: { select: monitoringEmployeeSelect },
+          heartbeats: {
+            orderBy: { recordedAt: 'desc' },
+            take: 1,
+            select: { recordedAt: true },
+          },
+        },
+      }),
+      this.prisma.monitoringDevice.count({ where }),
+    ]);
+    return paginatedResult(records.map((record) => this.mapDevice(record)), total, query);
+  }
+
+  async devicesByEmployee(
+    employeeId: string,
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    return this.devices({ ...query, employeeId }, actor);
   }
 
   async liveStatus(query: LiveStatusQueryDto, actor: AuthenticatedUser) {
@@ -438,6 +576,280 @@ export class MonitoringService {
         from: range.gte?.toISOString(),
         to: range.lte?.toISOString(),
       },
+    };
+  }
+
+  private async employeeReadWhere(
+    actor: AuthenticatedUser,
+    query: Pick<MonitoringReadQueryDto, 'employeeId'>,
+  ): Promise<Prisma.EmployeeWhereInput> {
+    const filters: Prisma.EmployeeWhereInput[] = [
+      await this.employeeVisibilityWhere(actor),
+      { deletedAt: null },
+    ];
+    if (query.employeeId) filters.push({ id: query.employeeId });
+    return { AND: filters };
+  }
+
+  private employeeSearchWhere(search: string): Prisma.EmployeeWhereInput {
+    return {
+      OR: [
+        { employeeCode: { contains: search, mode: 'insensitive' } },
+        { user: { firstName: { contains: search, mode: 'insensitive' } } },
+        { user: { lastName: { contains: search, mode: 'insensitive' } } },
+        { user: { email: { contains: search, mode: 'insensitive' } } },
+      ],
+    };
+  }
+
+  private async activityWhere(
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<Prisma.ActivitySessionWhereInput> {
+    const range = this.dateRange(query);
+    const filters: Prisma.ActivitySessionWhereInput[] = [
+      { employee: { is: await this.employeeReadWhere(actor, query) } },
+      { startedAt: range },
+    ];
+    if (query.deviceId) filters.push({ deviceId: query.deviceId });
+    if (query.search) {
+      filters.push({
+        OR: [
+          { employee: { is: this.employeeSearchWhere(query.search) } },
+          { clientSessionId: { contains: query.search, mode: 'insensitive' } },
+          { applicationUsages: { some: { applicationName: { contains: query.search, mode: 'insensitive' } } } },
+          { applicationUsages: { some: { windowTitle: { contains: query.search, mode: 'insensitive' } } } },
+          { websiteUsages: { some: { domain: { contains: query.search, mode: 'insensitive' } } } },
+          { websiteUsages: { some: { url: { contains: query.search, mode: 'insensitive' } } } },
+          { websiteUsages: { some: { pageTitle: { contains: query.search, mode: 'insensitive' } } } },
+          { websiteUsages: { some: { browserName: { contains: query.search, mode: 'insensitive' } } } },
+        ],
+      });
+    }
+    return { AND: filters };
+  }
+
+  private async screenshotWhere(
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<Prisma.ScreenshotWhereInput> {
+    const range = this.dateRange(query);
+    const filters: Prisma.ScreenshotWhereInput[] = [
+      { employee: { is: await this.employeeReadWhere(actor, query) } },
+      { capturedAt: range, deletedAt: null },
+    ];
+    if (query.deviceId) filters.push({ deviceId: query.deviceId });
+    if (query.search) {
+      filters.push({
+        OR: [
+          { employee: { is: this.employeeSearchWhere(query.search) } },
+          { storageKey: { contains: query.search, mode: 'insensitive' } },
+          { checksum: { contains: query.search, mode: 'insensitive' } },
+          { mimeType: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    return { AND: filters };
+  }
+
+  private async applicationWhere(
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<Prisma.ApplicationUsageWhereInput> {
+    const range = this.dateRange(query);
+    const filters: Prisma.ApplicationUsageWhereInput[] = [
+      { employee: { is: await this.employeeReadWhere(actor, query) } },
+      { startedAt: range },
+    ];
+    if (query.deviceId) filters.push({ deviceId: query.deviceId });
+    if (query.search) {
+      filters.push({
+        OR: [
+          { employee: { is: this.employeeSearchWhere(query.search) } },
+          { applicationName: { contains: query.search, mode: 'insensitive' } },
+          { windowTitle: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    return { AND: filters };
+  }
+
+  private async websiteWhere(
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<Prisma.WebsiteUsageWhereInput> {
+    const range = this.dateRange(query);
+    const filters: Prisma.WebsiteUsageWhereInput[] = [
+      { employee: { is: await this.employeeReadWhere(actor, query) } },
+      { startedAt: range },
+    ];
+    if (query.deviceId) filters.push({ deviceId: query.deviceId });
+    if (query.search) {
+      filters.push({
+        OR: [
+          { employee: { is: this.employeeSearchWhere(query.search) } },
+          { domain: { contains: query.search, mode: 'insensitive' } },
+          { url: { contains: query.search, mode: 'insensitive' } },
+          { pageTitle: { contains: query.search, mode: 'insensitive' } },
+          { browserName: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    return { AND: filters };
+  }
+
+  private async deviceWhere(
+    query: MonitoringReadQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<Prisma.MonitoringDeviceWhereInput> {
+    const filters: Prisma.MonitoringDeviceWhereInput[] = [
+      { employee: { is: await this.employeeReadWhere(actor, query) } },
+      { deletedAt: null },
+    ];
+    if (query.deviceId) filters.push({ id: query.deviceId });
+    if (query.search) {
+      filters.push({
+        OR: [
+          { employee: { is: this.employeeSearchWhere(query.search) } },
+          { deviceIdentifier: { contains: query.search, mode: 'insensitive' } },
+          { deviceName: { contains: query.search, mode: 'insensitive' } },
+          { platform: { contains: query.search, mode: 'insensitive' } },
+          { osVersion: { contains: query.search, mode: 'insensitive' } },
+          { appVersion: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    return { AND: filters };
+  }
+
+  private mapEmployee(
+    employee: Prisma.EmployeeGetPayload<{ select: typeof monitoringEmployeeSelect }>,
+  ): MonitoringEmployeeDto {
+    return {
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      name: `${employee.user.firstName} ${employee.user.lastName}`.trim(),
+      email: employee.user.email,
+    };
+  }
+
+  private mapDevice(
+    device: Prisma.MonitoringDeviceGetPayload<{
+      include: {
+        employee: { select: typeof monitoringEmployeeSelect };
+        heartbeats: { select: { recordedAt: true } };
+      };
+    }>,
+  ): MonitoringDeviceResponseDto {
+    return {
+      id: device.id,
+      employee: this.mapEmployee(device.employee),
+      deviceIdentifier: device.deviceIdentifier,
+      hostname: device.deviceName,
+      platform: device.platform,
+      osVersion: device.osVersion,
+      agentVersion: device.appVersion,
+      status: device.status,
+      lastHeartbeatAt: device.heartbeats[0]?.recordedAt.toISOString() ?? device.lastSeenAt?.toISOString() ?? null,
+      registeredAt: device.registeredAt.toISOString(),
+    };
+  }
+
+  private mapApplication(
+    usage: Prisma.ApplicationUsageGetPayload<{
+      include: { employee: { select: typeof monitoringEmployeeSelect } };
+    }>,
+  ): MonitoringApplicationUsageResponseDto {
+    return {
+      id: usage.id,
+      employee: this.mapEmployee(usage.employee),
+      application: usage.applicationName,
+      windowTitle: usage.windowTitle,
+      startedAt: usage.startedAt.toISOString(),
+      endedAt: usage.endedAt.toISOString(),
+      durationSeconds: usage.durationSeconds,
+    };
+  }
+
+  private mapWebsite(
+    usage: Prisma.WebsiteUsageGetPayload<{
+      include: { employee: { select: typeof monitoringEmployeeSelect } };
+    }>,
+  ): MonitoringWebsiteUsageResponseDto {
+    return {
+      id: usage.id,
+      employee: this.mapEmployee(usage.employee),
+      browserName: usage.browserName,
+      domain: usage.domain,
+      url: usage.url,
+      pageTitle: usage.pageTitle,
+      startedAt: usage.startedAt.toISOString(),
+      endedAt: usage.endedAt.toISOString(),
+      durationSeconds: usage.durationSeconds,
+    };
+  }
+
+  private mapActivity(
+    activity: Prisma.ActivitySessionGetPayload<{
+      include: {
+        employee: { select: typeof monitoringEmployeeSelect };
+        applicationUsages: true;
+        websiteUsages: true;
+      };
+    }>,
+  ): MonitoringActivityResponseDto {
+    return {
+      id: activity.id,
+      employee: this.mapEmployee(activity.employee),
+      deviceId: activity.deviceId,
+      clientSessionId: activity.clientSessionId,
+      startedAt: activity.startedAt.toISOString(),
+      endedAt: activity.endedAt.toISOString(),
+      durationSeconds: Math.max(0, Math.round((activity.endedAt.getTime() - activity.startedAt.getTime()) / 1000)),
+      activeSeconds: activity.activeSeconds,
+      idleSeconds: activity.idleSeconds,
+      keystrokeCount: activity.keystrokeCount,
+      mouseClickCount: activity.mouseClickCount,
+      applications: activity.applicationUsages.map((usage) => ({
+        id: usage.id,
+        employee: this.mapEmployee(activity.employee),
+        application: usage.applicationName,
+        windowTitle: usage.windowTitle,
+        startedAt: usage.startedAt.toISOString(),
+        endedAt: usage.endedAt.toISOString(),
+        durationSeconds: usage.durationSeconds,
+      })),
+      websites: activity.websiteUsages.map((usage) => ({
+        id: usage.id,
+        employee: this.mapEmployee(activity.employee),
+        browserName: usage.browserName,
+        domain: usage.domain,
+        url: usage.url,
+        pageTitle: usage.pageTitle,
+        startedAt: usage.startedAt.toISOString(),
+        endedAt: usage.endedAt.toISOString(),
+        durationSeconds: usage.durationSeconds,
+      })),
+    };
+  }
+
+  private mapScreenshot(
+    screenshot: Prisma.ScreenshotGetPayload<{
+      include: { employee: { select: typeof monitoringEmployeeSelect } };
+    }>,
+  ): MonitoringScreenshotResponseDto {
+    return {
+      id: screenshot.id,
+      employee: this.mapEmployee(screenshot.employee),
+      deviceId: screenshot.deviceId,
+      capturedAt: screenshot.capturedAt.toISOString(),
+      storageKey: screenshot.storageKey,
+      thumbnailUrl: null,
+      mimeType: screenshot.mimeType,
+      sizeBytes: screenshot.sizeBytes,
+      width: screenshot.width,
+      height: screenshot.height,
+      checksum: screenshot.checksum,
     };
   }
 
