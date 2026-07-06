@@ -49,7 +49,10 @@ const LeaveRequestCreatePage = lazy(() => import('@/features/leave/pages/LeaveRe
 const LeaveRequestDetailsPage = lazy(() => import('@/features/leave/pages/LeaveRequestDetailsPage'));
 const LeaveBalancesPage = lazy(() => import('@/features/leave/pages/LeaveBalancesPage'));
 const LiveStatusPage = lazy(() => import('@/features/monitoring/pages/LiveStatusPage'));
-const EmployeeMonitoringPage = lazy(() => import('@/features/monitoring/pages/EmployeeMonitoringPage'));
+const MonitoringActivityPage = lazy(() => import('@/features/monitoring/pages/MonitoringActivityPage'));
+const MonitoringScreenshotsPage = lazy(() => import('@/features/monitoring/pages/MonitoringScreenshotsPage'));
+const MonitoringAppsUrlsPage = lazy(() => import('@/features/monitoring/pages/MonitoringAppsUrlsPage'));
+const MonitoringDevicesPage = lazy(() => import('@/features/monitoring/pages/MonitoringDevicesPage'));
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage'));
 const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage'));
 const ComingSoonPage = lazy(() => import('@/pages/ComingSoonPage'));
@@ -80,8 +83,6 @@ const listRoutes: AppRoute[] = [
   { path: 'attendance/policies', element: <AttendancePoliciesPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'attendance/break-policies', element: <BreakPoliciesPage />, permission: 'attendance:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
   { path: 'leave/types', element: <LeaveTypesPage />, permission: 'leave:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-  { path: 'monitoring/live-status', element: <LiveStatusPage />, permission: 'monitoring:view' },
-  { path: 'monitoring/employees', element: <EmployeeMonitoringPage />, permission: 'monitoring:view' },
   { path: 'reports', element: <ReportsPage />, permission: 'reports:view' },
   { path: 'settings', element: <SettingsPage />, permission: 'settings:view' },
 ];
@@ -95,10 +96,6 @@ const comingSoonRoutes: AppRoute[] = [
   { path: 'employees/assets', element: <ComingSoonPage />, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER'] },
   { path: 'attendance/overtime-rules', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'attendance/holiday-calendar', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-  { path: 'monitoring/activity-timeline', element: <ComingSoonPage />, permission: 'monitoring:view' },
-  { path: 'monitoring/screenshots', element: <ComingSoonPage />, permission: 'monitoring:view' },
-  { path: 'monitoring/apps-urls', element: <ComingSoonPage />, permission: 'monitoring:view' },
-  { path: 'monitoring/devices', element: <ComingSoonPage />, permission: 'monitoring:view' },
   { path: 'monitoring/idle-time', element: <ComingSoonPage />, permission: 'monitoring:view' },
   { path: 'monitoring/productivity', element: <ComingSoonPage />, permission: 'monitoring:view' },
   { path: 'monitoring/alerts', element: <ComingSoonPage />, permission: 'monitoring:view' },
@@ -167,6 +164,11 @@ export const router = createBrowserRouter([
           { path: 'leave/requests/create', element: protectedElement(<LeaveRequestCreatePage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'leave/requests/:id', element: protectedElement(<LeaveRequestDetailsPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'leave/balances', element: protectedElement(<LeaveBalancesPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'monitoring/live-status', element: protectedElement(<LiveStatusPage />, 'monitoring:view') },
+          { path: 'monitoring/activity', element: protectedElement(<MonitoringActivityPage />, 'monitoring:view') },
+          { path: 'monitoring/screenshots', element: protectedElement(<MonitoringScreenshotsPage />, 'monitoring:view') },
+          { path: 'monitoring/apps-urls', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view') },
+          { path: 'monitoring/devices', element: protectedElement(<MonitoringDevicesPage />, 'monitoring:view') },
           ...comingSoonRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission, route.roles) })),
