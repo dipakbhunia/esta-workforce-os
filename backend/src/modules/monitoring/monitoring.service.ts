@@ -6,6 +6,7 @@
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AttendanceLogType,
   EmployeeStatus,
   MonitoringDeviceStatus,
   Prisma,
@@ -31,6 +32,16 @@ import {
   MonitoringWebsiteUsageResponseDto,
 } from './dto/monitoring-read-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
+import {
+  MonitoringTimelineEmployeeDto,
+  MonitoringTimelineMarkerDto,
+  MonitoringTimelineMarkerType,
+  MonitoringTimelineQueryDto,
+  MonitoringTimelineResponseDto,
+  MonitoringTimelineSegmentDto,
+  MonitoringTimelineSegmentSource,
+  MonitoringTimelineSegmentType,
+} from './dto/monitoring-timeline.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
 import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
@@ -56,6 +67,128 @@ const monitoringEmployeeSelect = {
     select: { firstName: true, lastName: true, email: true },
   },
 } satisfies Prisma.EmployeeSelect;
+
+type TimelineSegmentDraft = Omit<MonitoringTimelineSegmentDto, 'start' | 'end'> & {
+  start: Date;
+  end: Date;
+};
+
+type TimelineSegmentInput = Omit<TimelineSegmentDraft, 'durationSeconds'> & {
+  durationSeconds?: number;
+};
+
+type TimelineMarkerDraft = Omit<MonitoringTimelineMarkerDto, 'time'> & {
+  time: Date;
+};
+
+interface TimelineUser {
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+interface TimelineDevice {
+  id: string;
+  deviceIdentifier: string;
+  deviceName: string;
+  platform: string;
+  osVersion: string | null;
+  appVersion: string | null;
+  status: MonitoringDeviceStatus;
+  lastSeenAt: Date | null;
+  registeredAt: Date;
+}
+
+interface TimelineAttendanceLog {
+  id: string;
+  type: AttendanceLogType;
+  occurredAt: Date;
+  note: string | null;
+}
+
+interface TimelineBreakLog {
+  id: string;
+  breakPolicyId: string | null;
+  breakTypeName: string | null;
+  breakTypeCode: string | null;
+  allowedMinutes: number | null;
+  policyViolated: boolean;
+  startedAt: Date;
+  endedAt: Date | null;
+  autoPunchOutAt: Date | null;
+}
+
+interface TimelineAttendance {
+  id: string;
+  status: string;
+  punchInAt: Date | null;
+  punchOutAt: Date | null;
+  logs: TimelineAttendanceLog[];
+  breaks: TimelineBreakLog[];
+}
+
+interface TimelineHeartbeat {
+  id: string;
+  recordedAt: Date;
+  idleSeconds: number;
+  isOnline: boolean;
+  deviceId: string;
+}
+
+interface TimelineApplicationUsage {
+  applicationName: string;
+  windowTitle: string | null;
+  startedAt: Date;
+  endedAt: Date;
+  durationSeconds: number;
+}
+
+interface TimelineWebsiteUsage {
+  domain: string;
+  url: string | null;
+  pageTitle: string | null;
+  startedAt: Date;
+  endedAt: Date;
+  durationSeconds: number;
+}
+
+interface TimelineActivitySession {
+  id: string;
+  deviceId: string;
+  clientSessionId: string;
+  startedAt: Date;
+  endedAt: Date;
+  activeSeconds: number;
+  idleSeconds: number;
+  applicationUsages: TimelineApplicationUsage[];
+  websiteUsages: TimelineWebsiteUsage[];
+}
+
+interface TimelineScreenshot {
+  id: string;
+  capturedAt: Date;
+  storageKey: string;
+  mimeType: string;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number | null;
+  deviceId: string;
+}
+
+interface TimelineEmployee {
+  id: string;
+  employeeCode: string;
+  companyId: string;
+  user: TimelineUser;
+  company: {
+    attendancePolicies: Array<{ heartbeatTimeoutMinutes: number }>;
+  };
+  monitoringDevices: TimelineDevice[];
+  attendances: TimelineAttendance[];
+  heartbeats: TimelineHeartbeat[];
+  activitySessions: TimelineActivitySession[];
+  screenshots: TimelineScreenshot[];
+}
 
 @Injectable()
 export class MonitoringService {
@@ -361,6 +494,112 @@ export class MonitoringService {
     actor: AuthenticatedUser,
   ) {
     return this.devices({ ...query, employeeId }, actor);
+  }
+
+  async timeline(
+    query: MonitoringTimelineQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringTimelineResponseDto> {
+    const range = this.timelineRange(query);
+    const filters: Prisma.EmployeeWhereInput[] = [
+      await this.employeeVisibilityWhere(actor),
+      { deletedAt: null, status: EmployeeStatus.ACTIVE },
+    ];
+    if (query.employeeId) filters.push({ id: query.employeeId });
+    if (query.branchId) filters.push({ branchId: query.branchId });
+    if (query.departmentId) filters.push({ departmentId: query.departmentId });
+    if (query.teamOnly) {
+      const ownEmployeeId = await this.ownEmployeeId(actor);
+      if (ownEmployeeId && actor.roles.includes(RoleName.MANAGER)) {
+        filters.push({ reportingManagerId: ownEmployeeId });
+      } else if (ownEmployeeId && actor.roles.includes(RoleName.EMPLOYEE)) {
+        filters.push({ id: ownEmployeeId });
+      }
+    }
+    if (query.search) filters.push(this.employeeSearchWhere(query.search));
+
+    const where: Prisma.EmployeeWhereInput = { AND: filters };
+    const [employees, total] = await this.prisma.$transaction([
+      this.prisma.employee.findMany({
+        where,
+        ...paginationArgs(query),
+        orderBy: { employeeCode: 'asc' },
+        select: {
+          id: true,
+          employeeCode: true,
+          companyId: true,
+          user: { select: { firstName: true, lastName: true, email: true } },
+          company: {
+            select: {
+              attendancePolicies: {
+                where: { isActive: true },
+                orderBy: { updatedAt: 'desc' },
+                take: 1,
+                select: { heartbeatTimeoutMinutes: true },
+              },
+            },
+          },
+          monitoringDevices: {
+            where: { deletedAt: null },
+            orderBy: [{ lastSeenAt: 'desc' }, { registeredAt: 'desc' }],
+            take: 1,
+            select: deviceSelect,
+          },
+          attendances: {
+            where: {
+              punchInAt: { lt: range.end },
+              OR: [{ punchOutAt: null }, { punchOutAt: { gt: range.start } }],
+            },
+            orderBy: { punchInAt: 'asc' },
+            include: {
+              logs: { orderBy: { occurredAt: 'asc' } },
+              breaks: { orderBy: { startedAt: 'asc' }, include: { breakPolicy: true } },
+            },
+          },
+          heartbeats: {
+            where: { recordedAt: { gte: range.start, lt: range.end } },
+            orderBy: { recordedAt: 'asc' },
+            select: { id: true, recordedAt: true, idleSeconds: true, isOnline: true, deviceId: true },
+          },
+          activitySessions: {
+            where: { startedAt: { lt: range.end }, endedAt: { gt: range.start } },
+            orderBy: { startedAt: 'asc' },
+            include: {
+              applicationUsages: { orderBy: { startedAt: 'asc' } },
+              websiteUsages: { orderBy: { startedAt: 'asc' } },
+            },
+          },
+          screenshots: {
+            where: { capturedAt: { gte: range.start, lt: range.end }, deletedAt: null },
+            orderBy: { capturedAt: 'asc' },
+            select: {
+              id: true,
+              capturedAt: true,
+              storageKey: true,
+              mimeType: true,
+              width: true,
+              height: true,
+              sizeBytes: true,
+              deviceId: true,
+            },
+          },
+        },
+      }),
+      this.prisma.employee.count({ where }),
+    ]);
+
+    return {
+      date: range.date,
+      rangeStart: range.start.toISOString(),
+      rangeEnd: range.end.toISOString(),
+      employees: employees.map((employee) => this.buildTimelineEmployee(employee, range.start, range.end)),
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    };
   }
 
   async liveStatus(query: LiveStatusQueryDto, actor: AuthenticatedUser) {
@@ -851,6 +1090,387 @@ export class MonitoringService {
       height: screenshot.height,
       checksum: screenshot.checksum,
     };
+  }
+
+  private buildTimelineEmployee(
+    employee: TimelineEmployee,
+    rangeStart: Date,
+    rangeEnd: Date,
+  ): MonitoringTimelineEmployeeDto {
+    const segments: TimelineSegmentDraft[] = [];
+    const markers: TimelineMarkerDraft[] = [];
+    const heartbeatTimeoutMinutes =
+      employee.company.attendancePolicies[0]?.heartbeatTimeoutMinutes ??
+      DEFAULT_HEARTBEAT_TIMEOUT_MINUTES;
+    const heartbeatTimeoutMs = Math.max(heartbeatTimeoutMinutes, 1) * 60000;
+
+    for (const attendance of employee.attendances) {
+      if (attendance.punchInAt) {
+        this.pushSegment(segments, {
+          type: MonitoringTimelineSegmentType.ACTIVE,
+          start: attendance.punchInAt,
+          end: attendance.punchOutAt ?? rangeEnd,
+          source: MonitoringTimelineSegmentSource.ATTENDANCE,
+          intensity: null,
+          metadata: {
+            attendanceId: attendance.id,
+            status: attendance.status,
+          },
+        }, rangeStart, rangeEnd);
+      }
+
+      for (const log of attendance.logs) {
+        if (!this.isWithinRange(log.occurredAt, rangeStart, rangeEnd)) continue;
+        markers.push({
+          type:
+            log.type === AttendanceLogType.PUNCH_IN
+              ? MonitoringTimelineMarkerType.PUNCH_IN
+              : MonitoringTimelineMarkerType.PUNCH_OUT,
+          time: log.occurredAt,
+          title: log.type === AttendanceLogType.PUNCH_IN ? 'Punch In' : 'Punch Out',
+          metadata: {
+            attendanceId: attendance.id,
+            logId: log.id,
+            note: log.note,
+          },
+        });
+      }
+
+      for (const breakLog of attendance.breaks) {
+        this.pushSegment(segments, {
+          type: MonitoringTimelineSegmentType.BREAK,
+          start: breakLog.startedAt,
+          end: breakLog.endedAt ?? breakLog.autoPunchOutAt ?? rangeEnd,
+          source: MonitoringTimelineSegmentSource.BREAK,
+          intensity: null,
+          deviceId: null,
+          metadata: {
+            attendanceId: attendance.id,
+            breakId: breakLog.id,
+            breakPolicyId: breakLog.breakPolicyId,
+            name: breakLog.breakTypeName,
+            code: breakLog.breakTypeCode,
+            allowedMinutes: breakLog.allowedMinutes,
+            policyViolated: breakLog.policyViolated,
+          },
+        }, rangeStart, rangeEnd);
+
+        if (this.isWithinRange(breakLog.startedAt, rangeStart, rangeEnd)) {
+          markers.push({
+            type: MonitoringTimelineMarkerType.BREAK_START,
+            time: breakLog.startedAt,
+            title: `${breakLog.breakTypeName ?? 'Break'} Start`,
+            metadata: { attendanceId: attendance.id, breakId: breakLog.id },
+          });
+        }
+        const breakEnd = breakLog.endedAt ?? breakLog.autoPunchOutAt;
+        if (breakEnd && this.isWithinRange(breakEnd, rangeStart, rangeEnd)) {
+          markers.push({
+            type: MonitoringTimelineMarkerType.BREAK_END,
+            time: breakEnd,
+            title: `${breakLog.breakTypeName ?? 'Break'} End`,
+            metadata: { attendanceId: attendance.id, breakId: breakLog.id },
+          });
+        }
+      }
+    }
+
+    for (const activity of employee.activitySessions) {
+      const durationSeconds = Math.max(1, this.durationSeconds(activity.startedAt, activity.endedAt));
+      const activeSeconds = Math.min(Math.max(activity.activeSeconds ?? 0, 0), durationSeconds);
+      const idleSeconds = Math.min(Math.max(activity.idleSeconds ?? 0, 0), Math.max(durationSeconds - activeSeconds, 0));
+      const activeEnd = new Date(activity.startedAt.getTime() + activeSeconds * 1000);
+      const idleEnd = new Date(activeEnd.getTime() + idleSeconds * 1000);
+      const activityMetadata = {
+        activitySessionId: activity.id,
+        clientSessionId: activity.clientSessionId,
+        applications: activity.applicationUsages.map((usage) => ({
+          applicationName: usage.applicationName,
+          windowTitle: usage.windowTitle,
+          startedAt: usage.startedAt.toISOString(),
+          endedAt: usage.endedAt.toISOString(),
+          durationSeconds: usage.durationSeconds,
+        })),
+        websites: activity.websiteUsages.map((usage) => ({
+          domain: usage.domain,
+          url: usage.url,
+          pageTitle: usage.pageTitle,
+          startedAt: usage.startedAt.toISOString(),
+          endedAt: usage.endedAt.toISOString(),
+          durationSeconds: usage.durationSeconds,
+        })),
+      };
+
+      if (activeSeconds > 0) {
+        this.pushSegment(segments, {
+          type: MonitoringTimelineSegmentType.ACTIVE,
+          start: activity.startedAt,
+          end: activeEnd,
+          source: MonitoringTimelineSegmentSource.ACTIVITY,
+          intensity: Math.round((activeSeconds / durationSeconds) * 100),
+          activitySessionId: activity.id,
+          deviceId: activity.deviceId,
+          metadata: activityMetadata,
+        }, rangeStart, rangeEnd);
+      }
+      if (idleSeconds > 0) {
+        this.pushSegment(segments, {
+          type: MonitoringTimelineSegmentType.IDLE,
+          start: activeEnd,
+          end: idleEnd,
+          source: MonitoringTimelineSegmentSource.ACTIVITY,
+          intensity: 0,
+          activitySessionId: activity.id,
+          deviceId: activity.deviceId,
+          metadata: {
+            activitySessionId: activity.id,
+            approximation: 'Idle placement is derived from aggregate ActivitySession idleSeconds.',
+          },
+        }, rangeStart, rangeEnd);
+      }
+    }
+
+    for (let index = 1; index < employee.heartbeats.length; index += 1) {
+      const previous = employee.heartbeats[index - 1];
+      const current = employee.heartbeats[index];
+      const offlineStart = new Date(previous.recordedAt.getTime() + heartbeatTimeoutMs);
+      if (offlineStart < current.recordedAt) {
+        this.pushSegment(segments, {
+          type: MonitoringTimelineSegmentType.OFFLINE,
+          start: offlineStart,
+          end: current.recordedAt,
+          source: MonitoringTimelineSegmentSource.HEARTBEAT,
+          intensity: null,
+          deviceId: previous.deviceId,
+          metadata: {
+            previousHeartbeatId: previous.id,
+            nextHeartbeatId: current.id,
+            heartbeatTimeoutMinutes,
+          },
+        }, rangeStart, rangeEnd);
+      }
+    }
+    const latestHeartbeat = employee.heartbeats.at(-1);
+    if (latestHeartbeat) {
+      const offlineStart = new Date(latestHeartbeat.recordedAt.getTime() + heartbeatTimeoutMs);
+      if (offlineStart < rangeEnd) {
+        this.pushSegment(segments, {
+          type: MonitoringTimelineSegmentType.OFFLINE,
+          start: offlineStart,
+          end: rangeEnd,
+          source: MonitoringTimelineSegmentSource.HEARTBEAT,
+          intensity: null,
+          deviceId: latestHeartbeat.deviceId,
+          metadata: {
+            heartbeatId: latestHeartbeat.id,
+            heartbeatTimeoutMinutes,
+          },
+        }, rangeStart, rangeEnd);
+      }
+    }
+    // TODO: Decide whether employees/devices with no heartbeat in range should render OFFLINE instead of NO_ACTIVITY.
+
+    for (const screenshot of employee.screenshots) {
+      markers.push({
+        type: MonitoringTimelineMarkerType.SCREENSHOT,
+        time: screenshot.capturedAt,
+        title: 'Screenshot',
+        metadata: {
+          screenshotId: screenshot.id,
+          deviceId: screenshot.deviceId,
+          storageKey: screenshot.storageKey,
+          mimeType: screenshot.mimeType,
+          width: screenshot.width,
+          height: screenshot.height,
+          sizeBytes: screenshot.sizeBytes,
+        },
+      });
+    }
+
+    const noActivitySegments = this.noActivitySegments(segments, rangeStart, rangeEnd);
+    const allSegments = [...segments, ...noActivitySegments]
+      .sort((left, right) => left.start.getTime() - right.start.getTime())
+      .map((segment) => this.timelineSegmentDto(segment));
+    const allMarkers = markers
+      .filter((marker) => this.isWithinRange(marker.time, rangeStart, rangeEnd))
+      .sort((left, right) => left.time.getTime() - right.time.getTime())
+      .map((marker) => this.timelineMarkerDto(marker));
+
+    const summary = this.timelineSummary(segments);
+    const device = employee.monitoringDevices[0] ?? null;
+
+    return {
+      employeeId: employee.id,
+      employeeCode: employee.employeeCode,
+      user: {
+        name: `${employee.user.firstName} ${employee.user.lastName}`.trim(),
+        email: employee.user.email,
+      },
+      device: device
+        ? {
+            id: device.id,
+            employee: this.mapEmployee(employee),
+            deviceIdentifier: device.deviceIdentifier,
+            hostname: device.deviceName,
+            platform: device.platform,
+            osVersion: device.osVersion,
+            agentVersion: device.appVersion,
+            status: device.status,
+            lastHeartbeatAt: device.lastSeenAt?.toISOString() ?? null,
+            registeredAt: device.registeredAt.toISOString(),
+          }
+        : null,
+      summary,
+      segments: allSegments,
+      markers: allMarkers,
+    };
+  }
+
+  private pushSegment(
+    segments: TimelineSegmentDraft[],
+    segment: TimelineSegmentInput,
+    rangeStart: Date,
+    rangeEnd: Date,
+  ): void {
+    const start = segment.start < rangeStart ? rangeStart : segment.start;
+    const end = segment.end > rangeEnd ? rangeEnd : segment.end;
+    if (start >= end) return;
+    segments.push({ ...segment, start, end, durationSeconds: this.durationSeconds(start, end) });
+  }
+
+  private noActivitySegments(
+    segments: TimelineSegmentDraft[],
+    rangeStart: Date,
+    rangeEnd: Date,
+  ): TimelineSegmentDraft[] {
+    const intervals = segments
+      .filter((segment) => segment.type !== MonitoringTimelineSegmentType.NO_ACTIVITY)
+      .map((segment) => ({ start: segment.start, end: segment.end }))
+      .sort((left, right) => left.start.getTime() - right.start.getTime());
+    const merged: Array<{ start: Date; end: Date }> = [];
+    for (const interval of intervals) {
+      const current = merged.at(-1);
+      if (!current || interval.start > current.end) {
+        merged.push({ ...interval });
+      } else if (interval.end > current.end) {
+        current.end = interval.end;
+      }
+    }
+
+    const gaps: TimelineSegmentDraft[] = [];
+    let cursor = rangeStart;
+    for (const interval of merged) {
+      if (cursor < interval.start) {
+        gaps.push({
+          type: MonitoringTimelineSegmentType.NO_ACTIVITY,
+          start: cursor,
+          end: interval.start,
+          durationSeconds: this.durationSeconds(cursor, interval.start),
+          intensity: null,
+          source: MonitoringTimelineSegmentSource.ACTIVITY,
+          metadata: null,
+        });
+      }
+      if (interval.end > cursor) cursor = interval.end;
+    }
+    if (cursor < rangeEnd) {
+      gaps.push({
+        type: MonitoringTimelineSegmentType.NO_ACTIVITY,
+        start: cursor,
+        end: rangeEnd,
+        durationSeconds: this.durationSeconds(cursor, rangeEnd),
+        intensity: null,
+        source: MonitoringTimelineSegmentSource.ACTIVITY,
+        metadata: null,
+      });
+    }
+    return gaps;
+  }
+
+  private timelineSummary(segments: TimelineSegmentDraft[]): {
+    activeSeconds: number;
+    idleSeconds: number;
+    breakSeconds: number;
+    offlineSeconds: number;
+    workedSeconds: number;
+  } {
+    const total = (type: MonitoringTimelineSegmentType) =>
+      segments
+        .filter((segment) => segment.type === type)
+        .reduce((sum, segment) => sum + segment.durationSeconds, 0);
+    const activeSeconds = total(MonitoringTimelineSegmentType.ACTIVE);
+    const idleSeconds = total(MonitoringTimelineSegmentType.IDLE);
+    const breakSeconds = total(MonitoringTimelineSegmentType.BREAK);
+    const offlineSeconds = total(MonitoringTimelineSegmentType.OFFLINE);
+    return {
+      activeSeconds,
+      idleSeconds,
+      breakSeconds,
+      offlineSeconds,
+      workedSeconds: activeSeconds + idleSeconds,
+    };
+  }
+
+  private timelineSegmentDto(segment: TimelineSegmentDraft): MonitoringTimelineSegmentDto {
+    return {
+      ...segment,
+      start: segment.start.toISOString(),
+      end: segment.end.toISOString(),
+    };
+  }
+
+  private timelineMarkerDto(marker: TimelineMarkerDraft): MonitoringTimelineMarkerDto {
+    return {
+      ...marker,
+      time: marker.time.toISOString(),
+    };
+  }
+
+  private timelineRange(query: MonitoringTimelineQueryDto): {
+    date: string;
+    start: Date;
+    end: Date;
+  } {
+    if (query.date) {
+      const start = new Date(`${query.date.slice(0, 10)}T00:00:00.000Z`);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 1);
+      return { date: query.date.slice(0, 10), start, end };
+    }
+
+    const range = this.dateRange({
+      ...query,
+      dateFrom: query.dateFrom ? this.normalizeDateRangeBoundary(query.dateFrom, 'start') : undefined,
+      dateTo: query.dateTo ? this.normalizeDateRangeBoundary(query.dateTo, 'end') : undefined,
+    });
+    return {
+      date: range.gte.toISOString().slice(0, 10),
+      start: range.gte,
+      end: range.lte,
+    };
+  }
+
+  private normalizeDateRangeBoundary(value: string, boundary: 'start' | 'end'): string {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    return boundary === 'start'
+      ? `${value}T00:00:00.000Z`
+      : `${value}T23:59:59.999Z`;
+  }
+
+  private async ownEmployeeId(actor: AuthenticatedUser): Promise<string | null> {
+    const employee = await this.prisma.employee.findFirst({
+      where: { userId: actor.id, deletedAt: null },
+      select: { id: true },
+    });
+    return employee?.id ?? null;
+  }
+
+  private isWithinRange(value: Date, rangeStart: Date, rangeEnd: Date): boolean {
+    return value >= rangeStart && value < rangeEnd;
+  }
+
+  private durationSeconds(start: Date, end: Date): number {
+    return Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
   }
 
   private liveStatusEmployeeSelect() {

@@ -19,6 +19,7 @@ import {
   PaginatedMonitoringWebsiteUsageResponseDto,
 } from './dto/monitoring-read-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
+import { MonitoringTimelineQueryDto, MonitoringTimelineResponseDto } from './dto/monitoring-timeline.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
 import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
@@ -47,6 +48,20 @@ export class MonitoringController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.registerDevice(dto, user);
+  }
+
+  @Get('timeline')
+  @ApiOperation({
+    summary: 'Get consolidated employee monitoring timeline',
+    description:
+      'Returns employee-wise timeline segments and markers derived from attendance, breaks, heartbeats, activity sessions, app and website usage, screenshots, and devices.',
+  })
+  @ApiOkResponse({ type: MonitoringTimelineResponseDto })
+  timeline(
+    @Query() query: MonitoringTimelineQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.timeline(query, user);
   }
 
   @Get('activity')
