@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { lazy, Suspense } from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { ProtectedRoute, PublicRoute, RoleGuard, type Permission, type RoleName } from '@/features/auth';
 import { AppLayout } from '@/layouts';
@@ -49,6 +49,7 @@ const LeaveRequestCreatePage = lazy(() => import('@/features/leave/pages/LeaveRe
 const LeaveRequestDetailsPage = lazy(() => import('@/features/leave/pages/LeaveRequestDetailsPage'));
 const LeaveBalancesPage = lazy(() => import('@/features/leave/pages/LeaveBalancesPage'));
 const LiveStatusPage = lazy(() => import('@/features/monitoring/pages/LiveStatusPage'));
+const MonitoringTimelinePage = lazy(() => import('@/features/monitoring/pages/MonitoringTimelinePage'));
 const MonitoringActivityPage = lazy(() => import('@/features/monitoring/pages/MonitoringActivityPage'));
 const MonitoringScreenshotsPage = lazy(() => import('@/features/monitoring/pages/MonitoringScreenshotsPage'));
 const MonitoringAppsUrlsPage = lazy(() => import('@/features/monitoring/pages/MonitoringAppsUrlsPage'));
@@ -165,6 +166,8 @@ export const router = createBrowserRouter([
           { path: 'leave/requests/:id', element: protectedElement(<LeaveRequestDetailsPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'leave/balances', element: protectedElement(<LeaveBalancesPage />, 'leave:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'monitoring/live-status', element: protectedElement(<LiveStatusPage />, 'monitoring:view') },
+          { path: 'monitoring/timeline', element: protectedElement(<MonitoringTimelinePage />, 'monitoring:view') },
+          { path: 'monitoring/activity-timeline', element: protectedElement(<Navigate to="/monitoring/timeline" replace />, 'monitoring:view') },
           { path: 'monitoring/activity', element: protectedElement(<MonitoringActivityPage />, 'monitoring:view') },
           { path: 'monitoring/screenshots', element: protectedElement(<MonitoringScreenshotsPage />, 'monitoring:view') },
           { path: 'monitoring/apps-urls', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view') },

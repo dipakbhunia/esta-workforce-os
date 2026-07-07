@@ -140,3 +140,90 @@ export interface MonitoringScreenshot {
   height: number | null;
   checksum: string | null;
 }
+
+export interface MonitoringTimelineParams {
+  page: number;
+  limit: number;
+  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  employeeId?: string;
+  branchId?: string;
+  departmentId?: string;
+  teamOnly?: boolean;
+  search?: string;
+}
+
+export type MonitoringTimelineSegmentType = 'ACTIVE' | 'IDLE' | 'BREAK' | 'OFFLINE' | 'NO_ACTIVITY';
+
+export type MonitoringTimelineSegmentSource = 'HEARTBEAT' | 'ACTIVITY' | 'ATTENDANCE' | 'BREAK';
+
+export type MonitoringTimelineMarkerType =
+  | 'PUNCH_IN'
+  | 'PUNCH_OUT'
+  | 'BREAK_START'
+  | 'BREAK_END'
+  | 'SCREENSHOT';
+
+export interface MonitoringTimelineSummary {
+  activeSeconds: number;
+  idleSeconds: number;
+  breakSeconds: number;
+  offlineSeconds: number;
+  workedSeconds: number;
+}
+
+export interface MonitoringTimelineSegment {
+  type: MonitoringTimelineSegmentType;
+  start: string;
+  end: string;
+  durationSeconds: number;
+  intensity: number | null;
+  source: MonitoringTimelineSegmentSource;
+  applicationName?: string | null;
+  domain?: string | null;
+  activitySessionId?: string | null;
+  deviceId?: string | null;
+  metadata?: {
+    applicationName?: string;
+    domain?: string;
+    activitySessionId?: string;
+    deviceId?: string;
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface MonitoringTimelineMarker {
+  type: MonitoringTimelineMarkerType;
+  time: string;
+  title: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface MonitoringTimelineUser {
+  name: string;
+  email: string;
+}
+
+export interface MonitoringTimelineEmployee {
+  employeeId: string;
+  employeeCode: string;
+  user?: MonitoringTimelineUser | null;
+  device?: MonitoringDevice | null;
+  summary: MonitoringTimelineSummary;
+  segments: MonitoringTimelineSegment[];
+  markers: MonitoringTimelineMarker[];
+}
+
+export interface MonitoringTimelineResponse {
+  date: string;
+  rangeStart: string;
+  rangeEnd: string;
+  employees: MonitoringTimelineEmployee[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}

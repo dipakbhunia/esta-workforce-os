@@ -86,6 +86,7 @@ export const navigation: NavGroup[] = [
     permission: 'monitoring:view',
     children: [
       { label: 'Live Status', path: '/monitoring/live-status', icon: MonitorDot, permission: 'monitoring:view' },
+      { label: 'Timeline', path: '/monitoring/timeline', icon: TimerReset, permission: 'monitoring:view' },
       { label: 'Activity Timeline', path: '/monitoring/activity', icon: Activity, permission: 'monitoring:view' },
       { label: 'Screenshots', path: '/monitoring/screenshots', icon: IdCard, permission: 'monitoring:view' },
       { label: 'Apps & URLs', path: '/monitoring/apps-urls', icon: Laptop, permission: 'monitoring:view' },
