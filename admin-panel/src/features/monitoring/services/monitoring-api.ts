@@ -7,6 +7,8 @@ import type {
   MonitoringDevice,
   MonitoringListParams,
   MonitoringScreenshot,
+  MonitoringSummaryParams,
+  MonitoringSummaryResponse,
   MonitoringTimelineParams,
   MonitoringTimelineResponse,
   MonitoringWebsiteUsage,
@@ -59,6 +61,10 @@ export function getMonitoringDevices(params: MonitoringListParams) {
 
 export function getEmployeeMonitoringDevices(employeeId: string, params: Omit<MonitoringListParams, 'employeeId'>) {
   return http.get<PaginatedMonitoringResponse<MonitoringDevice>>(`/monitoring/devices/${employeeId}`, { params });
+}
+
+export function getMonitoringSummary(params: MonitoringSummaryParams) {
+  return http.get<MonitoringSummaryResponse>('/monitoring/summary', { params });
 }
 
 export function getMonitoringTimeline(params: MonitoringTimelineParams) {

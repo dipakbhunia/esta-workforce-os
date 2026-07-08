@@ -18,6 +18,8 @@ export interface MonitoringListParams {
   dateTo?: string;
 }
 
+export type MonitoringSummaryParams = MonitoringListParams;
+
 export type LiveStatusValue =
   | 'ONLINE'
   | 'WORKING'
@@ -139,6 +141,51 @@ export interface MonitoringScreenshot {
   width: number | null;
   height: number | null;
   checksum: string | null;
+}
+
+export interface MonitoringSummaryEmployeeUser {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+}
+
+export interface MonitoringSummaryEmployee {
+  id: string;
+  employeeCode: string;
+  user?: MonitoringSummaryEmployeeUser | null;
+}
+
+export interface MonitoringSummaryRecord {
+  employee: MonitoringSummaryEmployee;
+  devices: MonitoringDevice[];
+  latestHeartbeat: {
+    id: string;
+    recordedAt: string;
+    deviceId: string;
+    employeeId: string;
+  } | null;
+  activity: {
+    sessions: number;
+    activeSeconds: number;
+    idleSeconds: number;
+  };
+  screenshots: number;
+  applications: {
+    entries: number;
+    durationSeconds: number;
+  };
+  websites: {
+    entries: number;
+    durationSeconds: number;
+  };
+}
+
+export interface MonitoringSummaryResponse extends PaginatedMonitoringResponse<MonitoringSummaryRecord> {
+  range: {
+    from?: string;
+    to?: string;
+  };
 }
 
 export interface MonitoringTimelineParams {
