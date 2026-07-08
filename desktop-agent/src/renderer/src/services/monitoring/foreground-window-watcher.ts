@@ -20,12 +20,13 @@ export class ForegroundWindowWatcher {
     return this.normalize(value);
   }
 
-  private normalize(value: ForegroundWindowMetadata): ForegroundActivitySnapshot {
+  private async normalize(value: ForegroundWindowMetadata): Promise<ForegroundActivitySnapshot> {
     const applicationName =
       value.applicationName ??
-      value.processName ??
       value.executableName ??
-      'Unknown Application';
+      value.processName ??
+      value.windowTitle ??
+      'Unknown';
     const windowTitle = value.windowTitle ?? 'Untitled window';
     return {
       capturedAt: value.capturedAt,
@@ -35,7 +36,7 @@ export class ForegroundWindowWatcher {
       executableName: value.executableName,
       applicationName,
       windowTitle,
-      browser: this.browserWatcher.detect(value),
+      browser: await this.browserWatcher.detect(value),
     };
   }
 }

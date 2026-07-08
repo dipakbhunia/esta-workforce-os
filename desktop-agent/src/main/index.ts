@@ -9,7 +9,7 @@ import type { DesktopSettings } from '../shared/contracts';
 import { ipcChannels } from '../shared/ipc-channels';
 import { DeviceIdentity } from './device/device-identity';
 import { registerIpcHandlers } from './ipc/register-ipc';
-import { getForegroundWindowMetadata } from './platform/foreground-window';
+import { ForegroundWindowSampler } from './platform/foreground-window';
 import { JsonFileStore } from './storage/json-file-store';
 import { SecureTokenStore } from './storage/secure-token-store';
 
@@ -27,6 +27,7 @@ let mainWindow: BrowserWindowType | null = null;
 let tray: TrayType | null = null;
 let isAuthenticated = false;
 let isQuitting = false;
+const foregroundWindowSampler = new ForegroundWindowSampler();
 
 const defaultSettings: DesktopSettings = {
   heartbeatIntervalMs: 60000,
@@ -167,13 +168,14 @@ app.whenReady().then(async () => {
     defaultSettings,
   );
   applyStartupSetting(await settings.read());
+  foregroundWindowSampler.start();
   createTray();
   registerIpcHandlers(tokenStore, deviceIdentity, settings, {
     setAuthenticated,
     showAndFocus: showAndFocusWindow,
     applyStartupSetting,
     getSystemIdleTimeSeconds: () => powerMonitor.getSystemIdleTime(),
-    getForegroundWindow: getForegroundWindowMetadata,
+    getForegroundWindow: () => foregroundWindowSampler.getMetadata(),
   });
   createWindow();
 
@@ -184,6 +186,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  foregroundWindowSampler.stop();
 });
 
 app.on('window-all-closed', () => {

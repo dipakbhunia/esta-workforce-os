@@ -73,7 +73,7 @@ export class SessionManager {
     const applicationName = this.current.foreground.applicationName;
     const windowTitle = this.current.foreground.windowTitle;
     const browser = this.current.foreground.browser;
-    const hasWebsiteUrl = browser.isBrowser && Boolean(browser.domain && browser.domain !== 'unknown');
+    const hasWebsiteUrl = browser.isBrowser && browser.urlAvailable && Boolean(browser.domain);
 
     return {
       deviceId: this.deviceId,
@@ -89,11 +89,14 @@ export class SessionManager {
         processId: this.current.foreground.processId,
         processName: this.current.foreground.processName,
         executableName: this.current.foreground.executableName,
+        executable: this.current.foreground.executableName,
+        windowTitle,
         idleState: this.current.idleState,
         systemIdleSeconds: this.current.systemIdleSeconds,
         browserDetected: browser.isBrowser,
         browserName: browser.browserName,
         browserWindowTitle: browser.title ?? (browser.isBrowser ? windowTitle : undefined),
+        browserProviderAvailable: browser.providerAvailable,
         urlAvailable: hasWebsiteUrl,
         inputCountSource: 'not_collected_in_phase_6_4a',
         privacy: 'metadata_only_no_keylogging_no_clipboard_no_page_content',

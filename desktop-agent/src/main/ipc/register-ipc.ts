@@ -10,7 +10,7 @@ export interface AppIpcActions {
   showAndFocus(): void;
   applyStartupSetting(settings: DesktopSettings): void;
   getSystemIdleTimeSeconds(): number;
-  getForegroundWindow(): Promise<ForegroundWindowMetadata>;
+  getForegroundWindow(): ForegroundWindowMetadata | Promise<ForegroundWindowMetadata>;
 }
 
 export function registerIpcHandlers(
