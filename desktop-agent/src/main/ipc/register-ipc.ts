@@ -1,5 +1,5 @@
 ﻿import { app, ipcMain } from 'electron';
-import type { AuthTokens, DesktopSettings } from '../../shared/contracts';
+import type { AuthTokens, DesktopSettings, ForegroundWindowMetadata } from '../../shared/contracts';
 import { ipcChannels } from '../../shared/ipc-channels';
 import { DeviceIdentity } from '../device/device-identity';
 import { JsonFileStore } from '../storage/json-file-store';
@@ -10,6 +10,7 @@ export interface AppIpcActions {
   showAndFocus(): void;
   applyStartupSetting(settings: DesktopSettings): void;
   getSystemIdleTimeSeconds(): number;
+  getForegroundWindow(): Promise<ForegroundWindowMetadata>;
 }
 
 export function registerIpcHandlers(
@@ -46,6 +47,9 @@ export function registerIpcHandlers(
   ipcMain.handle(ipcChannels.appShowAndFocus, () => actions.showAndFocus());
   ipcMain.handle(ipcChannels.systemGetIdleTimeSeconds, () =>
     actions.getSystemIdleTimeSeconds(),
+  );
+  ipcMain.handle(ipcChannels.systemGetForegroundWindow, () =>
+    actions.getForegroundWindow(),
   );
 }
 

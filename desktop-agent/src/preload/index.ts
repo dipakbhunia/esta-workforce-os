@@ -25,6 +25,8 @@ const api: EstaDesktopApi = {
   system: {
     getIdleTimeSeconds: () =>
       ipcRenderer.invoke(ipcChannels.systemGetIdleTimeSeconds),
+    getForegroundWindow: () =>
+      ipcRenderer.invoke(ipcChannels.systemGetForegroundWindow),
   },
   app: {
     getVersion: () => ipcRenderer.invoke(ipcChannels.appGetVersion),

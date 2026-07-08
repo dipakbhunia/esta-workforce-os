@@ -37,3 +37,6 @@ desktop-agent/release/
 tmp/
 temp/
 *.tmp
+
+# Design / UI reference images
+references/

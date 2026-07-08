@@ -9,5 +9,6 @@
   appSetAuthenticated: 'app:set-authenticated',
   appShowAndFocus: 'app:show-and-focus',
   systemGetIdleTimeSeconds: 'system:get-idle-time-seconds',
+  systemGetForegroundWindow: 'system:get-foreground-window',
   appSignOutRequested: 'app:sign-out-requested',
 } as const;

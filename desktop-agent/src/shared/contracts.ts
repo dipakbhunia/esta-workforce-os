@@ -18,6 +18,16 @@ export interface DesktopSettings {
   startWithWindows: boolean;
 }
 
+export interface ForegroundWindowMetadata {
+  capturedAt: string;
+  platform: string;
+  processId: number | null;
+  processName: string | null;
+  executableName: string | null;
+  applicationName: string | null;
+  windowTitle: string | null;
+}
+
 export interface EstaDesktopApi {
   tokens: {
     get: () => Promise<AuthTokens | null>;
@@ -33,6 +43,7 @@ export interface EstaDesktopApi {
   };
   system: {
     getIdleTimeSeconds: () => Promise<number>;
+    getForegroundWindow: () => Promise<ForegroundWindowMetadata>;
   };
   app: {
     getVersion: () => Promise<string>;

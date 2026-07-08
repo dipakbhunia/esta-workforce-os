@@ -9,6 +9,7 @@ import type { DesktopSettings } from '../shared/contracts';
 import { ipcChannels } from '../shared/ipc-channels';
 import { DeviceIdentity } from './device/device-identity';
 import { registerIpcHandlers } from './ipc/register-ipc';
+import { getForegroundWindowMetadata } from './platform/foreground-window';
 import { JsonFileStore } from './storage/json-file-store';
 import { SecureTokenStore } from './storage/secure-token-store';
 
@@ -172,6 +173,7 @@ app.whenReady().then(async () => {
     showAndFocus: showAndFocusWindow,
     applyStartupSetting,
     getSystemIdleTimeSeconds: () => powerMonitor.getSystemIdleTime(),
+    getForegroundWindow: getForegroundWindowMetadata,
   });
   createWindow();
 
