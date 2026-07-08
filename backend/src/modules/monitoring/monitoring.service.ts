@@ -501,6 +501,10 @@ export class MonitoringService {
     actor: AuthenticatedUser,
   ): Promise<MonitoringTimelineResponseDto> {
     const range = this.timelineRange(query);
+    const effectiveRangeEnd = this.effectiveTimelineRangeEnd(
+      range.start,
+      range.end,
+    );
     const filters: Prisma.EmployeeWhereInput[] = [
       await this.employeeVisibilityWhere(actor),
       { deletedAt: null, status: EmployeeStatus.ACTIVE },
@@ -592,7 +596,14 @@ export class MonitoringService {
       date: range.date,
       rangeStart: range.start.toISOString(),
       rangeEnd: range.end.toISOString(),
-      employees: employees.map((employee) => this.buildTimelineEmployee(employee, range.start, range.end)),
+      employees: employees.map((employee) =>
+        this.buildTimelineEmployee(
+          employee,
+          range.start,
+          range.end,
+          effectiveRangeEnd,
+        ),
+      ),
       meta: {
         page: query.page,
         limit: query.limit,
@@ -1096,6 +1107,7 @@ export class MonitoringService {
     employee: TimelineEmployee,
     rangeStart: Date,
     rangeEnd: Date,
+    effectiveRangeEnd: Date,
   ): MonitoringTimelineEmployeeDto {
     const segments: TimelineSegmentDraft[] = [];
     const markers: TimelineMarkerDraft[] = [];
@@ -1109,14 +1121,14 @@ export class MonitoringService {
         this.pushSegment(segments, {
           type: MonitoringTimelineSegmentType.ACTIVE,
           start: attendance.punchInAt,
-          end: attendance.punchOutAt ?? rangeEnd,
+          end: attendance.punchOutAt ?? effectiveRangeEnd,
           source: MonitoringTimelineSegmentSource.ATTENDANCE,
           intensity: null,
           metadata: {
             attendanceId: attendance.id,
             status: attendance.status,
           },
-        }, rangeStart, rangeEnd);
+        }, rangeStart, effectiveRangeEnd);
       }
 
       for (const log of attendance.logs) {
@@ -1140,7 +1152,7 @@ export class MonitoringService {
         this.pushSegment(segments, {
           type: MonitoringTimelineSegmentType.BREAK,
           start: breakLog.startedAt,
-          end: breakLog.endedAt ?? breakLog.autoPunchOutAt ?? rangeEnd,
+          end: breakLog.endedAt ?? breakLog.autoPunchOutAt ?? effectiveRangeEnd,
           source: MonitoringTimelineSegmentSource.BREAK,
           intensity: null,
           deviceId: null,
@@ -1153,7 +1165,7 @@ export class MonitoringService {
             allowedMinutes: breakLog.allowedMinutes,
             policyViolated: breakLog.policyViolated,
           },
-        }, rangeStart, rangeEnd);
+        }, rangeStart, effectiveRangeEnd);
 
         if (this.isWithinRange(breakLog.startedAt, rangeStart, rangeEnd)) {
           markers.push({
@@ -1211,7 +1223,7 @@ export class MonitoringService {
           activitySessionId: activity.id,
           deviceId: activity.deviceId,
           metadata: activityMetadata,
-        }, rangeStart, rangeEnd);
+        }, rangeStart, effectiveRangeEnd);
       }
       if (idleSeconds > 0) {
         this.pushSegment(segments, {
@@ -1226,7 +1238,7 @@ export class MonitoringService {
             activitySessionId: activity.id,
             approximation: 'Idle placement is derived from aggregate ActivitySession idleSeconds.',
           },
-        }, rangeStart, rangeEnd);
+        }, rangeStart, effectiveRangeEnd);
       }
     }
 
@@ -1247,17 +1259,17 @@ export class MonitoringService {
             nextHeartbeatId: current.id,
             heartbeatTimeoutMinutes,
           },
-        }, rangeStart, rangeEnd);
+        }, rangeStart, effectiveRangeEnd);
       }
     }
     const latestHeartbeat = employee.heartbeats.at(-1);
     if (latestHeartbeat) {
       const offlineStart = new Date(latestHeartbeat.recordedAt.getTime() + heartbeatTimeoutMs);
-      if (offlineStart < rangeEnd) {
+      if (offlineStart < effectiveRangeEnd) {
         this.pushSegment(segments, {
           type: MonitoringTimelineSegmentType.OFFLINE,
           start: offlineStart,
-          end: rangeEnd,
+          end: effectiveRangeEnd,
           source: MonitoringTimelineSegmentSource.HEARTBEAT,
           intensity: null,
           deviceId: latestHeartbeat.deviceId,
@@ -1265,7 +1277,7 @@ export class MonitoringService {
             heartbeatId: latestHeartbeat.id,
             heartbeatTimeoutMinutes,
           },
-        }, rangeStart, rangeEnd);
+        }, rangeStart, effectiveRangeEnd);
       }
     }
     // TODO: Decide whether employees/devices with no heartbeat in range should render OFFLINE instead of NO_ACTIVITY.
@@ -1287,7 +1299,11 @@ export class MonitoringService {
       });
     }
 
-    const noActivitySegments = this.noActivitySegments(segments, rangeStart, rangeEnd);
+    const noActivitySegments = this.noActivitySegments(
+      segments,
+      rangeStart,
+      effectiveRangeEnd,
+    );
     const allSegments = [...segments, ...noActivitySegments]
       .sort((left, right) => left.start.getTime() - right.start.getTime())
       .map((segment) => this.timelineSegmentDto(segment));
@@ -1448,6 +1464,16 @@ export class MonitoringService {
       start: range.gte,
       end: range.lte,
     };
+  }
+
+  private effectiveTimelineRangeEnd(
+    rangeStart: Date,
+    rangeEnd: Date,
+    now = new Date(),
+  ): Date {
+    if (now <= rangeStart) return rangeStart;
+    if (now >= rangeEnd) return rangeEnd;
+    return now;
   }
 
   private normalizeDateRangeBoundary(value: string, boundary: 'start' | 'end'): string {
