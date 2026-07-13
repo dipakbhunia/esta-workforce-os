@@ -1724,8 +1724,12 @@ export class MonitoringService {
     const defaultFrom = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     );
-    const from = query.dateFrom ? new Date(query.dateFrom) : defaultFrom;
-    const to = query.dateTo ? new Date(query.dateTo) : now;
+    const from = query.dateFrom
+      ? new Date(this.normalizeDateRangeBoundary(query.dateFrom, 'start'))
+      : defaultFrom;
+    const to = query.dateTo
+      ? new Date(this.normalizeDateRangeBoundary(query.dateTo, 'end'))
+      : now;
     if (from > to) {
       throw new BadRequestException('dateFrom must not be after dateTo');
     }
