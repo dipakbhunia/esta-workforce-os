@@ -1,6 +1,17 @@
-﻿import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { ParseUUIDPipe } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -17,6 +28,8 @@ import {
   PaginatedMonitoringDeviceResponseDto,
   PaginatedMonitoringScreenshotResponseDto,
   PaginatedMonitoringWebsiteUsageResponseDto,
+  ScreenshotUploadResponseDto,
+  ScreenshotViewResponseDto,
 } from './dto/monitoring-read-response.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
 import { MonitoringTimelineQueryDto, MonitoringTimelineResponseDto } from './dto/monitoring-timeline.dto';
@@ -104,6 +117,16 @@ export class MonitoringController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.screenshotsByEmployee(employeeId, query, user);
+  }
+
+  @Get('screenshots/:id/view')
+  @ApiOperation({ summary: 'Get a short-lived screenshot preview URL' })
+  @ApiOkResponse({ type: ScreenshotViewResponseDto })
+  viewScreenshot(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.viewScreenshot(id, user);
   }
 
   @Get('apps')
@@ -194,15 +217,37 @@ export class MonitoringController {
   }
 
   @Post('screenshots')
-  @ApiOperation({
-    summary: 'Upload screenshot metadata only',
-    description: 'Image bytes and MinIO upload are intentionally not implemented.',
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data', 'application/json')
+  @ApiOperation({ summary: 'Upload screenshot image and metadata' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        deviceId: { type: 'string', format: 'uuid' },
+        clientCaptureId: { type: 'string' },
+        capturedAt: { type: 'string', format: 'date-time' },
+        mimeType: { type: 'string', example: 'image/jpeg' },
+        width: { type: 'number' },
+        height: { type: 'number' },
+        sizeBytes: { type: 'number' },
+        attendanceId: { type: 'string', format: 'uuid' },
+        applicationName: { type: 'string' },
+        windowTitle: { type: 'string' },
+        checksum: { type: 'string' },
+        metadata: { type: 'object', additionalProperties: true },
+      },
+      required: ['file', 'deviceId', 'clientCaptureId', 'capturedAt', 'mimeType'],
+    },
   })
+  @ApiOkResponse({ type: ScreenshotUploadResponseDto })
   uploadScreenshot(
     @Body() dto: UploadScreenshotDto,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number } | undefined,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.uploadScreenshot(dto, user);
+    return this.service.uploadScreenshot(dto, user, file);
   }
 
   @Get('live-status')
@@ -242,5 +287,6 @@ export class MonitoringController {
     return this.service.summary(query, user);
   }
 }
+
 
 

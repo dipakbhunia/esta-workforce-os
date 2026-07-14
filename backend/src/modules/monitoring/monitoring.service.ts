@@ -5,6 +5,7 @@
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   AttendanceLogType,
   EmployeeStatus,
@@ -45,6 +46,7 @@ import {
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
 import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
+import { MinioObjectStorageService } from './minio-object-storage.service';
 
 const DEFAULT_HEARTBEAT_TIMEOUT_MINUTES = 30;
 
@@ -167,7 +169,6 @@ interface TimelineActivitySession {
 interface TimelineScreenshot {
   id: string;
   capturedAt: Date;
-  storageKey: string;
   mimeType: string;
   width: number | null;
   height: number | null;
@@ -190,11 +191,18 @@ interface TimelineEmployee {
   screenshots: TimelineScreenshot[];
 }
 
+interface UploadedScreenshotFile {
+  buffer: Buffer;
+  mimetype: string;
+  size: number;
+}
+
 @Injectable()
 export class MonitoringService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendanceService: AttendanceService,
+    private readonly objectStorage: MinioObjectStorageService,
   ) {}
 
   async registerDevice(dto: RegisterDeviceDto, actor: AuthenticatedUser) {
@@ -345,34 +353,126 @@ export class MonitoringService {
     }
   }
 
-  async uploadScreenshot(dto: UploadScreenshotDto, actor: AuthenticatedUser) {
+  async uploadScreenshot(
+    dto: UploadScreenshotDto,
+    actor: AuthenticatedUser,
+    file?: UploadedScreenshotFile,
+  ) {
     const device = await this.ownedActiveDevice(dto.deviceId, actor);
+    const clientScreenshotId = (dto.clientCaptureId ?? dto.clientScreenshotId)?.trim();
+    if (!clientScreenshotId) {
+      throw new BadRequestException('clientCaptureId is required');
+    }
+    const existing = await this.prisma.screenshot.findUnique({
+      where: {
+        deviceId_clientScreenshotId: {
+          deviceId: device.id,
+          clientScreenshotId,
+        },
+      },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    if (existing) return this.mapScreenshot(existing);
+
+    const capturedAt = new Date(dto.capturedAt);
+    if (!file) throw new BadRequestException('Screenshot file is required');
+    const mimeType = (file?.mimetype ?? dto.mimeType).trim().toLowerCase();
+    if (!['image/jpeg', 'image/webp', 'image/png'].includes(mimeType)) {
+      throw new BadRequestException('Unsupported screenshot image type');
+    }
+    if (file && file.buffer.byteLength === 0) {
+      throw new BadRequestException('Screenshot file is empty');
+    }
+    if (file && file.buffer.byteLength > 5 * 1024 * 1024) {
+      throw new BadRequestException('Screenshot file is too large');
+    }
+    const imageSize = this.decodeImageSize(file.buffer, mimeType);
+    const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+    const storageKey = this.screenshotObjectKey(
+      device.companyId,
+      device.employeeId,
+      capturedAt,
+      clientScreenshotId,
+      extension,
+    );
+    const checksum = file
+      ? createHash('sha256').update(file.buffer).digest('hex')
+      : dto.checksum?.trim();
+    const metadata = {
+      ...((dto.metadata ?? {}) as Record<string, unknown>),
+      attendanceId: dto.attendanceId ?? (dto.metadata as Record<string, unknown> | undefined)?.attendanceId ?? null,
+      applicationName: dto.applicationName ?? (dto.metadata as Record<string, unknown> | undefined)?.applicationName ?? null,
+      windowTitle: dto.windowTitle ?? (dto.metadata as Record<string, unknown> | undefined)?.windowTitle ?? null,
+    };
+
+    await this.objectStorage.putObject(storageKey, file.buffer, mimeType);
+
+    let uploadedObject = true;
     try {
-      return await this.prisma.screenshot.create({
+      const screenshot = await this.prisma.screenshot.create({
         data: {
           companyId: device.companyId,
           employeeId: device.employeeId,
           deviceId: device.id,
-          clientScreenshotId: dto.clientScreenshotId.trim(),
-          capturedAt: new Date(dto.capturedAt),
-          storageKey: dto.storageKey.trim(),
-          mimeType: dto.mimeType.trim().toLowerCase(),
-          sizeBytes: dto.sizeBytes,
-          width: dto.width,
-          height: dto.height,
-          checksum: dto.checksum?.trim(),
-          metadata: dto.metadata as Prisma.InputJsonValue | undefined,
+          clientScreenshotId,
+          capturedAt,
+          storageKey,
+          mimeType,
+          sizeBytes: file.buffer.byteLength,
+          width: imageSize.width,
+          height: imageSize.height,
+          checksum,
+          metadata: metadata as Prisma.InputJsonValue,
         },
+        include: { employee: { select: monitoringEmployeeSelect } },
       });
+      uploadedObject = false;
+      return this.mapScreenshot(screenshot);
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
+        const duplicate = await this.prisma.screenshot.findUnique({
+          where: {
+            deviceId_clientScreenshotId: {
+              deviceId: device.id,
+              clientScreenshotId,
+            },
+          },
+          include: { employee: { select: monitoringEmployeeSelect } },
+        });
+        if (duplicate) return this.mapScreenshot(duplicate);
         throw new ConflictException('Screenshot metadata was already uploaded');
+      }
+      if (uploadedObject) {
+        try {
+          await this.objectStorage.deleteObject(storageKey);
+        } catch {
+          // Preserve the original database failure while making a best-effort cleanup attempt.
+        }
       }
       throw error;
     }
+  }
+
+  async viewScreenshot(id: string, actor: AuthenticatedUser) {
+    const screenshot = await this.prisma.screenshot.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        employee: { is: await this.employeeReadWhere(actor, {}) },
+      },
+      select: { storageKey: true },
+    });
+    if (!screenshot) throw new NotFoundException('Screenshot not found');
+    const exists = await this.objectStorage.objectExists(screenshot.storageKey);
+    if (!exists) throw new NotFoundException('Screenshot object not found');
+    const expiresSeconds = 300;
+    return {
+      url: await this.objectStorage.signedGetUrl(screenshot.storageKey, expiresSeconds),
+      expiresAt: new Date(Date.now() + expiresSeconds * 1000).toISOString(),
+    };
   }
 
   async activity(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
@@ -579,7 +679,6 @@ export class MonitoringService {
             select: {
               id: true,
               capturedAt: true,
-              storageKey: true,
               mimeType: true,
               width: true,
               height: true,
@@ -893,7 +992,6 @@ export class MonitoringService {
       filters.push({
         OR: [
           { employee: { is: this.employeeSearchWhere(query.search) } },
-          { storageKey: { contains: query.search, mode: 'insensitive' } },
           { checksum: { contains: query.search, mode: 'insensitive' } },
           { mimeType: { contains: query.search, mode: 'insensitive' } },
         ],
@@ -1093,14 +1191,104 @@ export class MonitoringService {
       employee: this.mapEmployee(screenshot.employee),
       deviceId: screenshot.deviceId,
       capturedAt: screenshot.capturedAt.toISOString(),
-      storageKey: screenshot.storageKey,
-      thumbnailUrl: null,
+      thumbnailUrl: `/api/monitoring/screenshots/${screenshot.id}/view`,
+      previewAvailable: true,
       mimeType: screenshot.mimeType,
       sizeBytes: screenshot.sizeBytes,
       width: screenshot.width,
       height: screenshot.height,
       checksum: screenshot.checksum,
+      metadata: screenshot.metadata as Record<string, unknown> | null,
     };
+  }
+
+  private screenshotObjectKey(
+    companyId: string,
+    employeeId: string,
+    capturedAt: Date,
+    captureId: string,
+    extension: string,
+  ): string {
+    const year = String(capturedAt.getUTCFullYear());
+    const month = String(capturedAt.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(capturedAt.getUTCDate()).padStart(2, '0');
+    return `${companyId}/${employeeId}/${year}/${month}/${day}/${captureId}.${extension}`;
+  }
+
+  private decodeImageSize(buffer: Buffer, mimeType: string): { width: number; height: number } {
+    if (mimeType === 'image/png') return this.decodePngSize(buffer);
+    if (mimeType === 'image/jpeg') return this.decodeJpegSize(buffer);
+    if (mimeType === 'image/webp') return this.decodeWebpSize(buffer);
+    throw new BadRequestException('Unsupported screenshot image type');
+  }
+
+  private decodePngSize(buffer: Buffer): { width: number; height: number } {
+    if (
+      buffer.length < 24 ||
+      buffer.readUInt32BE(0) !== 0x89504e47 ||
+      buffer.readUInt32BE(4) !== 0x0d0a1a0a
+    ) {
+      throw new BadRequestException('Screenshot image could not be decoded');
+    }
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+
+  private decodeJpegSize(buffer: Buffer): { width: number; height: number } {
+    if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+      throw new BadRequestException('Screenshot image could not be decoded');
+    }
+    let offset = 2;
+    while (offset < buffer.length) {
+      if (buffer[offset] !== 0xff) break;
+      if (offset + 4 > buffer.length) break;
+      const marker = buffer[offset + 1];
+      const length = buffer.readUInt16BE(offset + 2);
+      if (length < 2 || offset + length + 2 > buffer.length) break;
+      if (
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        ![0xc4, 0xc8, 0xcc].includes(marker)
+      ) {
+        return {
+          height: buffer.readUInt16BE(offset + 5),
+          width: buffer.readUInt16BE(offset + 7),
+        };
+      }
+      offset += length + 2;
+    }
+    throw new BadRequestException('Screenshot image could not be decoded');
+  }
+
+  private decodeWebpSize(buffer: Buffer): { width: number; height: number } {
+    if (
+      buffer.length < 30 ||
+      buffer.toString('ascii', 0, 4) !== 'RIFF' ||
+      buffer.toString('ascii', 8, 12) !== 'WEBP'
+    ) {
+      throw new BadRequestException('Screenshot image could not be decoded');
+    }
+    const format = buffer.toString('ascii', 12, 16);
+    if (format === 'VP8X') {
+      return {
+        width: buffer.readUIntLE(24, 3) + 1,
+        height: buffer.readUIntLE(27, 3) + 1,
+      };
+    }
+    if (format === 'VP8L') {
+      if (buffer.length < 25) throw new BadRequestException('Screenshot image could not be decoded');
+      const bits = buffer.readUInt32LE(21);
+      return {
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >> 14) & 0x3fff) + 1,
+      };
+    }
+    if (format === 'VP8 ' && buffer.length >= 30) {
+      return {
+        width: buffer.readUInt16LE(26) & 0x3fff,
+        height: buffer.readUInt16LE(28) & 0x3fff,
+      };
+    }
+    throw new BadRequestException('Screenshot image could not be decoded');
   }
 
   private buildTimelineEmployee(
@@ -1289,8 +1477,8 @@ export class MonitoringService {
         title: 'Screenshot',
         metadata: {
           screenshotId: screenshot.id,
+          capturedAt: screenshot.capturedAt.toISOString(),
           deviceId: screenshot.deviceId,
-          storageKey: screenshot.storageKey,
           mimeType: screenshot.mimeType,
           width: screenshot.width,
           height: screenshot.height,

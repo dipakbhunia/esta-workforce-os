@@ -1,9 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsInt,
-  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -18,24 +17,40 @@ export class UploadScreenshotDto {
   @IsUUID()
   deviceId!: string;
 
-  @ApiProperty({ description: 'Electron-generated idempotency identifier' })
+  @ApiPropertyOptional({ description: 'Electron-generated idempotency identifier. Prefer clientCaptureId for new clients.' })
   @IsString()
   @MinLength(8)
   @MaxLength(120)
-  clientScreenshotId!: string;
+  @IsOptional()
+  clientScreenshotId?: string;
+
+  @ApiPropertyOptional({ description: 'Electron-generated idempotency identifier' })
+  @IsString()
+  @MinLength(8)
+  @MaxLength(120)
+  @IsOptional()
+  clientCaptureId?: string;
 
   @ApiProperty({ format: 'date-time' })
   @IsDateString()
   capturedAt!: string;
 
-  @ApiProperty({
-    example: 'companies/company-id/employees/employee-id/2026/06/image.webp',
-    description: 'Future MinIO object key; this API does not upload image bytes.',
-  })
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  attendanceId?: string;
+
+  @ApiPropertyOptional({ example: 'Visual Studio Code' })
   @IsString()
-  @MinLength(1)
-  @MaxLength(1024)
-  storageKey!: string;
+  @MaxLength(255)
+  @IsOptional()
+  applicationName?: string;
+
+  @ApiPropertyOptional({ example: 'Esta Workforce OS - Monitoring' })
+  @IsString()
+  @MaxLength(512)
+  @IsOptional()
+  windowTitle?: string;
 
   @ApiProperty({ example: 'image/webp' })
   @IsString()
@@ -73,7 +88,14 @@ export class UploadScreenshotDto {
   checksum?: string;
 
   @ApiPropertyOptional({ type: 'object', additionalProperties: true })
-  @IsObject()
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return { raw: value };
+    }
+  })
   @IsOptional()
   metadata?: Record<string, unknown>;
 }

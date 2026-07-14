@@ -167,11 +167,11 @@ export class MonitoringScreenshotResponseDto {
   @ApiProperty({ format: 'date-time' })
   capturedAt!: string;
 
-  @ApiProperty({ example: 'companies/company-id/employees/employee-id/2026/06/image.webp' })
-  storageKey!: string;
-
   @ApiPropertyOptional({ nullable: true })
   thumbnailUrl!: string | null;
+
+  @ApiProperty({ example: true })
+  previewAvailable!: boolean;
 
   @ApiProperty({ example: 'image/webp' })
   mimeType!: string;
@@ -187,6 +187,19 @@ export class MonitoringScreenshotResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   checksum!: string | null;
+
+  @ApiPropertyOptional({ type: 'object', additionalProperties: true, nullable: true })
+  metadata!: Record<string, unknown> | null;
+}
+
+export class ScreenshotUploadResponseDto extends MonitoringScreenshotResponseDto {}
+
+export class ScreenshotViewResponseDto {
+  @ApiProperty({ format: 'uri' })
+  url!: string;
+
+  @ApiProperty({ format: 'date-time' })
+  expiresAt!: string;
 }
 
 export class PaginatedMonitoringDeviceResponseDto {

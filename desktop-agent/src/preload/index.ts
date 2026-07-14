@@ -3,6 +3,7 @@ import type {
   AuthTokens,
   DesktopSettings,
   EstaDesktopApi,
+  ScreenshotCaptureContext,
 } from '../shared/contracts';
 import { ipcChannels } from '../shared/ipc-channels';
 
@@ -27,6 +28,22 @@ const api: EstaDesktopApi = {
       ipcRenderer.invoke(ipcChannels.systemGetIdleTimeSeconds),
     getForegroundWindow: () =>
       ipcRenderer.invoke(ipcChannels.systemGetForegroundWindow),
+    isScreenLocked: () => ipcRenderer.invoke(ipcChannels.systemIsScreenLocked),
+    onScreenLockChanged: (callback: (locked: boolean) => void) => {
+      const listener = (_event: unknown, locked: boolean) => callback(locked);
+      ipcRenderer.on(ipcChannels.systemScreenLockChanged, listener);
+      return () => ipcRenderer.removeListener(ipcChannels.systemScreenLockChanged, listener);
+    },
+  },
+  screenshots: {
+    capture: (context: ScreenshotCaptureContext) =>
+      ipcRenderer.invoke(ipcChannels.screenshotCapture, context),
+    listQueue: () => ipcRenderer.invoke(ipcChannels.screenshotListQueue),
+    readFile: (id: string) => ipcRenderer.invoke(ipcChannels.screenshotReadFile, id),
+    markUploaded: (id: string) =>
+      ipcRenderer.invoke(ipcChannels.screenshotMarkUploaded, id),
+    markFailed: (id: string, retryAfterMs?: number) =>
+      ipcRenderer.invoke(ipcChannels.screenshotMarkFailed, id, retryAfterMs),
   },
   app: {
     getVersion: () => ipcRenderer.invoke(ipcChannels.appGetVersion),

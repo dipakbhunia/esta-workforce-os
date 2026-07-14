@@ -10,6 +10,7 @@ import { ipcChannels } from '../shared/ipc-channels';
 import { DeviceIdentity } from './device/device-identity';
 import { registerIpcHandlers } from './ipc/register-ipc';
 import { ForegroundWindowSampler } from './platform/foreground-window';
+import { ScreenshotQueue } from './screenshot/screenshot-queue';
 import { JsonFileStore } from './storage/json-file-store';
 import { SecureTokenStore } from './storage/secure-token-store';
 
@@ -27,7 +28,14 @@ let mainWindow: BrowserWindowType | null = null;
 let tray: TrayType | null = null;
 let isAuthenticated = false;
 let isQuitting = false;
+let screenLocked = false;
 const foregroundWindowSampler = new ForegroundWindowSampler();
+let screenshotQueue: ScreenshotQueue | null = null;
+
+function numberFromEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 const defaultSettings: DesktopSettings = {
   heartbeatIntervalMs: 60000,
@@ -167,8 +175,22 @@ app.whenReady().then(async () => {
     join(dataDirectory, 'settings.json'),
     defaultSettings,
   );
+  screenshotQueue = new ScreenshotQueue(dataDirectory, () => screenLocked, {
+    jpegQuality: numberFromEnv('VITE_SCREENSHOT_IMAGE_QUALITY', 72),
+    maxCaptureWidth: numberFromEnv('VITE_SCREENSHOT_MAX_WIDTH', 1600),
+    maxQueueItems: numberFromEnv('VITE_SCREENSHOT_QUEUE_MAX_ITEMS', 200),
+    maxQueueBytes: numberFromEnv('VITE_SCREENSHOT_QUEUE_MAX_BYTES', 200 * 1024 * 1024),
+  });
   applyStartupSetting(await settings.read());
   foregroundWindowSampler.start();
+  powerMonitor.on('lock-screen', () => {
+    screenLocked = true;
+    mainWindow?.webContents.send(ipcChannels.systemScreenLockChanged, true);
+  });
+  powerMonitor.on('unlock-screen', () => {
+    screenLocked = false;
+    mainWindow?.webContents.send(ipcChannels.systemScreenLockChanged, false);
+  });
   createTray();
   registerIpcHandlers(tokenStore, deviceIdentity, settings, {
     setAuthenticated,
@@ -176,6 +198,15 @@ app.whenReady().then(async () => {
     applyStartupSetting,
     getSystemIdleTimeSeconds: () => powerMonitor.getSystemIdleTime(),
     getForegroundWindow: () => foregroundWindowSampler.getMetadata(),
+    isScreenLocked: () => screenLocked,
+    captureScreenshot: (context) => screenshotQueue?.capture(context) ?? Promise.resolve(null),
+    listScreenshotQueue: () => screenshotQueue?.listQueue() ?? Promise.resolve([]),
+    readScreenshotFile: (id) => {
+      if (!screenshotQueue) throw new Error('Screenshot queue is unavailable');
+      return screenshotQueue.readFilePayload(id);
+    },
+    markScreenshotUploaded: (id) => screenshotQueue?.markUploaded(id) ?? Promise.resolve(),
+    markScreenshotFailed: (id, retryAfterMs) => screenshotQueue?.markFailed(id, retryAfterMs) ?? Promise.resolve(),
   });
   createWindow();
 

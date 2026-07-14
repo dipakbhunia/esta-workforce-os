@@ -28,6 +28,33 @@ export interface ForegroundWindowMetadata {
   windowTitle: string | null;
 }
 
+export interface ScreenshotCaptureContext {
+  deviceId: string;
+  attendanceId?: string | null;
+  foreground?: ForegroundWindowMetadata | null;
+}
+
+export interface QueuedScreenshotCapture {
+  id: string;
+  clientCaptureId: string;
+  deviceId: string;
+  filePath: string;
+  capturedAt: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  checksum: string;
+  attempts: number;
+  nextAttemptAt: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface ScreenshotFilePayload {
+  item: QueuedScreenshotCapture;
+  base64: string;
+}
+
 export interface EstaDesktopApi {
   tokens: {
     get: () => Promise<AuthTokens | null>;
@@ -44,6 +71,15 @@ export interface EstaDesktopApi {
   system: {
     getIdleTimeSeconds: () => Promise<number>;
     getForegroundWindow: () => Promise<ForegroundWindowMetadata>;
+    isScreenLocked: () => Promise<boolean>;
+    onScreenLockChanged: (callback: (locked: boolean) => void) => () => void;
+  };
+  screenshots: {
+    capture: (context: ScreenshotCaptureContext) => Promise<QueuedScreenshotCapture | null>;
+    listQueue: () => Promise<QueuedScreenshotCapture[]>;
+    readFile: (id: string) => Promise<ScreenshotFilePayload>;
+    markUploaded: (id: string) => Promise<void>;
+    markFailed: (id: string, retryAfterMs?: number) => Promise<void>;
   };
   app: {
     getVersion: () => Promise<string>;

@@ -26,12 +26,13 @@ class ApiClient {
       console.info(`[Esta Desktop] Login request URL: ${targetUrl}`);
     }
     const tokens = await tokenStorage.get();
+    const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
     let response: Response;
     try {
       response = await fetch(targetUrl, {
         ...init,
         headers: {
-          'Content-Type': 'application/json',
+          ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
           ...(tokens?.accessToken
             ? { Authorization: `Bearer ${tokens.accessToken}` }
             : {}),

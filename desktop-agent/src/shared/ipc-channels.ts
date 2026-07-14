@@ -10,5 +10,12 @@
   appShowAndFocus: 'app:show-and-focus',
   systemGetIdleTimeSeconds: 'system:get-idle-time-seconds',
   systemGetForegroundWindow: 'system:get-foreground-window',
+  systemIsScreenLocked: 'system:is-screen-locked',
+  systemScreenLockChanged: 'system:screen-lock-changed',
+  screenshotCapture: 'screenshot:capture',
+  screenshotListQueue: 'screenshot:list-queue',
+  screenshotReadFile: 'screenshot:read-file',
+  screenshotMarkUploaded: 'screenshot:mark-uploaded',
+  screenshotMarkFailed: 'screenshot:mark-failed',
   appSignOutRequested: 'app:sign-out-requested',
 } as const;

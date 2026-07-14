@@ -3,8 +3,9 @@ import { useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/auth-context';
 import { attendanceService } from '../services/api/attendance.service';
-import { deviceService } from '../services/api/device.service';
+import { deviceService, type DeviceState } from '../services/api/device.service';
 import { ActivityCollector } from '../services/monitoring/activity.service';
+import { ScreenshotService } from '../services/monitoring/screenshot.service';
 
 const iconProps = { size: 20, strokeWidth: 2.2, 'aria-hidden': true } as const;
 
@@ -13,6 +14,7 @@ export function AppShell() {
   const location = useLocation();
   const onSettings = location.pathname === '/settings';
   const collector = useRef<ActivityCollector | null>(null);
+  const screenshotService = useRef<ScreenshotService | null>(null);
   const lifecycleTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -25,22 +27,38 @@ export function AppShell() {
         const shouldCollect =
           summary.currentState === 'PUNCHED_IN' ||
           summary.currentState === 'ON_BREAK';
+        const shouldCaptureScreenshots = summary.currentState === 'PUNCHED_IN';
+        let device: DeviceState | null = null;
 
         if (shouldCollect && !collector.current) {
-          const device = await deviceService.register();
+          device = await deviceService.register();
           if (disposed) return;
           const nextCollector = new ActivityCollector(device);
           collector.current = nextCollector;
           await nextCollector.start();
-          return;
         }
 
         if (!shouldCollect && collector.current) {
           await stopActivityCollector();
         }
+
+        if (shouldCaptureScreenshots && !screenshotService.current) {
+          device = device ?? (await deviceService.register());
+          if (disposed) return;
+          const nextScreenshotService = new ScreenshotService(
+            device,
+            summary.latestSession?.id ?? null,
+          );
+          screenshotService.current = nextScreenshotService;
+          await nextScreenshotService.start();
+        }
+
+        if (!shouldCaptureScreenshots && screenshotService.current) {
+          await stopScreenshotService();
+        }
       } catch (error) {
         if (import.meta.env.DEV) {
-          console.debug('[Esta Desktop] Activity collector lifecycle check failed', error);
+          console.debug('[Esta Desktop] Monitoring lifecycle check failed', error);
         }
       }
     }
@@ -57,6 +75,7 @@ export function AppShell() {
         lifecycleTimer.current = null;
       }
       void stopActivityCollector();
+      void stopScreenshotService();
     };
   }, [user]);
 
@@ -66,8 +85,15 @@ export function AppShell() {
     await activeCollector?.stop();
   }
 
+  async function stopScreenshotService(): Promise<void> {
+    const activeScreenshotService = screenshotService.current;
+    screenshotService.current = null;
+    await activeScreenshotService?.stop();
+  }
+
   async function signOut(): Promise<void> {
     await stopActivityCollector();
+    await stopScreenshotService();
     await logout();
   }
 

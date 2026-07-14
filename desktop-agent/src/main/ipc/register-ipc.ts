@@ -1,5 +1,5 @@
 ﻿import { app, ipcMain } from 'electron';
-import type { AuthTokens, DesktopSettings, ForegroundWindowMetadata } from '../../shared/contracts';
+import type { AuthTokens, DesktopSettings, ForegroundWindowMetadata, ScreenshotCaptureContext } from '../../shared/contracts';
 import { ipcChannels } from '../../shared/ipc-channels';
 import { DeviceIdentity } from '../device/device-identity';
 import { JsonFileStore } from '../storage/json-file-store';
@@ -11,6 +11,12 @@ export interface AppIpcActions {
   applyStartupSetting(settings: DesktopSettings): void;
   getSystemIdleTimeSeconds(): number;
   getForegroundWindow(): ForegroundWindowMetadata | Promise<ForegroundWindowMetadata>;
+  isScreenLocked(): boolean;
+  captureScreenshot(context: ScreenshotCaptureContext): Promise<unknown>;
+  listScreenshotQueue(): Promise<unknown>;
+  readScreenshotFile(id: string): Promise<unknown>;
+  markScreenshotUploaded(id: string): Promise<void>;
+  markScreenshotFailed(id: string, retryAfterMs?: number): Promise<void>;
 }
 
 export function registerIpcHandlers(
@@ -50,6 +56,22 @@ export function registerIpcHandlers(
   );
   ipcMain.handle(ipcChannels.systemGetForegroundWindow, () =>
     actions.getForegroundWindow(),
+  );
+  ipcMain.handle(ipcChannels.systemIsScreenLocked, () => actions.isScreenLocked());
+  ipcMain.handle(ipcChannels.screenshotCapture, (_event: unknown, context: ScreenshotCaptureContext) =>
+    actions.captureScreenshot(context),
+  );
+  ipcMain.handle(ipcChannels.screenshotListQueue, () =>
+    actions.listScreenshotQueue(),
+  );
+  ipcMain.handle(ipcChannels.screenshotReadFile, (_event: unknown, id: string) =>
+    actions.readScreenshotFile(id),
+  );
+  ipcMain.handle(ipcChannels.screenshotMarkUploaded, (_event: unknown, id: string) =>
+    actions.markScreenshotUploaded(id),
+  );
+  ipcMain.handle(ipcChannels.screenshotMarkFailed, (_event: unknown, id: string, retryAfterMs?: number) =>
+    actions.markScreenshotFailed(id, retryAfterMs),
   );
 }
 

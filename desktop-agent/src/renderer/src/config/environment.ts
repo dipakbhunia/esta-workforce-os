@@ -6,4 +6,10 @@ export const environment = {
   heartbeatIntervalMs: Number(
     import.meta.env.VITE_HEARTBEAT_INTERVAL_MS || 60000,
   ),
+  screenshotIntervalMs: Number(
+    import.meta.env.VITE_SCREENSHOT_INTERVAL_MS || 10 * 60 * 1000,
+  ),
+  screenshotJitterMs: Number(
+    import.meta.env.VITE_SCREENSHOT_JITTER_MS || 60 * 1000,
+  ),
 } as const;
