@@ -134,13 +134,19 @@ export interface MonitoringScreenshot {
   employee?: MonitoringEmployee | null;
   deviceId: string;
   capturedAt: string;
-  storageKey: string;
   thumbnailUrl: string | null;
+  previewAvailable: boolean;
   mimeType: string;
   sizeBytes: number | null;
   width: number | null;
   height: number | null;
   checksum: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface MonitoringScreenshotPreview {
+  url: string;
+  expiresAt: string;
 }
 
 export interface MonitoringSummaryEmployeeUser {
