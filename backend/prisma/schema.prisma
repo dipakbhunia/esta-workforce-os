@@ -584,8 +584,11 @@ model ActivitySession {
   endedAt           DateTime
   activeSeconds     Int                @default(0)
   idleSeconds       Int                @default(0)
+  keyboardCount     Int                @default(0)
   keystrokeCount    Int?
-  mouseClickCount   Int?
+  mouseClickCount   Int                @default(0)
+  mouseMoveCount    Int                @default(0)
+  scrollCount       Int                @default(0)
   metadata          Json?
   createdAt         DateTime           @default(now())
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)

@@ -28,6 +28,13 @@ export interface ForegroundWindowMetadata {
   windowTitle: string | null;
 }
 
+export interface InputActivitySnapshot {
+  keyboardCount: number;
+  mouseClickCount: number;
+  mouseMoveCount: number;
+  scrollCount: number;
+}
+
 export interface ScreenshotCaptureContext {
   deviceId: string;
   attendanceId?: string | null;
@@ -73,6 +80,11 @@ export interface EstaDesktopApi {
     getForegroundWindow: () => Promise<ForegroundWindowMetadata>;
     isScreenLocked: () => Promise<boolean>;
     onScreenLockChanged: (callback: (locked: boolean) => void) => () => void;
+  };
+  inputActivity: {
+    start: () => Promise<void>;
+    stop: () => Promise<void>;
+    snapshotAndReset: () => Promise<InputActivitySnapshot>;
   };
   screenshots: {
     capture: (context: ScreenshotCaptureContext) => Promise<QueuedScreenshotCapture | null>;

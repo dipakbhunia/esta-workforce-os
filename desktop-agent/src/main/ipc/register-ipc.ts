@@ -1,5 +1,11 @@
 ﻿import { app, ipcMain } from 'electron';
-import type { AuthTokens, DesktopSettings, ForegroundWindowMetadata, ScreenshotCaptureContext } from '../../shared/contracts';
+import type {
+  AuthTokens,
+  DesktopSettings,
+  ForegroundWindowMetadata,
+  InputActivitySnapshot,
+  ScreenshotCaptureContext,
+} from '../../shared/contracts';
 import { ipcChannels } from '../../shared/ipc-channels';
 import { DeviceIdentity } from '../device/device-identity';
 import { JsonFileStore } from '../storage/json-file-store';
@@ -12,6 +18,9 @@ export interface AppIpcActions {
   getSystemIdleTimeSeconds(): number;
   getForegroundWindow(): ForegroundWindowMetadata | Promise<ForegroundWindowMetadata>;
   isScreenLocked(): boolean;
+  startInputActivity(): Promise<void>;
+  stopInputActivity(): Promise<void>;
+  snapshotAndResetInputActivity(): Promise<InputActivitySnapshot>;
   captureScreenshot(context: ScreenshotCaptureContext): Promise<unknown>;
   listScreenshotQueue(): Promise<unknown>;
   readScreenshotFile(id: string): Promise<unknown>;
@@ -58,6 +67,11 @@ export function registerIpcHandlers(
     actions.getForegroundWindow(),
   );
   ipcMain.handle(ipcChannels.systemIsScreenLocked, () => actions.isScreenLocked());
+  ipcMain.handle(ipcChannels.inputActivityStart, () => actions.startInputActivity());
+  ipcMain.handle(ipcChannels.inputActivityStop, () => actions.stopInputActivity());
+  ipcMain.handle(ipcChannels.inputActivitySnapshotAndReset, () =>
+    actions.snapshotAndResetInputActivity(),
+  );
   ipcMain.handle(ipcChannels.screenshotCapture, (_event: unknown, context: ScreenshotCaptureContext) =>
     actions.captureScreenshot(context),
   );

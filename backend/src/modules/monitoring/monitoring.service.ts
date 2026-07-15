@@ -49,6 +49,101 @@ import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
 import { MinioObjectStorageService } from './minio-object-storage.service';
 
 const DEFAULT_HEARTBEAT_TIMEOUT_MINUTES = 30;
+const forbiddenActivityMetadataKeys = new Set([
+  'key',
+  'keycode',
+  'keyname',
+  'keys',
+  'keyevents',
+  'keypresses',
+  'keystrokes',
+  'pressedkeys',
+  'typedtext',
+  'textinput',
+  'clipboard',
+  'password',
+  'otp',
+  'keyboardcount',
+  'mousecoordinates',
+  'mouseclickcount',
+  'coordinates',
+  'mousehistory',
+  'mousemovecount',
+  'mousepath',
+  'mousepositions',
+  'rawevents',
+  'keyboardevents',
+  'keyboardhistory',
+  'mouseevents',
+  'scrollcount',
+  'eventhistory',
+]);
+const safeActivityMetadataKeys = new Set([
+  'applicationname',
+  'browserdetected',
+  'browsername',
+  'browserprovidereavailable',
+  'browserprovideravailable',
+  'browserwindowtitle',
+  'executable',
+  'executablename',
+  'idlestate',
+  'inputcountsource',
+  'platform',
+  'privacy',
+  'processid',
+  'processname',
+  'systemidleseconds',
+  'urlavailable',
+  'windowtitle',
+]);
+const forbiddenActivityMetadataPatterns = [
+  'keystrokes',
+  'typedtext',
+  'textinput',
+  'clipboard',
+  'password',
+  'otp',
+  'mousecoordinates',
+  'coordinates',
+  'rawevents',
+  'keyboardevents',
+  'mouseevents',
+  'keyevents',
+  'eventhistory',
+];
+const activityMetadataInputDeviceTerms = [
+  'key',
+  'keyboard',
+  'keystroke',
+  'mouse',
+  'pointer',
+  'scroll',
+  'input',
+];
+const activityMetadataSensitiveTerms = [
+  'array',
+  'click',
+  'clicks',
+  'coordinate',
+  'coordinates',
+  'count',
+  'event',
+  'history',
+  'list',
+  'movement',
+  'moves',
+  'path',
+  'position',
+  'positions',
+  'press',
+  'pressed',
+  'presses',
+  'raw',
+  'sequence',
+  'value',
+  'values',
+];
 
 const deviceSelect = {
   id: true,
@@ -287,6 +382,11 @@ export class MonitoringService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const keyboardCount = dto.keyboardCount ?? dto.keystrokeCount ?? 0;
+        const mouseClickCount = dto.mouseClickCount ?? 0;
+        const mouseMoveCount = dto.mouseMoveCount ?? 0;
+        const scrollCount = dto.scrollCount ?? 0;
+        const safeMetadata = this.sanitizeActivityMetadata(dto.metadata);
         const session = await tx.activitySession.create({
           data: {
             companyId: device.companyId,
@@ -297,9 +397,12 @@ export class MonitoringService {
             endedAt,
             activeSeconds: dto.activeSeconds,
             idleSeconds: dto.idleSeconds,
-            keystrokeCount: dto.keystrokeCount,
-            mouseClickCount: dto.mouseClickCount,
-            metadata: dto.metadata as Prisma.InputJsonValue | undefined,
+            keyboardCount,
+            keystrokeCount: keyboardCount,
+            mouseClickCount,
+            mouseMoveCount,
+            scrollCount,
+            metadata: safeMetadata as Prisma.InputJsonValue | undefined,
             applicationUsages: dto.applications?.length
               ? {
                   create: dto.applications.map((usage) => ({
@@ -1156,8 +1259,11 @@ export class MonitoringService {
       durationSeconds: Math.max(0, Math.round((activity.endedAt.getTime() - activity.startedAt.getTime()) / 1000)),
       activeSeconds: activity.activeSeconds,
       idleSeconds: activity.idleSeconds,
-      keystrokeCount: activity.keystrokeCount,
+      keystrokeCount: activity.keystrokeCount ?? activity.keyboardCount,
+      keyboardCount: activity.keyboardCount,
       mouseClickCount: activity.mouseClickCount,
+      mouseMoveCount: activity.mouseMoveCount,
+      scrollCount: activity.scrollCount,
       applications: activity.applicationUsages.map((usage) => ({
         id: usage.id,
         employee: this.mapEmployee(activity.employee),
@@ -1685,6 +1791,68 @@ export class MonitoringService {
 
   private durationSeconds(start: Date, end: Date): number {
     return Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
+  }
+
+  private sanitizeActivityMetadata(
+    metadata: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined {
+    if (!metadata) return undefined;
+    return this.sanitizeMetadataObject(metadata, 'metadata');
+  }
+
+  private sanitizeMetadataObject(
+    value: Record<string, unknown>,
+    path: string,
+  ): Record<string, unknown> {
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      this.assertSafeActivityMetadataKey(key, path);
+      const nextPath = `${path}.${key}`;
+      if (Array.isArray(entry)) {
+        sanitized[key] = entry.map((item, index) =>
+          this.sanitizeMetadataValue(item, `${nextPath}[${index}]`),
+        );
+      } else {
+        sanitized[key] = this.sanitizeMetadataValue(entry, nextPath);
+      }
+    }
+    return sanitized;
+  }
+
+  private sanitizeMetadataValue(value: unknown, path: string): unknown {
+    if (value === null || value === undefined) return value;
+    if (Array.isArray(value)) {
+      return value.map((item, index) =>
+        this.sanitizeMetadataValue(item, `${path}[${index}]`),
+      );
+    }
+    if (typeof value === 'object') {
+      return this.sanitizeMetadataObject(value as Record<string, unknown>, path);
+    }
+    return value;
+  }
+
+  private assertSafeActivityMetadataKey(key: string, path: string): void {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (safeActivityMetadataKeys.has(normalized)) return;
+    if (
+      forbiddenActivityMetadataKeys.has(normalized) ||
+      forbiddenActivityMetadataPatterns.some((pattern) =>
+        normalized.includes(pattern),
+      ) ||
+      (
+        activityMetadataInputDeviceTerms.some((term) =>
+          normalized.includes(term),
+        ) &&
+        activityMetadataSensitiveTerms.some((term) =>
+          normalized.includes(term),
+        )
+      )
+    ) {
+      throw new BadRequestException(
+        `Activity metadata contains forbidden privacy-sensitive key: ${path}.${key}`,
+      );
+    }
   }
 
   private liveStatusEmployeeSelect() {

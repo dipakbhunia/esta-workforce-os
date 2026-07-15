@@ -26,7 +26,10 @@ export interface ActivityUploadPayload {
   activeSeconds: number;
   idleSeconds?: number;
   keystrokeCount?: number;
+  keyboardCount?: number;
   mouseClickCount?: number;
+  mouseMoveCount?: number;
+  scrollCount?: number;
   metadata?: Record<string, unknown>;
   applications?: ActivityUploadApplication[];
   websites?: ActivityUploadWebsite[];

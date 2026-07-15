@@ -8,6 +8,7 @@ import type {
 import type { DesktopSettings } from '../shared/contracts';
 import { ipcChannels } from '../shared/ipc-channels';
 import { DeviceIdentity } from './device/device-identity';
+import { InputActivityService } from './input/input-activity-service';
 import { registerIpcHandlers } from './ipc/register-ipc';
 import { ForegroundWindowSampler } from './platform/foreground-window';
 import { ScreenshotQueue } from './screenshot/screenshot-queue';
@@ -30,6 +31,7 @@ let isAuthenticated = false;
 let isQuitting = false;
 let screenLocked = false;
 const foregroundWindowSampler = new ForegroundWindowSampler();
+const inputActivityService = new InputActivityService();
 let screenshotQueue: ScreenshotQueue | null = null;
 
 function numberFromEnv(name: string, fallback: number): number {
@@ -185,6 +187,7 @@ app.whenReady().then(async () => {
   foregroundWindowSampler.start();
   powerMonitor.on('lock-screen', () => {
     screenLocked = true;
+    void inputActivityService.stop();
     mainWindow?.webContents.send(ipcChannels.systemScreenLockChanged, true);
   });
   powerMonitor.on('unlock-screen', () => {
@@ -199,6 +202,9 @@ app.whenReady().then(async () => {
     getSystemIdleTimeSeconds: () => powerMonitor.getSystemIdleTime(),
     getForegroundWindow: () => foregroundWindowSampler.getMetadata(),
     isScreenLocked: () => screenLocked,
+    startInputActivity: () => (screenLocked ? Promise.resolve() : inputActivityService.start()),
+    stopInputActivity: () => inputActivityService.stop(),
+    snapshotAndResetInputActivity: () => inputActivityService.snapshotAndReset(),
     captureScreenshot: (context) => screenshotQueue?.capture(context) ?? Promise.resolve(null),
     listScreenshotQueue: () => screenshotQueue?.listQueue() ?? Promise.resolve([]),
     readScreenshotFile: (id) => {
@@ -218,6 +224,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   isQuitting = true;
   foregroundWindowSampler.stop();
+  void inputActivityService.stop();
 });
 
 app.on('window-all-closed', () => {

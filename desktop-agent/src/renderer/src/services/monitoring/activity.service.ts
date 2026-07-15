@@ -2,6 +2,7 @@ import type { DeviceState } from '../api/device.service';
 import type { MonitoringService } from './contracts';
 import { ForegroundWindowWatcher } from './foreground-window-watcher';
 import { IdleWatcher } from './idle-watcher';
+import { InputActivityService, zeroInputActivitySnapshot } from './input-activity.service';
 import { MonitoringUploader } from './monitoring-uploader';
 import { SessionManager } from './session-manager';
 import { UploadQueue } from './upload-queue';
@@ -16,19 +17,35 @@ export class ActivityCollector implements MonitoringService {
   private running = false;
   private readonly foregroundWatcher = new ForegroundWindowWatcher();
   private readonly idleWatcher = new IdleWatcher(idleSessionThresholdSeconds);
+  private readonly inputActivity = new InputActivityService();
   private readonly uploader = new MonitoringUploader(new UploadQueue());
   private readonly sessionManager: SessionManager;
+  private inputEnabled: boolean;
+  private removeScreenLockListener: (() => void) | null = null;
+  private operationChain: Promise<void> = Promise.resolve();
+  private inputPausedByScreenLock = false;
 
-  constructor(private readonly device: DeviceState) {
+  constructor(private readonly device: DeviceState, options?: { inputEnabled?: boolean }) {
     this.sessionManager = new SessionManager(device.registration.id);
+    this.inputEnabled = options?.inputEnabled ?? true;
   }
 
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    await this.sample();
-    this.watchTimer = window.setInterval(() => void this.sample(), watchIntervalMs);
-    this.uploadTimer = window.setInterval(() => void this.flushOpenSession(), uploadIntervalMs);
+    if (this.inputEnabled) await this.inputActivity.start();
+    this.removeScreenLockListener = window.esta.system.onScreenLockChanged((locked) => {
+      void this.handleScreenLockChange(locked);
+    });
+    await this.runSessionOperation(() => this.sampleLocked());
+    this.watchTimer = window.setInterval(
+      () => void this.runSessionOperation(() => this.sampleLocked()),
+      watchIntervalMs,
+    );
+    this.uploadTimer = window.setInterval(
+      () => void this.runSessionOperation(() => this.rollOpenSession()),
+      uploadIntervalMs,
+    );
     await this.uploader.flush();
   }
 
@@ -39,22 +56,49 @@ export class ActivityCollector implements MonitoringService {
     if (this.uploadTimer !== null) window.clearInterval(this.uploadTimer);
     this.watchTimer = null;
     this.uploadTimer = null;
-    this.uploader.enqueue(this.sessionManager.flush());
-    await this.uploader.flush();
+    this.removeScreenLockListener?.();
+    this.removeScreenLockListener = null;
+    await this.runSessionOperation(async () => {
+      await this.closeOpenSession('flush');
+      await this.inputActivity.stop();
+    });
   }
 
-  private async sample(): Promise<void> {
+  async setInputEnabled(enabled: boolean): Promise<void> {
+    await this.runSessionOperation(async () => {
+      if (this.inputEnabled === enabled) return;
+      if (!this.running) {
+        this.inputEnabled = enabled;
+        return;
+      }
+      if (enabled) {
+        this.inputEnabled = true;
+        this.inputPausedByScreenLock = false;
+        await this.inputActivity.start();
+        return;
+      }
+      await this.closeOpenSession('roll');
+      this.inputEnabled = false;
+      await this.inputActivity.stop();
+    });
+  }
+
+  private async sampleLocked(): Promise<void> {
     if (!this.running) return;
     try {
       const [foreground, idle] = await Promise.all([
         this.foregroundWatcher.snapshot(),
         this.idleWatcher.snapshot(),
       ]);
-      const closedSessions = this.sessionManager.update({
+      const sample = {
         foreground,
         idleState: idle.state,
         systemIdleSeconds: idle.idleSeconds,
-      });
+      };
+      const inputCounts = this.sessionManager.wouldClose(sample)
+        ? await this.snapshotAndResetInputCounts()
+        : zeroInputActivitySnapshot();
+      const closedSessions = this.sessionManager.update(sample, inputCounts);
       if (closedSessions.length) {
         this.uploader.enqueue(closedSessions);
         await this.uploader.flush();
@@ -66,9 +110,45 @@ export class ActivityCollector implements MonitoringService {
     }
   }
 
-  private async flushOpenSession(): Promise<void> {
+  private async rollOpenSession(): Promise<void> {
     if (!this.running) return;
-    this.uploader.enqueue(this.sessionManager.roll());
+    await this.closeOpenSession('roll');
+  }
+
+  private async snapshotAndResetInputCounts() {
+    if (!this.inputEnabled) return zeroInputActivitySnapshot();
+    return this.inputActivity.snapshotAndReset();
+  }
+
+  private async handleScreenLockChange(locked: boolean): Promise<void> {
+    await this.runSessionOperation(async () => {
+      if (!this.running || !this.inputEnabled) return;
+      if (locked) {
+        if (this.inputPausedByScreenLock) return;
+        await this.closeOpenSession('roll');
+        this.inputPausedByScreenLock = true;
+        await this.inputActivity.stop();
+        return;
+      }
+      if (!this.inputPausedByScreenLock) return;
+      this.inputPausedByScreenLock = false;
+      await this.inputActivity.start();
+    });
+  }
+
+  private async closeOpenSession(mode: 'flush' | 'roll'): Promise<void> {
+    const inputCounts = await this.snapshotAndResetInputCounts();
+    this.uploader.enqueue(
+      mode === 'flush'
+        ? this.sessionManager.flush(inputCounts)
+        : this.sessionManager.roll(inputCounts),
+    );
     await this.uploader.flush();
+  }
+
+  private runSessionOperation(operation: () => Promise<void>): Promise<void> {
+    const next = this.operationChain.then(operation, operation);
+    this.operationChain = next.catch(() => undefined);
+    return next;
   }
 }

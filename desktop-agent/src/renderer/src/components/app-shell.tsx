@@ -33,9 +33,15 @@ export function AppShell() {
         if (shouldCollect && !collector.current) {
           device = await deviceService.register();
           if (disposed) return;
-          const nextCollector = new ActivityCollector(device);
+          const nextCollector = new ActivityCollector(device, {
+            inputEnabled: summary.currentState === 'PUNCHED_IN',
+          });
           collector.current = nextCollector;
           await nextCollector.start();
+        }
+
+        if (shouldCollect && collector.current) {
+          await collector.current.setInputEnabled(summary.currentState === 'PUNCHED_IN');
         }
 
         if (!shouldCollect && collector.current) {

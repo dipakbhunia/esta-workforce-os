@@ -144,8 +144,18 @@ export class MonitoringActivityResponseDto {
   @ApiPropertyOptional({ example: 200, nullable: true })
   keystrokeCount!: number | null;
 
-  @ApiPropertyOptional({ example: 50, nullable: true })
-  mouseClickCount!: number | null;
+  @ApiProperty({ example: 200 })
+  keyboardCount!: number;
+
+  @ApiProperty({ example: 50 })
+  mouseClickCount!: number;
+
+  @ApiProperty({ example: 120 })
+  mouseMoveCount!: number;
+
+  @ApiProperty({ example: 8 })
+  scrollCount!: number;
+
 
   @ApiProperty({ type: [MonitoringApplicationUsageResponseDto] })
   applications!: MonitoringApplicationUsageResponseDto[];

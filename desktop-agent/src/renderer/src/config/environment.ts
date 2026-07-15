@@ -12,4 +12,13 @@ export const environment = {
   screenshotJitterMs: Number(
     import.meta.env.VITE_SCREENSHOT_JITTER_MS || 60 * 1000,
   ),
+  inputTrackingEnabled:
+    import.meta.env.VITE_INPUT_TRACKING_ENABLED?.trim().toLowerCase() !== 'false',
+  inputMouseMoveEnabled:
+    import.meta.env.VITE_INPUT_MOUSE_MOVE_ENABLED?.trim().toLowerCase() !== 'false',
+  inputScrollEnabled:
+    import.meta.env.VITE_INPUT_SCROLL_ENABLED?.trim().toLowerCase() !== 'false',
+  inputMouseMoveThrottleMs: Number(
+    import.meta.env.VITE_INPUT_MOUSE_MOVE_THROTTLE_MS || 500,
+  ),
 } as const;

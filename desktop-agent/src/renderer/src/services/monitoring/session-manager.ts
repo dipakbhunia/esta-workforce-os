@@ -1,8 +1,11 @@
 import type { ActivityUploadPayload } from '../api/activity-upload.service';
+import type { InputActivitySnapshot } from '@shared/contracts';
 import type { ActivityIdleState } from './idle-watcher';
 import type { ForegroundActivitySnapshot } from './foreground-window-watcher';
+import { zeroInputActivitySnapshot } from './input-activity.service';
 
 const minimumSessionSeconds = 1;
+const maxInputCount = 1000000;
 
 export interface ActivitySessionSample {
   foreground: ForegroundActivitySnapshot;
@@ -20,7 +23,11 @@ export class SessionManager {
 
   constructor(private readonly deviceId: string) {}
 
-  update(sample: ActivitySessionSample, now = new Date()): ActivityUploadPayload[] {
+  update(
+    sample: ActivitySessionSample,
+    inputCounts: InputActivitySnapshot = zeroInputActivitySnapshot(),
+    now = new Date(),
+  ): ActivityUploadPayload[] {
     if (!this.current) {
       this.current = this.open(sample, now);
       return [];
@@ -28,25 +35,35 @@ export class SessionManager {
 
     if (!this.hasChanged(this.current, sample)) return [];
 
-    const closed = this.close(now);
+    const closed = this.close(now, inputCounts);
     this.current = this.open(sample, now);
     return closed ? [closed] : [];
   }
 
-  flush(now = new Date()): ActivityUploadPayload[] {
-    const closed = this.close(now);
+  wouldClose(sample: ActivitySessionSample): boolean {
+    return Boolean(this.current && this.hasChanged(this.current, sample));
+  }
+
+  flush(
+    inputCounts: InputActivitySnapshot = zeroInputActivitySnapshot(),
+    now = new Date(),
+  ): ActivityUploadPayload[] {
+    const closed = this.close(now, inputCounts);
     this.current = null;
     return closed ? [closed] : [];
   }
 
-  roll(now = new Date()): ActivityUploadPayload[] {
+  roll(
+    inputCounts: InputActivitySnapshot = zeroInputActivitySnapshot(),
+    now = new Date(),
+  ): ActivityUploadPayload[] {
     if (!this.current) return [];
     const sample: ActivitySessionSample = {
       foreground: this.current.foreground,
       idleState: this.current.idleState,
       systemIdleSeconds: this.current.systemIdleSeconds,
     };
-    const closed = this.close(now);
+    const closed = this.close(now, inputCounts);
     this.current = this.open(sample, now);
     return closed ? [closed] : [];
   }
@@ -59,8 +76,9 @@ export class SessionManager {
     };
   }
 
-  private close(now: Date): ActivityUploadPayload | null {
+  private close(now: Date, inputCounts: InputActivitySnapshot): ActivityUploadPayload | null {
     if (!this.current) return null;
+    const safeInputCounts = sanitizeInputCounts(inputCounts);
     const endedAt = now.toISOString();
     const durationSeconds = Math.max(
       0,
@@ -82,8 +100,11 @@ export class SessionManager {
       endedAt,
       activeSeconds,
       idleSeconds,
-      keystrokeCount: 0,
-      mouseClickCount: 0,
+      keystrokeCount: safeInputCounts.keyboardCount,
+      keyboardCount: safeInputCounts.keyboardCount,
+      mouseClickCount: safeInputCounts.mouseClickCount,
+      mouseMoveCount: safeInputCounts.mouseMoveCount,
+      scrollCount: safeInputCounts.scrollCount,
       metadata: {
         platform: this.current.foreground.platform,
         processId: this.current.foreground.processId,
@@ -98,7 +119,7 @@ export class SessionManager {
         browserWindowTitle: browser.title ?? (browser.isBrowser ? windowTitle : undefined),
         browserProviderAvailable: browser.providerAvailable,
         urlAvailable: hasWebsiteUrl,
-        inputCountSource: 'not_collected_in_phase_6_4a',
+        inputCountSource: 'numeric_global_event_counts',
         privacy: 'metadata_only_no_keylogging_no_clipboard_no_page_content',
       },
       applications: [
@@ -136,4 +157,19 @@ export class SessionManager {
       current.foreground.browser.url !== next.foreground.browser.url
     );
   }
+}
+
+function sanitizeInputCounts(value: InputActivitySnapshot): InputActivitySnapshot {
+  return {
+    keyboardCount: sanitizeCount(value.keyboardCount),
+    mouseClickCount: sanitizeCount(value.mouseClickCount),
+    mouseMoveCount: sanitizeCount(value.mouseMoveCount),
+    scrollCount: sanitizeCount(value.scrollCount),
+  };
+}
+
+function sanitizeCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(maxInputCount, Math.max(0, Math.floor(value)))
+    : 0;
 }

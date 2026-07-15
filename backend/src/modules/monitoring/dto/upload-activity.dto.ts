@@ -111,6 +111,7 @@ export class UploadActivityDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(1000000)
   @IsOptional()
   keystrokeCount?: number;
 
@@ -118,8 +119,33 @@ export class UploadActivityDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
+  @Max(1000000)
+  @IsOptional()
+  keyboardCount?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000)
   @IsOptional()
   mouseClickCount?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000)
+  @IsOptional()
+  mouseMoveCount?: number;
+
+  @ApiPropertyOptional({ minimum: 0 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000000)
+  @IsOptional()
+  scrollCount?: number;
 
   @ApiPropertyOptional({ type: 'object', additionalProperties: true })
   @IsObject()
