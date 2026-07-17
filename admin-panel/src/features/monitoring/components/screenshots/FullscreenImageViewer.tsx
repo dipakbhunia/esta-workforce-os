@@ -17,6 +17,11 @@ import {
 import { ChevronLeft, ChevronRight, ExternalLink, Info, Maximize2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type { MonitoringScreenshot } from '../../types/monitoring.types';
 import { employeeName, formatDateTime } from '../../utils/monitoring-format';
+import {
+  hasAvailableInputActivity,
+  InputActivityMetrics,
+  inputActivityFromMetadata,
+} from '../InputActivityMetrics';
 import type { ScreenshotPreviewState } from './ScreenshotCard';
 import { ScreenshotInspector } from './ScreenshotInspector';
 import { screenshotApplication } from './screenshot-helpers';
@@ -40,6 +45,8 @@ export function FullscreenImageViewer({ open, screenshots, currentId, previews, 
   const screenshot = currentIndex >= 0 ? screenshots[currentIndex] : null;
   const preview = screenshot ? previews[screenshot.id] : undefined;
   const appName = screenshot ? screenshotApplication(screenshot) : 'Application not available';
+  const inputActivity = screenshot ? inputActivityFromMetadata(screenshot.metadata) : null;
+  const hasInputActivity = hasAvailableInputActivity(inputActivity);
 
   useEffect(() => {
     if (open && screenshot) onLoadPreview(screenshot.id);
@@ -194,6 +201,12 @@ export function FullscreenImageViewer({ open, screenshots, currentId, previews, 
                 <Typography variant="body2" fontWeight={800}>{appName}</Typography>
                 <Typography variant="caption" color="text.secondary">Only metadata returned with this screenshot is shown.</Typography>
               </Box>
+              {hasInputActivity && (
+                <Box>
+                  <Typography variant="overline" color="text.secondary">Input Activity</Typography>
+                  <InputActivityMetrics counts={inputActivity} compact />
+                </Box>
+              )}
               <ScreenshotInspector screenshot={screenshot} />
             </Stack>
           </Box>

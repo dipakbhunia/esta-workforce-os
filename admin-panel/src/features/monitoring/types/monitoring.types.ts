@@ -124,7 +124,10 @@ export interface MonitoringActivity {
   activeSeconds: number;
   idleSeconds: number;
   keystrokeCount: number | null;
+  keyboardCount: number | null;
   mouseClickCount: number | null;
+  mouseMoveCount: number | null;
+  scrollCount: number | null;
   applications: MonitoringApplicationUsage[];
   websites: MonitoringWebsiteUsage[];
 }

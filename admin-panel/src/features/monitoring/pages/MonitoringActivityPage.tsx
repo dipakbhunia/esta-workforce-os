@@ -28,6 +28,7 @@ import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { SummaryCardsContainer } from '@/components/summary-cards-container';
 import { getEmployees } from '@/features/people/services/employees-api';
+import { InputActivityMetrics, inputActivityFromRecord } from '../components/InputActivityMetrics';
 import {
   getMonitoringActivity,
   getMonitoringApplications,
@@ -145,6 +146,18 @@ export default function MonitoringActivityPage() {
     { field: 'durationSeconds', headerName: 'Duration', minWidth: 130, valueGetter: (_, row) => formatDuration(row.durationSeconds) },
     { field: 'activeSeconds', headerName: 'Active Time', minWidth: 130, valueGetter: (_, row) => formatDuration(row.activeSeconds) },
     { field: 'idleSeconds', headerName: 'Idle Time', minWidth: 130, valueGetter: (_, row) => formatDuration(row.idleSeconds) },
+    {
+      field: 'inputActivity',
+      headerName: 'Input Activity',
+      minWidth: 430,
+      sortable: false,
+      renderCell: ({ row }) => (
+        <InputActivityMetrics
+          compact
+          counts={inputActivityFromRecord(row)}
+        />
+      ),
+    },
     { field: 'applications', headerName: 'Applications', minWidth: 220, valueGetter: (_, row) => row.applications.map((item) => item.application).filter(Boolean).slice(0, 2).join(', ') || 'Not available' },
     { field: 'websites', headerName: 'Websites', minWidth: 220, valueGetter: (_, row) => row.websites.map((item) => item.domain).filter(Boolean).slice(0, 2).join(', ') || 'Not available' },
   ], []);
@@ -268,7 +281,7 @@ export default function MonitoringActivityPage() {
             toolbar={<></>}
             gridProps={{
               loading: activityQuery.isFetching,
-              rowHeight: 60,
+              rowHeight: 74,
               columnHeaderHeight: 48,
               paginationMode: 'server',
               rowCount: activityQuery.data?.data.meta.total ?? 0,

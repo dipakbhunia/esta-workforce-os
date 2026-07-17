@@ -2,6 +2,7 @@ import { Box, Divider, Stack, Typography } from '@mui/material';
 import { SectionCard } from '@/components/section-card';
 import type { MonitoringScreenshot } from '../../types/monitoring.types';
 import { employeeEmail, employeeName, formatBytes, formatDateTime } from '../../utils/monitoring-format';
+import { formatInputCount, hasAvailableInputActivity, inputActivityFromMetadata } from '../InputActivityMetrics';
 import { screenshotApplication, screenshotAttendanceId, screenshotDeviceLabel, screenshotResolution, screenshotWindowTitle } from './screenshot-helpers';
 
 export function ScreenshotInspector({ screenshot }: { screenshot: MonitoringScreenshot | null }) {
@@ -13,6 +14,15 @@ export function ScreenshotInspector({ screenshot }: { screenshot: MonitoringScre
     );
   }
 
+  const inputActivity = inputActivityFromMetadata(screenshot.metadata);
+  const inputActivityItems = hasAvailableInputActivity(inputActivity)
+    ? [
+      ['Keyboard Count', formatInputCount(inputActivity.keyboardCount)],
+      ['Mouse Click Count', formatInputCount(inputActivity.mouseClickCount)],
+      ['Mouse Movement', formatInputCount(inputActivity.mouseMoveCount)],
+      ['Scroll Count', formatInputCount(inputActivity.scrollCount)],
+    ]
+    : [];
   const items = [
     ['Employee', employeeName(screenshot.employee)],
     ['Email', employeeEmail(screenshot.employee) ?? 'Not available'],
@@ -22,6 +32,7 @@ export function ScreenshotInspector({ screenshot }: { screenshot: MonitoringScre
     ['Window Title', screenshotWindowTitle(screenshot)],
     ['Device', screenshotDeviceLabel(screenshot)],
     ['Platform', platformFromMetadata(screenshot) ?? 'Not available'],
+    ...inputActivityItems,
     ['Resolution', screenshotResolution(screenshot)],
     ['File Size', formatBytes(screenshot.sizeBytes)],
     ['MIME Type', screenshot.mimeType || 'Not available'],
