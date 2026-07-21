@@ -1,6 +1,8 @@
 ﻿import { app, ipcMain } from 'electron';
 import type {
   AuthTokens,
+  BrowserBridgePairingInfo,
+  BrowserBridgeState,
   DesktopSettings,
   ForegroundWindowMetadata,
   InputActivitySnapshot,
@@ -18,6 +20,9 @@ export interface AppIpcActions {
   getSystemIdleTimeSeconds(): number;
   getForegroundWindow(): ForegroundWindowMetadata | Promise<ForegroundWindowMetadata>;
   isScreenLocked(): boolean;
+  getBrowserBridgePairingInfo(): BrowserBridgePairingInfo | null;
+  regenerateBrowserBridgePairingToken(): BrowserBridgePairingInfo | null;
+  getLatestBrowserBridgeState(): BrowserBridgeState | null;
   startInputActivity(): Promise<void>;
   stopInputActivity(): Promise<void>;
   snapshotAndResetInputActivity(): Promise<InputActivitySnapshot>;
@@ -67,6 +72,15 @@ export function registerIpcHandlers(
     actions.getForegroundWindow(),
   );
   ipcMain.handle(ipcChannels.systemIsScreenLocked, () => actions.isScreenLocked());
+  ipcMain.handle(ipcChannels.browserBridgeGetPairingInfo, () =>
+    actions.getBrowserBridgePairingInfo(),
+  );
+  ipcMain.handle(ipcChannels.browserBridgeRegeneratePairingToken, () =>
+    actions.regenerateBrowserBridgePairingToken(),
+  );
+  ipcMain.handle(ipcChannels.browserBridgeGetLatestState, () =>
+    actions.getLatestBrowserBridgeState(),
+  );
   ipcMain.handle(ipcChannels.inputActivityStart, () => actions.startInputActivity());
   ipcMain.handle(ipcChannels.inputActivityStop, () => actions.stopInputActivity());
   ipcMain.handle(ipcChannels.inputActivitySnapshotAndReset, () =>

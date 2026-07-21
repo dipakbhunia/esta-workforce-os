@@ -7,6 +7,7 @@ import type {
 } from 'electron';
 import type { DesktopSettings } from '../shared/contracts';
 import { ipcChannels } from '../shared/ipc-channels';
+import { BrowserBridgeService } from './browser-bridge/browser-bridge-service';
 import { DeviceIdentity } from './device/device-identity';
 import { InputActivityService } from './input/input-activity-service';
 import { registerIpcHandlers } from './ipc/register-ipc';
@@ -32,6 +33,7 @@ let isQuitting = false;
 let screenLocked = false;
 const foregroundWindowSampler = new ForegroundWindowSampler();
 const inputActivityService = new InputActivityService();
+const browserBridgeService = new BrowserBridgeService();
 let screenshotQueue: ScreenshotQueue | null = null;
 
 function numberFromEnv(name: string, fallback: number): number {
@@ -184,6 +186,7 @@ app.whenReady().then(async () => {
     maxQueueBytes: numberFromEnv('VITE_SCREENSHOT_QUEUE_MAX_BYTES', 200 * 1024 * 1024),
   });
   applyStartupSetting(await settings.read());
+  await browserBridgeService.start();
   foregroundWindowSampler.start();
   powerMonitor.on('lock-screen', () => {
     screenLocked = true;
@@ -202,6 +205,9 @@ app.whenReady().then(async () => {
     getSystemIdleTimeSeconds: () => powerMonitor.getSystemIdleTime(),
     getForegroundWindow: () => foregroundWindowSampler.getMetadata(),
     isScreenLocked: () => screenLocked,
+    getBrowserBridgePairingInfo: () => browserBridgeService.getPairingInfo(),
+    regenerateBrowserBridgePairingToken: () => browserBridgeService.regeneratePairingToken(),
+    getLatestBrowserBridgeState: () => browserBridgeService.getLatestState(),
     startInputActivity: () => (screenLocked ? Promise.resolve() : inputActivityService.start()),
     stopInputActivity: () => inputActivityService.stop(),
     snapshotAndResetInputActivity: () => inputActivityService.snapshotAndReset(),
@@ -224,6 +230,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   isQuitting = true;
   foregroundWindowSampler.stop();
+  void browserBridgeService.stop();
   void inputActivityService.stop();
 });
 

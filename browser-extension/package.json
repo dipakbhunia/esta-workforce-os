@@ -1,0 +1,12 @@
+{
+  "name": "esta-workforce-os-browser-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Privacy-safe Chromium extension foundation for Esta Workforce OS website tracking",
+  "type": "module",
+  "scripts": {
+    "typecheck": "node ../desktop-agent/node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  }
+}

@@ -20,6 +20,7 @@ interface ActiveActivitySession extends ActivitySessionSample {
 
 export class SessionManager {
   private current: ActiveActivitySession | null = null;
+  private lastOpenedWebsiteKey = '';
 
   constructor(private readonly deviceId: string) {}
 
@@ -69,6 +70,15 @@ export class SessionManager {
   }
 
   private open(sample: ActivitySessionSample, now: Date): ActiveActivitySession {
+    const websiteKey = websiteDiagnosticKey(sample);
+    if (websiteKey && websiteKey !== this.lastOpenedWebsiteKey && import.meta.env.DEV) {
+      this.lastOpenedWebsiteKey = websiteKey;
+      console.debug('[Esta Desktop] Website interval opened', {
+        browserName: sample.foreground.browser.browserName,
+        hostname: sample.foreground.browser.domain,
+        startedAt: now.toISOString(),
+      });
+    }
     return {
       ...sample,
       id: crypto.randomUUID(),
@@ -92,6 +102,19 @@ export class SessionManager {
     const windowTitle = this.current.foreground.windowTitle;
     const browser = this.current.foreground.browser;
     const hasWebsiteUrl = browser.isBrowser && browser.urlAvailable && Boolean(browser.domain);
+    if (import.meta.env.DEV) {
+      console.debug('[Esta Desktop] Activity session closed', {
+        clientSessionId: this.current.id,
+        startedAt: this.current.startedAt,
+        endedAt,
+        durationSeconds,
+        browserName: browser.browserName,
+        hostname: hasWebsiteUrl ? browser.domain : undefined,
+        lookupStatus: browser.lookupStatus,
+        websiteRecordCount: hasWebsiteUrl ? 1 : 0,
+        inputCounts: safeInputCounts,
+      });
+    }
 
     return {
       deviceId: this.deviceId,
@@ -118,6 +141,8 @@ export class SessionManager {
         browserName: browser.browserName,
         browserWindowTitle: browser.title ?? (browser.isBrowser ? windowTitle : undefined),
         browserProviderAvailable: browser.providerAvailable,
+        browserDomain: hasWebsiteUrl ? browser.domain : undefined,
+        browserHostnameSource: hasWebsiteUrl ? browser.source : undefined,
         urlAvailable: hasWebsiteUrl,
         inputCountSource: 'numeric_global_event_counts',
         privacy: 'metadata_only_no_keylogging_no_clipboard_no_page_content',
@@ -136,7 +161,6 @@ export class SessionManager {
             {
               browserName: browser.browserName,
               domain: browser.domain as string,
-              url: browser.url,
               pageTitle: browser.title ?? windowTitle,
               startedAt: this.current.startedAt,
               endedAt,
@@ -157,6 +181,13 @@ export class SessionManager {
       current.foreground.browser.url !== next.foreground.browser.url
     );
   }
+}
+
+function websiteDiagnosticKey(sample: ActivitySessionSample): string {
+  const browser = sample.foreground.browser;
+  return browser.isBrowser && browser.urlAvailable && browser.domain
+    ? `${browser.browserName ?? 'browser'}|${browser.domain}`
+    : '';
 }
 
 function sanitizeInputCounts(value: InputActivitySnapshot): InputActivitySnapshot {

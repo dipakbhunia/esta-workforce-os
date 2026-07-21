@@ -35,6 +35,14 @@ const api: EstaDesktopApi = {
       return () => ipcRenderer.removeListener(ipcChannels.systemScreenLockChanged, listener);
     },
   },
+  browserBridge: {
+    getPairingInfo: () =>
+      ipcRenderer.invoke(ipcChannels.browserBridgeGetPairingInfo),
+    regeneratePairingToken: () =>
+      ipcRenderer.invoke(ipcChannels.browserBridgeRegeneratePairingToken),
+    getLatestState: () =>
+      ipcRenderer.invoke(ipcChannels.browserBridgeGetLatestState),
+  },
   inputActivity: {
     start: () => ipcRenderer.invoke(ipcChannels.inputActivityStart),
     stop: () => ipcRenderer.invoke(ipcChannels.inputActivityStop),

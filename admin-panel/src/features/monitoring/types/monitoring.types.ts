@@ -145,6 +145,12 @@ export interface MonitoringScreenshot {
   height: number | null;
   checksum: string | null;
   metadata?: Record<string, unknown> | null;
+  inputMetrics?: {
+    keyboardCount: number;
+    mouseClickCount: number;
+    mouseMoveCount: number;
+    scrollCount: number;
+  } | null;
 }
 
 export interface MonitoringScreenshotPreview {
@@ -191,6 +197,26 @@ export interface MonitoringSummaryRecord {
 }
 
 export interface MonitoringSummaryResponse extends PaginatedMonitoringResponse<MonitoringSummaryRecord> {
+  inputTotals?: {
+    totalKeyboardCount: number | null;
+    totalMouseClickCount: number | null;
+    totalMouseMoveCount: number | null;
+    totalScrollCount: number | null;
+  };
+  topWebsites?: Array<{
+    domain: string;
+    durationSeconds: number;
+    entries: number;
+  }>;
+  teamActivityBreakdown?: Array<{
+    departmentId: string | null;
+    departmentName: string;
+    employeeCount: number;
+    onlineSeconds: number;
+    activeSeconds: number;
+    idleSeconds: number;
+    activityPercentage: number;
+  }>;
   range: {
     from?: string;
     to?: string;

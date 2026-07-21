@@ -164,6 +164,20 @@ export class MonitoringActivityResponseDto {
   websites!: MonitoringWebsiteUsageResponseDto[];
 }
 
+export class MonitoringScreenshotInputMetricsDto {
+  @ApiProperty({ example: 14 })
+  keyboardCount!: number;
+
+  @ApiProperty({ example: 7 })
+  mouseClickCount!: number;
+
+  @ApiProperty({ example: 20 })
+  mouseMoveCount!: number;
+
+  @ApiProperty({ example: 5 })
+  scrollCount!: number;
+}
+
 export class MonitoringScreenshotResponseDto {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -200,6 +214,9 @@ export class MonitoringScreenshotResponseDto {
 
   @ApiPropertyOptional({ type: 'object', additionalProperties: true, nullable: true })
   metadata!: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ type: MonitoringScreenshotInputMetricsDto, nullable: true })
+  inputMetrics!: MonitoringScreenshotInputMetricsDto | null;
 }
 
 export class ScreenshotUploadResponseDto extends MonitoringScreenshotResponseDto {}
@@ -250,4 +267,78 @@ export class PaginatedMonitoringWebsiteUsageResponseDto {
 
   @ApiProperty({ type: MonitoringPaginationMetaDto })
   meta!: MonitoringPaginationMetaDto;
+}
+
+export class MonitoringSummaryInputTotalsDto {
+  @ApiPropertyOptional({ example: 1250, nullable: true })
+  totalKeyboardCount!: number | null;
+
+  @ApiPropertyOptional({ example: 420, nullable: true })
+  totalMouseClickCount!: number | null;
+
+  @ApiPropertyOptional({ example: 24830, nullable: true })
+  totalMouseMoveCount!: number | null;
+
+  @ApiPropertyOptional({ example: 96, nullable: true })
+  totalScrollCount!: number | null;
+}
+
+export class MonitoringSummaryTopWebsiteDto {
+  @ApiProperty({ example: 'github.com' })
+  domain!: string;
+
+  @ApiProperty({ example: 3600 })
+  durationSeconds!: number;
+
+  @ApiProperty({ example: 4 })
+  entries!: number;
+}
+
+export class MonitoringSummaryTeamActivityBreakdownDto {
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  departmentId!: string | null;
+
+  @ApiProperty({ example: 'Engineering' })
+  departmentName!: string;
+
+  @ApiProperty({ example: 8 })
+  employeeCount!: number;
+
+  @ApiProperty({ example: 51600 })
+  onlineSeconds!: number;
+
+  @ApiProperty({ example: 45600 })
+  activeSeconds!: number;
+
+  @ApiProperty({ example: 6000 })
+  idleSeconds!: number;
+
+  @ApiProperty({ example: 88.37 })
+  activityPercentage!: number;
+}
+
+export class PaginatedMonitoringSummaryResponseDto {
+  @ApiProperty({ type: 'array', items: { type: 'object' } })
+  data!: unknown[];
+
+  @ApiProperty({ type: MonitoringPaginationMetaDto })
+  meta!: MonitoringPaginationMetaDto;
+
+  @ApiProperty({ type: MonitoringSummaryInputTotalsDto })
+  inputTotals!: MonitoringSummaryInputTotalsDto;
+
+  @ApiPropertyOptional({ type: [MonitoringSummaryTopWebsiteDto] })
+  topWebsites?: MonitoringSummaryTopWebsiteDto[];
+
+  @ApiPropertyOptional({ type: [MonitoringSummaryTeamActivityBreakdownDto] })
+  teamActivityBreakdown?: MonitoringSummaryTeamActivityBreakdownDto[];
+
+  @ApiProperty({
+    type: 'object',
+    properties: {
+      from: { type: 'string', format: 'date-time' },
+      to: { type: 'string', format: 'date-time' },
+    },
+  })
+  range!: { from?: string; to?: string };
 }

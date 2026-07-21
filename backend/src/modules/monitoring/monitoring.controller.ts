@@ -27,6 +27,7 @@ import {
   PaginatedMonitoringApplicationUsageResponseDto,
   PaginatedMonitoringDeviceResponseDto,
   PaginatedMonitoringScreenshotResponseDto,
+  PaginatedMonitoringSummaryResponseDto,
   PaginatedMonitoringWebsiteUsageResponseDto,
   ScreenshotUploadResponseDto,
   ScreenshotViewResponseDto,
@@ -280,6 +281,7 @@ export class MonitoringController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Get paginated employee monitoring summaries' })
+  @ApiOkResponse({ type: PaginatedMonitoringSummaryResponseDto })
   summary(
     @Query() query: MonitoringSummaryQueryDto,
     @CurrentUser() user: AuthenticatedUser,

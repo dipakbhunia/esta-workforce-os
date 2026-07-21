@@ -10,6 +10,7 @@ export interface BrowserProvider {
   readonly executableNames: string[];
   readonly processNames: string[];
   readonly titlePatterns: RegExp[];
+  readonly extensionBrowserKeys: string[];
   isAvailable(): Promise<boolean>;
   getActiveTab(): Promise<BrowserTab | null>;
 }
@@ -20,6 +21,7 @@ abstract class RegisteredBrowserProvider implements BrowserProvider {
     readonly executableNames: string[],
     readonly processNames: string[],
     readonly titlePatterns: RegExp[],
+    readonly extensionBrowserKeys: string[],
   ) {}
 
   async isAvailable(): Promise<boolean> {
@@ -33,37 +35,37 @@ abstract class RegisteredBrowserProvider implements BrowserProvider {
 
 export class ChromeProvider extends RegisteredBrowserProvider {
   constructor() {
-    super('Google Chrome', ['chrome', 'chrome.exe'], ['chrome'], [/google chrome/i, /\bchrome\b/i]);
+    super('Google Chrome', ['chrome', 'chrome.exe'], ['chrome'], [/google chrome/i, /\bchrome\b/i], ['chrome']);
   }
 }
 
 export class EdgeProvider extends RegisteredBrowserProvider {
   constructor() {
-    super('Microsoft Edge', ['msedge', 'msedge.exe'], ['msedge'], [/microsoft edge/i, /\bedge\b/i]);
+    super('Microsoft Edge', ['msedge', 'msedge.exe'], ['msedge'], [/microsoft edge/i, /\bedge\b/i], ['edge']);
   }
 }
 
 export class FirefoxProvider extends RegisteredBrowserProvider {
   constructor() {
-    super('Mozilla Firefox', ['firefox', 'firefox.exe'], ['firefox'], [/mozilla firefox/i, /\bfirefox\b/i]);
+    super('Mozilla Firefox', ['firefox', 'firefox.exe'], ['firefox'], [/mozilla firefox/i, /\bfirefox\b/i], []);
   }
 }
 
 export class BraveProvider extends RegisteredBrowserProvider {
   constructor() {
-    super('Brave', ['brave', 'brave.exe', 'bravebrowser', 'bravebrowser.exe'], ['brave', 'bravebrowser'], [/brave/i]);
+    super('Brave', ['brave', 'brave.exe', 'bravebrowser', 'bravebrowser.exe'], ['brave', 'bravebrowser'], [/brave/i], ['brave']);
   }
 }
 
 export class OperaProvider extends RegisteredBrowserProvider {
   constructor() {
-    super('Opera', ['opera', 'opera.exe', 'launcher', 'launcher.exe'], ['opera', 'launcher'], [/opera/i]);
+    super('Opera', ['opera', 'opera.exe', 'launcher', 'launcher.exe'], ['opera', 'launcher'], [/opera/i], ['opera']);
   }
 }
 
 export class ElectronBrowserProvider extends RegisteredBrowserProvider {
   constructor() {
-    super('Electron', ['electron', 'electron.exe'], ['electron'], [/electron/i]);
+    super('Electron', ['electron', 'electron.exe'], ['electron'], [/electron/i], []);
   }
 }
 
@@ -74,7 +76,6 @@ export class BrowserProviderRegistry {
     new FirefoxProvider(),
     new BraveProvider(),
     new OperaProvider(),
-    new ElectronBrowserProvider(),
   ];
 
   list(): BrowserProvider[] {

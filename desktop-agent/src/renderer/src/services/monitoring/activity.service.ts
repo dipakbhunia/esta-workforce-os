@@ -33,6 +33,12 @@ export class ActivityCollector implements MonitoringService {
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
+    if (import.meta.env.DEV) {
+      console.debug('[Esta Desktop] Activity collector started', {
+        deviceId: this.device.registration.id,
+        inputEnabled: this.inputEnabled,
+      });
+    }
     if (this.inputEnabled) await this.inputActivity.start();
     this.removeScreenLockListener = window.esta.system.onScreenLockChanged((locked) => {
       void this.handleScreenLockChange(locked);
@@ -100,6 +106,13 @@ export class ActivityCollector implements MonitoringService {
         : zeroInputActivitySnapshot();
       const closedSessions = this.sessionManager.update(sample, inputCounts);
       if (closedSessions.length) {
+        if (import.meta.env.DEV) {
+          console.debug('[Esta Desktop] Activity session flushed after context change', {
+            count: closedSessions.length,
+            firstStartedAt: closedSessions[0]?.startedAt,
+            firstEndedAt: closedSessions[0]?.endedAt,
+          });
+        }
         this.uploader.enqueue(closedSessions);
         await this.uploader.flush();
       }
@@ -117,7 +130,11 @@ export class ActivityCollector implements MonitoringService {
 
   private async snapshotAndResetInputCounts() {
     if (!this.inputEnabled) return zeroInputActivitySnapshot();
-    return this.inputActivity.snapshotAndReset();
+    const snapshot = await this.inputActivity.snapshotAndReset();
+    if (import.meta.env.DEV) {
+      console.debug('[Esta Desktop] Activity collector input snapshot before flush', snapshot);
+    }
+    return snapshot;
   }
 
   private async handleScreenLockChange(locked: boolean): Promise<void> {
@@ -138,11 +155,18 @@ export class ActivityCollector implements MonitoringService {
 
   private async closeOpenSession(mode: 'flush' | 'roll'): Promise<void> {
     const inputCounts = await this.snapshotAndResetInputCounts();
-    this.uploader.enqueue(
-      mode === 'flush'
-        ? this.sessionManager.flush(inputCounts)
-        : this.sessionManager.roll(inputCounts),
-    );
+    const closedSessions = mode === 'flush'
+      ? this.sessionManager.flush(inputCounts)
+      : this.sessionManager.roll(inputCounts);
+    if (closedSessions.length && import.meta.env.DEV) {
+      console.debug('[Esta Desktop] Activity session flushed', {
+        mode,
+        count: closedSessions.length,
+        firstStartedAt: closedSessions[0]?.startedAt,
+        firstEndedAt: closedSessions[0]?.endedAt,
+      });
+    }
+    this.uploader.enqueue(closedSessions);
     await this.uploader.flush();
   }
 

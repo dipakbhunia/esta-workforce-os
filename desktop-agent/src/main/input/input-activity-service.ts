@@ -18,34 +18,53 @@ function numberFromEnv(name: string, fallback: number): number {
 
 export class InputActivityService {
   private readonly provider: InputActivityProvider;
+  private readonly providerName: string;
   private enabled = false;
 
   constructor() {
     const trackingEnabled = booleanFromEnv('VITE_INPUT_TRACKING_ENABLED', true);
-    this.provider =
-      trackingEnabled && process.platform === 'win32'
-        ? new WindowsInputActivityProvider({
+    if (trackingEnabled && process.platform === 'win32') {
+      this.providerName = 'windows_global_hooks';
+      this.provider = new WindowsInputActivityProvider({
             mouseMoveEnabled: booleanFromEnv('VITE_INPUT_MOUSE_MOVE_ENABLED', true),
             scrollEnabled: booleanFromEnv('VITE_INPUT_SCROLL_ENABLED', true),
             mouseMoveThrottleMs: numberFromEnv('VITE_INPUT_MOUSE_MOVE_THROTTLE_MS', 500),
-          })
-        : new UnsupportedInputActivityProvider();
+          });
+    } else {
+      this.providerName = trackingEnabled ? 'unsupported_platform' : 'disabled_by_env';
+      this.provider = new UnsupportedInputActivityProvider();
+    }
   }
 
   async start(): Promise<void> {
     if (this.enabled) return;
     this.enabled = true;
     await this.provider.start();
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[Esta Desktop] Input activity collector started', {
+        provider: this.providerName,
+        platform: process.platform,
+      });
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.enabled) return;
     this.enabled = false;
     await this.provider.stop();
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[Esta Desktop] Input activity collector stopped', {
+        provider: this.providerName,
+      });
+    }
   }
 
   async snapshotAndReset(): Promise<InputActivitySnapshot> {
     if (!this.enabled) return zeroInputActivitySnapshot();
-    return this.provider.snapshotAndReset();
+    const snapshot = await this.provider.snapshotAndReset();
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[Esta Desktop] Input activity snapshot before session flush', snapshot);
+    }
+    return snapshot;
   }
 }

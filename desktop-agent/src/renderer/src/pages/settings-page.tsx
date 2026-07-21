@@ -1,6 +1,8 @@
-﻿import { Info as CircleInfo } from 'lucide-react';
+import { Copy, Eye, EyeOff, Info as CircleInfo, RefreshCw, Wifi } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type {
+  BrowserBridgePairingInfo,
+  BrowserBridgeState,
   DesktopSettings,
   DeviceInformation,
 } from '@shared/contracts';
@@ -9,16 +11,31 @@ import { environment } from '../config/environment';
 export function SettingsPage() {
   const [settings, setSettings] = useState<DesktopSettings | null>(null);
   const [device, setDevice] = useState<DeviceInformation | null>(null);
+  const [bridge, setBridge] = useState<BrowserBridgePairingInfo | null>(null);
+  const [bridgeState, setBridgeState] = useState<BrowserBridgeState | null>(null);
+  const [showToken, setShowToken] = useState(false);
+  const [bridgeMessage, setBridgeMessage] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     void Promise.all([
       window.esta.settings.get(),
       window.esta.device.getInformation(),
-    ]).then(([loadedSettings, information]) => {
+      window.esta.browserBridge.getPairingInfo(),
+      window.esta.browserBridge.getLatestState(),
+    ]).then(([loadedSettings, information, pairingInfo, latestState]) => {
       setSettings(loadedSettings);
       setDevice(information);
+      setBridge(pairingInfo);
+      setBridgeState(latestState);
     });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void window.esta.browserBridge.getLatestState().then(setBridgeState);
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   async function save() {
@@ -26,6 +43,33 @@ export function SettingsPage() {
     setSettings(await window.esta.settings.update(settings));
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1500);
+  }
+
+  async function copyToken() {
+    if (!bridge?.token) return;
+    await navigator.clipboard.writeText(bridge.token);
+    setBridgeMessage('Pairing token copied.');
+    window.setTimeout(() => setBridgeMessage(null), 1800);
+  }
+
+  async function regenerateToken() {
+    const next = await window.esta.browserBridge.regeneratePairingToken();
+    setBridge(next);
+    setBridgeState(null);
+    setShowToken(false);
+    setBridgeMessage('New pairing token generated. Update the browser extension.');
+    window.setTimeout(() => setBridgeMessage(null), 2600);
+  }
+
+  async function testBrowserConnection() {
+    const latest = await window.esta.browserBridge.getLatestState();
+    setBridgeState(latest);
+    setBridgeMessage(
+      latest
+        ? `Connected: ${latest.browser} reported ${latest.hostname}.`
+        : 'Waiting for browser extension connection.',
+    );
+    window.setTimeout(() => setBridgeMessage(null), 2600);
   }
 
   return (
@@ -107,6 +151,65 @@ export function SettingsPage() {
           <dd>{device?.appVersion ?? 'Loading...'}</dd>
         </dl>
       </div>
+      <div className="info-panel browser-integration-panel">
+        <div className="panel-title-row">
+          <h3 className="heading-with-icon">
+            <Wifi size={18} strokeWidth={2.2} aria-hidden="true" />
+            Browser Integration
+          </h3>
+          <span className={bridge ? 'success' : 'muted'}>
+            {bridge ? 'Bridge running' : 'Bridge unavailable'}
+          </span>
+        </div>
+        <p className="muted setting-note">
+          Pair the Chromium browser extension with this desktop agent. The bridge accepts only
+          hostname-only website events from localhost and never exposes backend JWT or refresh tokens.
+        </p>
+        <dl className="compact-dl">
+          <dt>Status</dt>
+          <dd>{bridgeState ? `Connected to ${bridgeState.browser}` : 'Not connected'}</dd>
+          <dt>Localhost Port</dt>
+          <dd>{bridge?.port ?? 'Unavailable'}</dd>
+          <dt>Last Hostname</dt>
+          <dd>{bridgeState ? `${bridgeState.hostname} at ${formatTime(bridgeState.receivedAt)}` : 'No hostname received yet'}</dd>
+          <dt>Token Expires</dt>
+          <dd>{bridge ? formatTime(bridge.expiresAt) : 'Unavailable'}</dd>
+        </dl>
+        <label className="field">
+          Pairing Token
+          <div className="token-row">
+            <input
+              value={bridge ? (showToken ? bridge.token : maskToken(bridge.token)) : 'Unavailable'}
+              readOnly
+              aria-label="Browser extension pairing token"
+            />
+            <button
+              className="icon-inline-button"
+              type="button"
+              onClick={() => setShowToken((current) => !current)}
+              aria-label={showToken ? 'Hide pairing token' : 'Show pairing token'}
+              title={showToken ? 'Hide pairing token' : 'Show pairing token'}
+              disabled={!bridge}
+            >
+              {showToken ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
+        </label>
+        <div className="settings-actions">
+          <button className="small-action" onClick={() => void copyToken()} disabled={!bridge}>
+            <Copy size={16} strokeWidth={2.2} aria-hidden="true" />
+            Copy Token
+          </button>
+          <button className="small-action" onClick={() => void regenerateToken()} disabled={!bridge}>
+            <RefreshCw size={16} strokeWidth={2.2} aria-hidden="true" />
+            Regenerate Token
+          </button>
+          <button className="small-action" onClick={() => void testBrowserConnection()}>
+            Test Connection
+          </button>
+        </div>
+        {bridgeMessage && <span className="success">{bridgeMessage}</span>}
+      </div>
     </section>
   );
 }
@@ -117,4 +220,18 @@ function defaultSettings(): DesktopSettings {
     idleTimeoutMs: 300000,
     startWithWindows: true,
   };
+}
+
+function maskToken(token: string): string {
+  if (token.length <= 10) return '********';
+  return `${token.slice(0, 4)}************${token.slice(-4)}`;
+}
+
+function formatTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: 'short',
+  }).format(new Date(value));
 }

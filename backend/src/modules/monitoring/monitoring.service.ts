@@ -3,6 +3,7 @@
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
@@ -29,6 +30,7 @@ import {
   MonitoringApplicationUsageResponseDto,
   MonitoringDeviceResponseDto,
   MonitoringEmployeeDto,
+  PaginatedMonitoringSummaryResponseDto,
   MonitoringScreenshotResponseDto,
   MonitoringWebsiteUsageResponseDto,
 } from './dto/monitoring-read-response.dto';
@@ -44,7 +46,7 @@ import {
   MonitoringTimelineSegmentType,
 } from './dto/monitoring-timeline.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
-import { UploadActivityDto } from './dto/upload-activity.dto';
+import { UploadActivityDto, WebsiteUsageDto } from './dto/upload-activity.dto';
 import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
 import { MinioObjectStorageService } from './minio-object-storage.service';
 
@@ -144,6 +146,18 @@ const activityMetadataSensitiveTerms = [
   'value',
   'values',
 ];
+const fakeWebsiteDomains = new Set([
+  'unknown',
+  'unknownwebsite',
+  'browser',
+  'chrome',
+  'firefox',
+  'edge',
+  'msedge',
+  'brave',
+  'opera',
+  'electron',
+]);
 
 const deviceSelect = {
   id: true,
@@ -286,6 +300,63 @@ interface TimelineEmployee {
   screenshots: TimelineScreenshot[];
 }
 
+interface TeamActivityEmployeeAggregate {
+  employeeId: string;
+  _sum?: {
+    activeSeconds?: number | null;
+    idleSeconds?: number | null;
+  } | null;
+}
+
+interface TeamActivityEmployeeDepartment {
+  id: string;
+  departmentId: string | null;
+  department: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+interface TeamActivityAccumulator {
+  departmentId: string | null;
+  departmentName: string;
+  employeeIds: Set<string>;
+  activeSeconds: number;
+  idleSeconds: number;
+}
+
+interface TeamActivityBreakdownItem {
+  departmentId: string | null;
+  departmentName: string;
+  employeeCount: number;
+  onlineSeconds: number;
+  activeSeconds: number;
+  idleSeconds: number;
+  activityPercentage: number;
+}
+
+interface ScreenshotInputMetrics {
+  keyboardCount: number;
+  mouseClickCount: number;
+  mouseMoveCount: number;
+  scrollCount: number;
+}
+
+interface ScreenshotInputMetricsSession extends ScreenshotInputMetrics {
+  employeeId: string;
+  deviceId: string;
+  startedAt: Date;
+  endedAt: Date;
+}
+
+type ScreenshotWithEmployee = Prisma.ScreenshotGetPayload<{
+  include: { employee: { select: typeof monitoringEmployeeSelect } };
+}>;
+
+type ScreenshotWithInputMetrics = ScreenshotWithEmployee & {
+  inputMetrics?: ScreenshotInputMetrics | null;
+};
+
 interface UploadedScreenshotFile {
   buffer: Buffer;
   mimetype: string;
@@ -294,6 +365,8 @@ interface UploadedScreenshotFile {
 
 @Injectable()
 export class MonitoringService {
+  private readonly logger = new Logger(MonitoringService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendanceService: AttendanceService,
@@ -365,6 +438,14 @@ export class MonitoringService {
     const startedAt = new Date(dto.startedAt);
     const endedAt = new Date(dto.endedAt);
     this.assertPeriod(startedAt, endedAt, 'Activity session');
+    this.logger.debug({
+      message: 'Monitoring activity upload received',
+      deviceId: device.id,
+      employeeId: device.employeeId,
+      clientSessionId: dto.clientSessionId,
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+    });
     dto.applications?.forEach((usage) =>
       this.assertPeriod(
         new Date(usage.startedAt),
@@ -372,13 +453,9 @@ export class MonitoringService {
         'Application usage',
       ),
     );
-    dto.websites?.forEach((usage) =>
-      this.assertPeriod(
-        new Date(usage.startedAt),
-        new Date(usage.endedAt),
-        'Website usage',
-      ),
-    );
+    const websiteUsages = dto.websites?.map((usage) =>
+      this.sanitizeWebsiteUsage(usage, startedAt, endedAt),
+    ) ?? [];
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -417,18 +494,18 @@ export class MonitoringService {
                   })),
                 }
               : undefined,
-            websiteUsages: dto.websites?.length
+            websiteUsages: websiteUsages.length
               ? {
-                  create: dto.websites.map((usage) => ({
+                  create: websiteUsages.map((usage) => ({
                     companyId: device.companyId,
                     employeeId: device.employeeId,
                     deviceId: device.id,
-                    browserName: usage.browserName?.trim(),
-                    domain: usage.domain.trim().toLowerCase(),
-                    url: usage.url?.trim(),
-                    pageTitle: usage.pageTitle?.trim(),
-                    startedAt: new Date(usage.startedAt),
-                    endedAt: new Date(usage.endedAt),
+                    browserName: usage.browserName,
+                    domain: usage.domain,
+                    url: usage.url,
+                    pageTitle: usage.pageTitle,
+                    startedAt: usage.startedAt,
+                    endedAt: usage.endedAt,
                     durationSeconds: usage.durationSeconds,
                   })),
                 }
@@ -443,6 +520,15 @@ export class MonitoringService {
           where: { id: device.id },
           data: { lastSeenAt: endedAt },
         });
+        this.logger.debug({
+          message: 'Monitoring activity upload saved',
+          activitySessionId: session.id,
+          deviceId: device.id,
+          employeeId: device.employeeId,
+          clientSessionId: session.clientSessionId,
+          startedAt: session.startedAt.toISOString(),
+          endedAt: session.endedAt.toISOString(),
+        });
         return session;
       });
     } catch (error) {
@@ -450,6 +536,14 @@ export class MonitoringService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
+        this.logger.warn({
+          message: 'Duplicate monitoring activity upload ignored by idempotency',
+          deviceId: device.id,
+          employeeId: device.employeeId,
+          clientSessionId: dto.clientSessionId,
+          startedAt: startedAt.toISOString(),
+          endedAt: endedAt.toISOString(),
+        });
         throw new ConflictException('Activity session was already uploaded');
       }
       throw error;
@@ -475,7 +569,7 @@ export class MonitoringService {
       },
       include: { employee: { select: monitoringEmployeeSelect } },
     });
-    if (existing) return this.mapScreenshot(existing);
+    if (existing) return this.mapScreenshot(await this.attachScreenshotInputMetric(existing));
 
     const capturedAt = new Date(dto.capturedAt);
     if (!file) throw new BadRequestException('Screenshot file is required');
@@ -530,7 +624,7 @@ export class MonitoringService {
         include: { employee: { select: monitoringEmployeeSelect } },
       });
       uploadedObject = false;
-      return this.mapScreenshot(screenshot);
+      return this.mapScreenshot(await this.attachScreenshotInputMetric(screenshot));
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -545,7 +639,7 @@ export class MonitoringService {
           },
           include: { employee: { select: monitoringEmployeeSelect } },
         });
-        if (duplicate) return this.mapScreenshot(duplicate);
+        if (duplicate) return this.mapScreenshot(await this.attachScreenshotInputMetric(duplicate));
         throw new ConflictException('Screenshot metadata was already uploaded');
       }
       if (uploadedObject) {
@@ -615,7 +709,8 @@ export class MonitoringService {
       }),
       this.prisma.screenshot.count({ where }),
     ]);
-    return paginatedResult(records.map((record) => this.mapScreenshot(record)), total, query);
+    const recordsWithInputMetrics = await this.attachScreenshotInputMetrics(records);
+    return paginatedResult(recordsWithInputMetrics.map((record) => this.mapScreenshot(record)), total, query);
   }
 
   async screenshotsByEmployee(
@@ -868,7 +963,10 @@ export class MonitoringService {
     return this.buildLiveStatus(employee);
   }
 
-  async summary(query: MonitoringSummaryQueryDto, actor: AuthenticatedUser) {
+  async summary(
+    query: MonitoringSummaryQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<PaginatedMonitoringSummaryResponseDto> {
     const range = this.dateRange(query);
     const visibility = await this.employeeVisibilityWhere(actor);
     const filters: Prisma.EmployeeWhereInput[] = [
@@ -920,7 +1018,21 @@ export class MonitoringService {
       });
     }
     const where: Prisma.EmployeeWhereInput = { AND: filters };
-    const [employees, total] = await this.prisma.$transaction([
+    const activityRangeWhere: Prisma.ActivitySessionWhereInput = {
+      startedAt: { lte: range.lte },
+      endedAt: { gte: range.gte },
+    };
+    const inputTotalsWhere: Prisma.ActivitySessionWhereInput = {
+      employee: { is: where },
+      ...activityRangeWhere,
+      ...(query.deviceId ? { deviceId: query.deviceId } : {}),
+    };
+    const websiteTotalsWhere: Prisma.WebsiteUsageWhereInput = {
+      employee: { is: where },
+      startedAt: range,
+      ...(query.deviceId ? { deviceId: query.deviceId } : {}),
+    };
+    const [employees, total, inputTotals, topWebsiteGroups, teamActivityGroups] = await this.prisma.$transaction([
       this.prisma.employee.findMany({
         where,
         ...paginationArgs(query),
@@ -934,7 +1046,32 @@ export class MonitoringService {
         },
       }),
       this.prisma.employee.count({ where }),
+      this.prisma.activitySession.aggregate({
+        where: inputTotalsWhere,
+        _count: { _all: true },
+        _sum: {
+          keyboardCount: true,
+          mouseClickCount: true,
+          mouseMoveCount: true,
+          scrollCount: true,
+        },
+      }),
+      this.prisma.websiteUsage.groupBy({
+        by: ['domain'],
+        where: websiteTotalsWhere,
+        _sum: { durationSeconds: true },
+        _count: { _all: true },
+        orderBy: { _sum: { durationSeconds: 'desc' } },
+        take: 5,
+      }),
+      this.prisma.activitySession.groupBy({
+        by: ['employeeId'],
+        where: inputTotalsWhere,
+        orderBy: { employeeId: 'asc' },
+        _sum: { activeSeconds: true, idleSeconds: true },
+      }),
     ]);
+    const teamActivityBreakdown = await this.buildTeamActivityBreakdown(teamActivityGroups);
     const data = await Promise.all(
       employees.map(async (employee) => {
         const deviceFilter = query.deviceId
@@ -969,7 +1106,7 @@ export class MonitoringService {
             where: {
               employeeId: employee.id,
               ...deviceFilter,
-              startedAt: range,
+              ...activityRangeWhere,
             },
             _count: { _all: true },
             _sum: { activeSeconds: true, idleSeconds: true },
@@ -1024,11 +1161,97 @@ export class MonitoringService {
     );
     return {
       ...paginatedResult(data, total, query),
+      inputTotals: {
+        totalKeyboardCount: inputTotals._count._all > 0 ? inputTotals._sum.keyboardCount ?? 0 : null,
+        totalMouseClickCount: inputTotals._count._all > 0 ? inputTotals._sum.mouseClickCount ?? 0 : null,
+        totalMouseMoveCount: inputTotals._count._all > 0 ? inputTotals._sum.mouseMoveCount ?? 0 : null,
+        totalScrollCount: inputTotals._count._all > 0 ? inputTotals._sum.scrollCount ?? 0 : null,
+      },
+      topWebsites: topWebsiteGroups.map((group) => {
+        const entries = typeof group._count === 'object'
+          ? group._count._all ?? 0
+          : 0;
+        return {
+          domain: group.domain,
+          durationSeconds: group._sum?.durationSeconds ?? 0,
+          entries,
+        };
+      }),
+      teamActivityBreakdown,
       range: {
         from: range.gte?.toISOString(),
         to: range.lte?.toISOString(),
       },
     };
+  }
+
+  private async buildTeamActivityBreakdown(
+    groups: TeamActivityEmployeeAggregate[],
+  ): Promise<TeamActivityBreakdownItem[]> {
+    if (!groups.length) return [];
+
+    const employees = await this.prisma.employee.findMany({
+      where: { id: { in: groups.map((group) => group.employeeId) } },
+      select: {
+        id: true,
+        departmentId: true,
+        department: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+    const employeesById = new Map<string, TeamActivityEmployeeDepartment>(
+      employees.map((employee) => [employee.id, employee]),
+    );
+    const byDepartment = new Map<string, TeamActivityAccumulator>();
+
+    for (const group of groups) {
+      const employee = employeesById.get(group.employeeId);
+      if (!employee) continue;
+
+      const departmentId = employee.department?.id ?? employee.departmentId ?? null;
+      const departmentName = employee.department?.name?.trim() || 'Unassigned';
+      const key = departmentId ?? 'unassigned';
+      const activeSeconds = this.nonNegativeSeconds(group._sum?.activeSeconds);
+      const idleSeconds = this.nonNegativeSeconds(group._sum?.idleSeconds);
+      const current = byDepartment.get(key) ?? {
+        departmentId,
+        departmentName,
+        employeeIds: new Set<string>(),
+        activeSeconds: 0,
+        idleSeconds: 0,
+      };
+
+      current.employeeIds.add(group.employeeId);
+      current.activeSeconds += activeSeconds;
+      current.idleSeconds += idleSeconds;
+      byDepartment.set(key, current);
+    }
+
+    return Array.from(byDepartment.values())
+      .map((item) => {
+        const onlineSeconds = item.activeSeconds + item.idleSeconds;
+        return {
+          departmentId: item.departmentId,
+          departmentName: item.departmentName,
+          employeeCount: item.employeeIds.size,
+          onlineSeconds,
+          activeSeconds: item.activeSeconds,
+          idleSeconds: item.idleSeconds,
+          activityPercentage: this.activityPercentage(item.activeSeconds, onlineSeconds),
+        };
+      })
+      .filter((item) => item.employeeCount > 0 && item.onlineSeconds > 0)
+      .sort((a, b) => b.onlineSeconds - a.onlineSeconds || a.departmentName.localeCompare(b.departmentName));
+  }
+
+  private nonNegativeSeconds(value: number | null | undefined): number {
+    return Math.max(0, Math.round(value ?? 0));
+  }
+
+  private activityPercentage(activeSeconds: number, onlineSeconds: number): number {
+    if (onlineSeconds <= 0) return 0;
+    return Math.min(100, Math.max(0, (activeSeconds / onlineSeconds) * 100));
   }
 
   private async employeeReadWhere(
@@ -1061,7 +1284,7 @@ export class MonitoringService {
     const range = this.dateRange(query);
     const filters: Prisma.ActivitySessionWhereInput[] = [
       { employee: { is: await this.employeeReadWhere(actor, query) } },
-      { startedAt: range },
+      { startedAt: { lte: range.lte }, endedAt: { gte: range.gte } },
     ];
     if (query.deviceId) filters.push({ deviceId: query.deviceId });
     if (query.search) {
@@ -1287,10 +1510,71 @@ export class MonitoringService {
     };
   }
 
+  private async attachScreenshotInputMetric(
+    screenshot: ScreenshotWithEmployee,
+  ): Promise<ScreenshotWithInputMetrics> {
+    const [screenshotWithMetrics] = await this.attachScreenshotInputMetrics([screenshot]);
+    return screenshotWithMetrics ?? { ...screenshot, inputMetrics: null };
+  }
+
+  private async attachScreenshotInputMetrics(
+    screenshots: ScreenshotWithEmployee[],
+  ): Promise<ScreenshotWithInputMetrics[]> {
+    if (!screenshots.length) return [];
+
+    const capturedTimes = screenshots.map((screenshot) => screenshot.capturedAt.getTime());
+    const rangeStart = new Date(Math.min(...capturedTimes));
+    const rangeEnd = new Date(Math.max(...capturedTimes));
+    const employeeIds = Array.from(new Set(screenshots.map((screenshot) => screenshot.employeeId)));
+    const deviceIds = Array.from(new Set(screenshots.map((screenshot) => screenshot.deviceId)));
+
+    const sessions = await this.prisma.activitySession.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        deviceId: { in: deviceIds },
+        startedAt: { lte: rangeEnd },
+        endedAt: { gte: rangeStart },
+      },
+      select: {
+        employeeId: true,
+        deviceId: true,
+        startedAt: true,
+        endedAt: true,
+        keyboardCount: true,
+        mouseClickCount: true,
+        mouseMoveCount: true,
+        scrollCount: true,
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+
+    return screenshots.map((screenshot) => {
+      const session = sessions.find((candidate) =>
+        candidate.employeeId === screenshot.employeeId &&
+        candidate.deviceId === screenshot.deviceId &&
+        candidate.startedAt <= screenshot.capturedAt &&
+        candidate.endedAt >= screenshot.capturedAt,
+      );
+      return {
+        ...screenshot,
+        inputMetrics: session ? this.mapScreenshotInputMetrics(session) : null,
+      };
+    });
+  }
+
+  private mapScreenshotInputMetrics(
+    session: ScreenshotInputMetricsSession,
+  ): ScreenshotInputMetrics {
+    return {
+      keyboardCount: session.keyboardCount,
+      mouseClickCount: session.mouseClickCount,
+      mouseMoveCount: session.mouseMoveCount,
+      scrollCount: session.scrollCount,
+    };
+  }
+
   private mapScreenshot(
-    screenshot: Prisma.ScreenshotGetPayload<{
-      include: { employee: { select: typeof monitoringEmployeeSelect } };
-    }>,
+    screenshot: ScreenshotWithInputMetrics,
   ): MonitoringScreenshotResponseDto {
     return {
       id: screenshot.id,
@@ -1305,6 +1589,7 @@ export class MonitoringService {
       height: screenshot.height,
       checksum: screenshot.checksum,
       metadata: screenshot.metadata as Record<string, unknown> | null,
+      inputMetrics: screenshot.inputMetrics ?? null,
     };
   }
 
@@ -2096,6 +2381,97 @@ export class MonitoringService {
     if (startedAt >= endedAt) {
       throw new BadRequestException(`${label} start must be before end`);
     }
+  }
+
+  private sanitizeWebsiteUsage(
+    usage: WebsiteUsageDto,
+    sessionStartedAt: Date,
+    sessionEndedAt: Date,
+  ): {
+    browserName?: string;
+    domain: string;
+    url?: string;
+    pageTitle?: string;
+    startedAt: Date;
+    endedAt: Date;
+    durationSeconds: number;
+  } {
+    const startedAt = new Date(usage.startedAt);
+    const endedAt = new Date(usage.endedAt);
+    this.assertPeriod(startedAt, endedAt, 'Website usage');
+    if (startedAt < sessionStartedAt || endedAt > sessionEndedAt) {
+      throw new BadRequestException(
+        'Website usage must be within the parent activity session',
+      );
+    }
+
+    const domain = this.normalizeWebsiteDomain(usage.domain);
+    if (usage.url) {
+      const urlDomain = this.normalizeWebsiteUrlDomain(usage.url);
+      if (urlDomain !== domain) {
+        throw new BadRequestException(
+          'Website usage URL host must match the submitted domain',
+        );
+      }
+    }
+
+    const actualDurationSeconds = this.durationSeconds(startedAt, endedAt);
+    if (usage.durationSeconds > actualDurationSeconds + 1) {
+      throw new BadRequestException(
+        'Website usage duration must not exceed its time interval',
+      );
+    }
+
+    return {
+      browserName: usage.browserName?.trim() || undefined,
+      domain,
+      // Do not persist raw URL paths, query strings, or fragments. The normalized
+      // domain is sufficient for website analytics and keeps privacy boundaries clear.
+      url: undefined,
+      pageTitle: usage.pageTitle?.trim() || undefined,
+      startedAt,
+      endedAt,
+      durationSeconds: usage.durationSeconds,
+    };
+  }
+
+  private normalizeWebsiteUrlDomain(value: string): string {
+    let parsed: URL;
+    try {
+      parsed = new URL(value.trim());
+    } catch {
+      throw new BadRequestException('Website usage URL must be a valid URL');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new BadRequestException('Website usage URL must use http or https');
+    }
+    return this.normalizeWebsiteDomain(parsed.hostname);
+  }
+
+  private normalizeWebsiteDomain(value: string): string {
+    const raw = value.trim().toLowerCase().replace(/\.$/, '');
+    if (!raw) throw new BadRequestException('Website usage domain is required');
+    if (raw.length > 253) {
+      throw new BadRequestException('Website usage domain is too long');
+    }
+    if (
+      raw.includes('://') ||
+      /[/?#@:\s]/.test(raw) ||
+      raw === 'localhost' ||
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(raw) ||
+      /^\[?[a-f0-9:]+\]?$/.test(raw)
+    ) {
+      throw new BadRequestException('Website usage domain must be a public hostname');
+    }
+
+    const domain = raw.startsWith('www.') ? raw.slice(4) : raw;
+    if (
+      fakeWebsiteDomains.has(domain.replace(/[^a-z0-9]/g, '')) ||
+      !/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)
+    ) {
+      throw new BadRequestException('Website usage domain is not valid');
+    }
+    return domain;
   }
 }
 

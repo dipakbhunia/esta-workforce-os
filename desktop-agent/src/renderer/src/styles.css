@@ -552,6 +552,51 @@ body {
   line-height: 1.45;
 }
 
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panel-title-row h3 {
+  margin: 0;
+}
+
+.browser-integration-panel {
+  gap: 14px;
+}
+
+.token-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.icon-inline-button {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #deded8;
+  border-radius: 12px;
+  color: #333;
+  background: #fff;
+  cursor: pointer;
+}
+
+.icon-inline-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

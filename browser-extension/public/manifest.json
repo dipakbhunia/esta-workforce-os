@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Esta Workforce OS Website Bridge",
+  "description": "Sends the active tab hostname only to the local Esta Workforce OS desktop agent.",
+  "version": "0.1.0",
+  "permissions": ["tabs", "activeTab", "storage"],
+  "host_permissions": [],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Esta Workforce OS"
+  },
+  "incognito": "not_allowed"
+}

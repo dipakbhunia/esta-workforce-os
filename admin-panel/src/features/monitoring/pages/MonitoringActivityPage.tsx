@@ -10,11 +10,13 @@ import {
   Tab,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { type GridColDef, type GridPaginationModel } from '@mui/x-data-grid';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, AppWindow, BarChart3, Clock3, Gauge, Globe, TimerOff, Users } from 'lucide-react';
+import { Activity, AppWindow, BarChart3, Clock3, Gauge, Globe, Keyboard, MousePointerClick, Move, ScrollText, TimerOff, Users } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AvatarCell } from '@/components/avatar-cell';
 import { DataTable } from '@/components/data-table';
@@ -39,6 +41,7 @@ import type {
   MonitoringActivity,
   MonitoringApplicationUsage,
   MonitoringSummaryRecord,
+  MonitoringSummaryResponse,
   MonitoringWebsiteUsage,
 } from '../types/monitoring.types';
 import { employeeEmail, employeeName, formatDateTime, formatDuration } from '../utils/monitoring-format';
@@ -63,12 +66,13 @@ interface EmployeeActivitySummary {
 }
 
 const pageSize = 20;
+const defaultDateRangePreset = 'today' as const;
 
 export default function MonitoringActivityPage() {
   const [view, setView] = useState<ActivityView>('summary');
   const [search, setSearch] = useState('');
   const [employeeId, setEmployeeId] = useState('');
-  const [dateRange, setDateRange] = useState(() => createDateRangeValue('last7Days'));
+  const [dateRange, setDateRange] = useState(() => createDateRangeValue(defaultDateRangePreset));
   const [pagination, setPagination] = useState<GridPaginationModel>({ page: 0, pageSize });
   const [toast, setToast] = useState<string | null>(null);
 
@@ -117,6 +121,17 @@ export default function MonitoringActivityPage() {
 
   const rows = useMemo(() => activityQuery.data?.data.data ?? [], [activityQuery.data?.data.data]);
   const summaryRows = useMemo(() => summaryQuery.data?.data.data ?? [], [summaryQuery.data?.data.data]);
+  const inputTotals = summaryQuery.data?.data.inputTotals;
+  const summaryTopWebsites = summaryQuery.data?.data.topWebsites;
+  const teamActivityBreakdown = useMemo(
+    () => summaryQuery.data?.data.teamActivityBreakdown ?? [],
+    [summaryQuery.data?.data.teamActivityBreakdown],
+  );
+  const visibleTeamActivityBreakdown = useMemo(
+    () => teamActivityBreakdown.slice(0, 5),
+    [teamActivityBreakdown],
+  );
+  const hiddenTeamCount = Math.max(0, teamActivityBreakdown.length - visibleTeamActivityBreakdown.length);
   const appRows = useMemo(() => appsQuery.data?.data.data ?? [], [appsQuery.data?.data.data]);
   const websiteRows = useMemo(() => websitesQuery.data?.data.data ?? [], [websitesQuery.data?.data.data]);
 
@@ -134,7 +149,23 @@ export default function MonitoringActivityPage() {
   const onlineSeconds = totals.activeSeconds + totals.idleSeconds;
   const activityPercent = percentage(totals.activeSeconds, onlineSeconds);
   const topApps = useMemo(() => rankApplications(appRows), [appRows]);
-  const topWebsites = useMemo(() => rankWebsites(websiteRows), [websiteRows]);
+  const topWebsites = useMemo(
+    () => summaryTopWebsites?.length
+      ? summaryTopWebsites
+          .map((item) => {
+            const label = normalizeWebsiteLabel(item.domain);
+            return label
+              ? {
+                  id: label,
+                  label,
+                  durationSeconds: safeSeconds(item.durationSeconds),
+                }
+              : null;
+          })
+          .filter((item): item is RankedUsage => Boolean(item))
+      : rankWebsites(websiteRows),
+    [summaryTopWebsites, websiteRows],
+  );
   const employeeSummaries = useMemo(() => buildEmployeeSummaries(summaryRows), [summaryRows]);
   const mostActive = useMemo(() => employeeSummaries.filter((item) => item.onlineSeconds > 0).sort((a, b) => b.activityPercent - a.activityPercent).slice(0, 5), [employeeSummaries]);
   const leastActive = useMemo(() => employeeSummaries.filter((item) => item.onlineSeconds > 0).sort((a, b) => a.activityPercent - b.activityPercent).slice(0, 5), [employeeSummaries]);
@@ -175,7 +206,8 @@ export default function MonitoringActivityPage() {
   function resetFilters() {
     setSearch('');
     setEmployeeId('');
-    setDateRange(createDateRangeValue('last7Days'));
+    setView('summary');
+    setDateRange(createDateRangeValue(defaultDateRangePreset));
     setPagination((current) => ({ ...current, page: 0 }));
   }
 
@@ -200,7 +232,7 @@ export default function MonitoringActivityPage() {
       />
 
       <FilterToolbar actions={<><ResetButton onClick={resetFilters} /><RefreshButton onClick={refreshAll} /><ExportButton onClick={() => setToast('Export will be connected in the reporting phase.')} /></>}>
-        <DateRangePicker value={dateRange} defaultPreset="last7Days" onChange={(value) => { setDateRange(value); setPagination((current) => ({ ...current, page: 0 })); }} />
+        <DateRangePicker value={dateRange} defaultPreset={defaultDateRangePreset} onChange={(value) => { setDateRange(value); setPagination((current) => ({ ...current, page: 0 })); }} />
         <SearchFilter placeholder="Search employee, app, website, or session" value={search} onChange={(value) => { setSearch(value); setPagination((current) => ({ ...current, page: 0 })); }} />
         <TextField select label="Employee" size="small" value={employeeId} onChange={(event) => { setEmployeeId(event.target.value); setPagination((current) => ({ ...current, page: 0 })); }} sx={{ minWidth: { xs: '100%', md: 220 } }}>
           <MenuItem value="">All employees</MenuItem>
@@ -226,6 +258,10 @@ export default function MonitoringActivityPage() {
             <StatCard label="Idle Time" value={formatDuration(totals.idleSeconds)} helper="Across loaded employees" icon={TimerOff} tone="#F59E0B" />
             <StatCard label="Top Application" value={topApps[0]?.label ?? 'Not available'} helper={topApps[0] ? formatDuration(topApps[0].durationSeconds) : 'No app usage found'} icon={AppWindow} tone="#6B7280" />
             <StatCard label="Top Website" value={topWebsites[0]?.label ?? 'Not available'} helper={topWebsites[0] ? formatDuration(topWebsites[0].durationSeconds) : 'No website usage found'} icon={Globe} tone="#6B7280" />
+            <InputSummaryCard label="Keyboard" value={inputTotals?.totalKeyboardCount} helper="Key-down events" tooltip="Aggregate key-down event count for the selected range. No key names or typed text are stored." icon={Keyboard} tone="#2563EB" />
+            <InputSummaryCard label="Mouse Clicks" value={inputTotals?.totalMouseClickCount} helper="Button click events" tooltip="Aggregate left, right, and middle mouse-button click count." icon={MousePointerClick} tone="#16A34A" />
+            <InputSummaryCard label="Mouse Movement" value={inputTotals?.totalMouseMoveCount} helper="Movement activity" tooltip="Aggregate mouse movement activity count. Mouse coordinates are not stored." icon={Move} tone="#7C3AED" />
+            <InputSummaryCard label="Scroll" value={inputTotals?.totalScrollCount} helper="Wheel activity" tooltip="Aggregate mouse-wheel activity count." icon={ScrollText} tone="#F59E0B" />
           </SummaryCardsContainer>
 
           {isInsightLoading && <LoadingSkeleton rows={4} />}
@@ -266,8 +302,11 @@ export default function MonitoringActivityPage() {
               )}
             </SectionCard>
 
-            <SectionCard title="Team-wise Activity Breakdown" description="Department and team grouping placeholder.">
-              <EmptyState title="Team analytics not available yet" description="Team analytics will be available when department grouping is enabled." />
+            <SectionCard title="Team-wise Activity Breakdown" description="Department-based groups ranked by online time.">
+              <TeamActivityBreakdownList
+                items={visibleTeamActivityBreakdown}
+                hiddenCount={hiddenTeamCount}
+              />
             </SectionCard>
           </Box>
         </>
@@ -289,7 +328,7 @@ export default function MonitoringActivityPage() {
               onPaginationModelChange: setPagination,
               slots: {
                 loadingOverlay: () => <LoadingSkeleton rows={6} />,
-                noRowsOverlay: () => <EmptyState title="No activity sessions found" description="Try adjusting the employee, date range, or search filters." />,
+                noRowsOverlay: () => <EmptyState title="No activity recorded for the selected date range." description="Confirm the desktop agent is running and the employee is signed in." />,
               },
             }}
           />
@@ -366,13 +405,24 @@ function rankApplications(rows: MonitoringApplicationUsage[]): RankedUsage[] {
 function rankWebsites(rows: MonitoringWebsiteUsage[]): RankedUsage[] {
   const totals = new Map<string, number>();
   rows.forEach((row) => {
-    const label = row.domain || row.url || 'Unknown website';
+    const label = normalizeWebsiteLabel(row.domain);
+    if (!label) return;
     totals.set(label, (totals.get(label) ?? 0) + safeSeconds(row.durationSeconds));
   });
   return Array.from(totals.entries())
     .map(([label, durationSeconds]) => ({ id: label, label, durationSeconds }))
     .sort((a, b) => b.durationSeconds - a.durationSeconds)
     .slice(0, 5);
+}
+
+function normalizeWebsiteLabel(value?: string | null): string | null {
+  const label = value?.trim().toLowerCase().replace(/\.$/, '');
+  if (!label) return null;
+  const withoutWww = label.startsWith('www.') ? label.slice(4) : label;
+  if (['unknown', 'unknown website', 'browser', 'chrome', 'firefox', 'edge', 'msedge', 'brave', 'opera', 'electron'].includes(withoutWww)) {
+    return null;
+  }
+  return withoutWww.includes('.') ? withoutWww : null;
 }
 
 function DonutMetric({ value, label, subLabel, color, trackColor = '#E5E7EB' }: { value: number; label: string; subLabel: string; color: string; trackColor?: string }) {
@@ -411,6 +461,36 @@ function MetricLegend({ label, value, color }: { label: string; value: string; c
   );
 }
 
+function InputSummaryCard({
+  label,
+  value,
+  helper,
+  tooltip,
+  icon,
+  tone,
+}: {
+  label: string;
+  value?: number | null;
+  helper: string;
+  tooltip: string;
+  icon: LucideIcon;
+  tone: string;
+}) {
+  return (
+    <Tooltip title={tooltip} arrow>
+      <Box sx={{ height: '100%' }}>
+        <StatCard
+          label={label}
+          value={formatInputTotal(value)}
+          helper={helper}
+          icon={icon}
+          tone={tone}
+        />
+      </Box>
+    </Tooltip>
+  );
+}
+
 function RankingCard({ title, description, items, emptyTitle, icon }: { title: string; description: string; items: RankedUsage[]; emptyTitle: string; icon: React.ReactNode }) {
   const maxDuration = Math.max(...items.map((item) => item.durationSeconds), 0);
   return (
@@ -432,6 +512,71 @@ function RankingCard({ title, description, items, emptyTitle, icon }: { title: s
       )}
     </SectionCard>
   );
+}
+
+type TeamActivityBreakdownItem = NonNullable<MonitoringSummaryResponse['teamActivityBreakdown']>[number];
+
+function TeamActivityBreakdownList({
+  items,
+  hiddenCount,
+}: {
+  items: TeamActivityBreakdownItem[];
+  hiddenCount: number;
+}) {
+  if (!items.length) {
+    return (
+      <EmptyState
+        title="No team activity recorded for the selected date range."
+        description="Department breakdown will appear when employees have monitoring activity in this range."
+      />
+    );
+  }
+
+  return (
+    <Stack gap={1.75}>
+      {items.map((item) => {
+        const onlineSeconds = safeSeconds(item.onlineSeconds);
+        const activeSeconds = safeSeconds(item.activeSeconds);
+        const idleSeconds = safeSeconds(item.idleSeconds);
+        const activityPercentage = percentage(item.activityPercentage, 100);
+        const employeeText = `${item.employeeCount} ${item.employeeCount === 1 ? 'employee' : 'employees'}`;
+        return (
+          <Box key={item.departmentId ?? 'unassigned'}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" gap={2} sx={{ mb: 0.75 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {item.departmentName || 'Unassigned'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Active {formatDuration(activeSeconds)} - Idle {formatDuration(idleSeconds)} - {employeeText}
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 900, flex: '0 0 auto' }}>
+                {Math.round(activityPercentage)}%
+              </Typography>
+            </Stack>
+            <LinearProgress
+              aria-label={`${item.departmentName || 'Unassigned'} activity ${Math.round(activityPercentage)} percent, ${formatDuration(onlineSeconds)} online time`}
+              variant="determinate"
+              value={activityPercentage}
+              sx={{ height: 9, borderRadius: 99 }}
+            />
+          </Box>
+        );
+      })}
+      {hiddenCount > 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+          +{hiddenCount} more {hiddenCount === 1 ? 'department' : 'departments'}
+        </Typography>
+      )}
+    </Stack>
+  );
+}
+
+function formatInputTotal(value?: number | null) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
+    : 'Not available';
 }
 
 function EmployeeRankList({ title, employees }: { title: string; employees: EmployeeActivitySummary[] }) {

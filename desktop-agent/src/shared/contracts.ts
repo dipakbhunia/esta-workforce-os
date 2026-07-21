@@ -26,6 +26,27 @@ export interface ForegroundWindowMetadata {
   executableName: string | null;
   applicationName: string | null;
   windowTitle: string | null;
+  browserName?: string | null;
+  browserDomain?: string | null;
+  browserWindowTitle?: string | null;
+  browserProviderAvailable?: boolean;
+  browserUrlAvailable?: boolean;
+  browserLookupStatus?: string | null;
+}
+
+export interface BrowserBridgePairingInfo {
+  host: '127.0.0.1';
+  port: number;
+  token: string;
+  expiresAt: string;
+}
+
+export interface BrowserBridgeState {
+  browser: string;
+  hostname: string;
+  observedAt: string;
+  receivedAt: string;
+  source: 'extension';
 }
 
 export interface InputActivitySnapshot {
@@ -80,6 +101,11 @@ export interface EstaDesktopApi {
     getForegroundWindow: () => Promise<ForegroundWindowMetadata>;
     isScreenLocked: () => Promise<boolean>;
     onScreenLockChanged: (callback: (locked: boolean) => void) => () => void;
+  };
+  browserBridge: {
+    getPairingInfo: () => Promise<BrowserBridgePairingInfo | null>;
+    regeneratePairingToken: () => Promise<BrowserBridgePairingInfo | null>;
+    getLatestState: () => Promise<BrowserBridgeState | null>;
   };
   inputActivity: {
     start: () => Promise<void>;
