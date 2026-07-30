@@ -1,5 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { AttendanceLogType, AttendanceStatus } from '@prisma/client';
+import {
+  AttendanceCloseReason,
+  AttendanceCloseSource,
+  AttendanceLogType,
+  AttendanceStatus,
+} from '@prisma/client';
 
 export class AttendanceUserDto {
   @ApiProperty({ format: 'uuid' })
@@ -131,6 +136,9 @@ export class AttendanceResponseDto {
   @ApiProperty({ format: 'date', example: '2026-07-01' })
   attendanceDate!: string;
 
+  @ApiPropertyOptional({ format: 'date', example: '2026-07-01', nullable: true })
+  workDate!: string | null;
+
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
   punchInAt!: Date | null;
 
@@ -151,6 +159,30 @@ export class AttendanceResponseDto {
 
   @ApiPropertyOptional({ nullable: true })
   autoPunchOutReason!: string | null;
+
+  @ApiPropertyOptional({ enum: AttendanceCloseSource, nullable: true })
+  closeSource!: AttendanceCloseSource | null;
+
+  @ApiPropertyOptional({ enum: AttendanceCloseReason, nullable: true })
+  closeReason!: AttendanceCloseReason | null;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  autoClosedAt!: Date | null;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  systemClosedAt!: Date | null;
+
+  @ApiProperty()
+  requiresReview!: boolean;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  lastReliableActivityAt!: Date | null;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  scheduledStartAt!: Date | null;
+
+  @ApiPropertyOptional({ format: 'date-time', nullable: true })
+  scheduledEndAt!: Date | null;
 
   @ApiProperty({ type: AttendanceShiftDto })
   shift!: AttendanceShiftDto;

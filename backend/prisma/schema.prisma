@@ -61,6 +61,25 @@ enum AttendanceLogType {
   PUNCH_OUT
 }
 
+enum AttendanceCloseSource {
+  EMPLOYEE
+  ADMIN
+  SYSTEM
+  CORRECTION
+}
+
+enum AttendanceCloseReason {
+  NORMAL_PUNCH_OUT
+  HEARTBEAT_TIMEOUT
+  MISSED_PUNCH_OUT
+  MAX_SESSION_EXCEEDED
+  DEVICE_OFFLINE
+  SYSTEM_SHUTDOWN_UNCONFIRMED
+  ADMIN_CORRECTION
+  BREAK_DURATION_EXCEEDED
+  PREVIOUS_DAY_AUTO_CLOSE
+}
+
 enum AttendanceCorrectionType {
   MISSED_PUNCH_IN
   MISSED_PUNCH_OUT
@@ -402,6 +421,7 @@ model Attendance {
   companyId          String           @db.Uuid
   employeeId         String           @db.Uuid
   attendanceDate     DateTime         @db.Date
+  workDate           DateTime?        @db.Date
   punchInAt          DateTime?
   punchOutAt         DateTime?
   status             AttendanceStatus @default(PRESENT)
@@ -412,8 +432,16 @@ model Attendance {
   shiftStartTime     String
   shiftEndTime       String
   shiftTimezone      String
+  scheduledStartAt   DateTime?
+  scheduledEndAt     DateTime?
   notes              String?
   autoPunchOutReason String?
+  closeSource        AttendanceCloseSource?
+  closeReason        AttendanceCloseReason?
+  autoClosedAt       DateTime?
+  systemClosedAt     DateTime?
+  requiresReview     Boolean          @default(false)
+  lastReliableActivityAt DateTime?
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   company            Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -423,8 +451,12 @@ model Attendance {
   correctionRequests AttendanceCorrectionRequest[]
 
   @@index([companyId, attendanceDate])
+  @@index([companyId, workDate])
   @@index([employeeId, attendanceDate])
+  @@index([employeeId, workDate])
   @@index([status])
+  @@index([punchOutAt])
+  @@index([requiresReview])
 }
 
 model AttendanceCorrectionRequest {
@@ -607,6 +639,11 @@ model AttendancePolicy {
   attendanceDayStartTime          String   @default("00:00")
   allowMultiplePunchSessions      Boolean  @default(true)
   autoClosePreviousDayOpenSession Boolean  @default(true)
+  autoCloseEnabled                Boolean  @default(true)
+  disconnectGraceMinutes          Int      @default(30)
+  postShiftGraceMinutes           Int      @default(60)
+  maximumOpenSessionMinutes       Int      @default(960)
+  noHeartbeatFallbackMinutes      Int      @default(720)
   isActive                        Boolean  @default(true)
   createdAt                       DateTime @default(now())
   updatedAt                       DateTime @updatedAt

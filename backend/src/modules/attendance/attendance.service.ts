@@ -5,6 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AttendanceCloseReason,
+  AttendanceCloseSource,
   AttendanceLogType,
   AttendanceStatus,
   EmployeeStatus,
@@ -30,9 +32,9 @@ import {
   dateKey,
   dateOnly,
   expectedShiftMinutes,
-  timeToMinutes,
   zonedDateTimeToUtc,
 } from './attendance-time.util';
+import { TimeBoundaryService } from './time-boundary.service';
 
 const attendanceInclude = {
   employee: {
@@ -70,11 +72,46 @@ type AttendancePolicyConfig = {
   attendanceDayStartTime: string;
   allowMultiplePunchSessions: boolean;
   autoClosePreviousDayOpenSession: boolean;
+  autoCloseEnabled: boolean;
+  disconnectGraceMinutes: number;
+  postShiftGraceMinutes: number;
+  maximumOpenSessionMinutes: number;
+  noHeartbeatFallbackMinutes: number;
+};
+
+type AutoClosePolicyConfig = Pick<
+  AttendancePolicyConfig,
+  | 'autoCloseEnabled'
+  | 'disconnectGraceMinutes'
+  | 'postShiftGraceMinutes'
+  | 'maximumOpenSessionMinutes'
+  | 'noHeartbeatFallbackMinutes'
+>;
+
+type StaleAttendance = Prisma.AttendanceGetPayload<{
+  include: {
+    breaks: { include: { breakPolicy: true } };
+    company: { include: { attendancePolicies: true } };
+  };
+}>;
+
+type StaleAttendanceEvaluation = {
+  closeReason: AttendanceCloseReason;
+  reliableWorkEndAt: Date;
+  systemClosedAt: Date;
+  scheduledStartAt: Date;
+  scheduledEndAt: Date;
+  lastHeartbeatAt: Date | null;
+  lastActivityAt: Date | null;
+  policy: AutoClosePolicyConfig;
 };
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly timeBoundary: TimeBoundaryService,
+  ) {}
 
   async punchIn(dto: AttendanceActionDto, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
@@ -122,6 +159,12 @@ export class AttendanceService {
       employee.shift.startTime,
       employee.shift.timezone,
     );
+    const shiftWindow = this.timeBoundary.resolveShiftWindow({
+      workDate: key,
+      startTime: employee.shift.startTime,
+      endTime: employee.shift.endTime,
+      timezone: employee.shift.timezone,
+    });
     const lateMinutes = Math.max(
       0,
       Math.floor((now.getTime() - shiftStart.getTime()) / 60000) - 15,
@@ -132,6 +175,7 @@ export class AttendanceService {
         companyId: employee.companyId,
         employeeId: employee.id,
         attendanceDate,
+        workDate: attendanceDate,
         punchInAt: now,
         status:
           lateMinutes > 0 ? AttendanceStatus.LATE : AttendanceStatus.PRESENT,
@@ -143,6 +187,8 @@ export class AttendanceService {
         shiftStartTime: employee.shift.startTime,
         shiftEndTime: employee.shift.endTime,
         shiftTimezone: employee.shift.timezone,
+        scheduledStartAt: shiftWindow.scheduledStartAt,
+        scheduledEndAt: shiftWindow.scheduledEndAt,
         notes: dto.note?.trim(),
         logs: {
           create: {
@@ -193,6 +239,10 @@ export class AttendanceService {
         breakMinutes,
         workedMinutes,
         status,
+        closeSource: AttendanceCloseSource.EMPLOYEE,
+        closeReason: AttendanceCloseReason.NORMAL_PUNCH_OUT,
+        requiresReview: false,
+        lastReliableActivityAt: now,
         ...(dto.note ? { notes: dto.note.trim() } : {}),
         logs: {
           create: {
@@ -267,7 +317,6 @@ export class AttendanceService {
     companyId?: string;
     employeeId?: string;
   }): Promise<number> {
-    // TODO: Call this from BullMQ/cron once scheduled background enforcement exists.
     const now = new Date();
     const openAttendances = await this.prisma.attendance.findMany({
       where: {
@@ -279,7 +328,7 @@ export class AttendanceService {
           attendancePolicies: {
             some: {
               isActive: true,
-              autoPunchOutOnHeartbeatLoss: true,
+              autoCloseEnabled: true,
             },
           },
         },
@@ -291,7 +340,6 @@ export class AttendanceService {
             attendancePolicies: {
               where: {
                 isActive: true,
-                autoPunchOutOnHeartbeatLoss: true,
               },
               orderBy: { updatedAt: 'desc' },
               take: 1,
@@ -301,33 +349,85 @@ export class AttendanceService {
       },
     });
 
-    let enforced = 0;
-    for (const attendance of openAttendances) {
-      const policy = attendance.company.attendancePolicies[0];
-      if (!policy || policy.heartbeatTimeoutMinutes <= 0) continue;
+    const punchIns = openAttendances
+      .map((attendance) => attendance.punchInAt)
+      .filter((value): value is Date => Boolean(value));
+    if (!punchIns.length) return 0;
 
-      const latestHeartbeat = await this.prisma.heartbeat.findFirst({
+    const minPunchInAt = new Date(
+      Math.min(...punchIns.map((value) => value.getTime())),
+    );
+    const employeeIds = [...new Set(openAttendances.map((item) => item.employeeId))];
+    const [heartbeats, activitySessions, screenshots] = await Promise.all([
+      this.prisma.heartbeat.findMany({
         where: {
-          companyId: attendance.companyId,
-          employeeId: attendance.employeeId,
-          recordedAt: { gte: attendance.punchInAt! },
+          employeeId: { in: employeeIds },
+          recordedAt: { gte: minPunchInAt, lte: now },
+          ...(scope?.companyId ? { companyId: scope.companyId } : {}),
         },
         orderBy: { recordedAt: 'desc' },
-        select: { recordedAt: true },
-      });
-      if (!latestHeartbeat) continue;
+        select: { employeeId: true, recordedAt: true },
+      }),
+      this.prisma.activitySession.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          endedAt: { gte: minPunchInAt, lte: now },
+          ...(scope?.companyId ? { companyId: scope.companyId } : {}),
+        },
+        orderBy: { endedAt: 'desc' },
+        select: { employeeId: true, endedAt: true },
+      }),
+      this.prisma.screenshot.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          capturedAt: { gte: minPunchInAt, lte: now },
+          deletedAt: null,
+          ...(scope?.companyId ? { companyId: scope.companyId } : {}),
+        },
+        orderBy: { capturedAt: 'desc' },
+        select: { employeeId: true, capturedAt: true },
+      }),
+    ]);
 
-      const timeoutAt = new Date(
-        latestHeartbeat.recordedAt.getTime() +
-          policy.heartbeatTimeoutMinutes * 60000,
+    let enforced = 0;
+    for (const attendance of openAttendances) {
+      if (!attendance.punchInAt) continue;
+      const policy = this.resolveAutoClosePolicy(
+        attendance.company.attendancePolicies[0],
       );
-      if (now.getTime() <= timeoutAt.getTime()) continue;
+      if (!policy.autoCloseEnabled) continue;
 
-      await this.autoPunchOutForHeartbeatLoss(
+      const latestHeartbeatAt = heartbeats.find(
+        (item) =>
+          item.employeeId === attendance.employeeId &&
+          item.recordedAt >= attendance.punchInAt!,
+      )?.recordedAt ?? null;
+      const latestActivityAt = activitySessions.find(
+        (item) =>
+          item.employeeId === attendance.employeeId &&
+          item.endedAt >= attendance.punchInAt!,
+      )?.endedAt ?? null;
+      const latestScreenshotAt = screenshots.find(
+        (item) =>
+          item.employeeId === attendance.employeeId &&
+          item.capturedAt >= attendance.punchInAt!,
+      )?.capturedAt ?? null;
+
+      const evaluation = this.evaluateStaleAttendance({
         attendance,
-        latestHeartbeat.recordedAt,
+        policy,
+        now,
+        latestHeartbeatAt,
+        latestActivityAt,
+        latestScreenshotAt,
+      });
+      if (!evaluation) continue;
+
+      const closed = await this.systemAutoCloseAttendance(
+        attendance,
+        evaluation,
       );
-      enforced++;
+      if (closed) enforced++;
     }
     return enforced;
   }
@@ -420,6 +520,21 @@ export class AttendanceService {
       include: { ...attendanceInclude, breaks: { orderBy: { startedAt: 'asc' }, include: { breakPolicy: true } } },
       orderBy: [{ punchInAt: 'asc' }],
     });
+    const openOwnAttendance = ownEmployee
+      ? await this.prisma.attendance.findFirst({
+          where: {
+            employeeId: ownEmployee.id,
+            punchInAt: { not: null },
+            punchOutAt: null,
+          },
+          include: attendanceInclude,
+          orderBy: { punchInAt: 'desc' },
+        })
+      : null;
+    const summaryRecords =
+      openOwnAttendance && !records.some((record) => record.id === openOwnAttendance.id)
+        ? [...records, openOwnAttendance]
+        : records;
     const counts = Object.values(AttendanceStatus).reduce(
       (result, status) => ({ ...result, [status]: 0 }),
       {} as Record<AttendanceStatus, number>,
@@ -429,8 +544,8 @@ export class AttendanceService {
 
     const serverNow = new Date();
     const stateRecords = ownEmployee
-      ? records.filter((record) => record.employeeId === ownEmployee.id)
-      : records;
+      ? summaryRecords.filter((record) => record.employeeId === ownEmployee.id)
+      : summaryRecords;
     const latestSessionRaw = [...stateRecords].sort(
       (left, right) =>
         (right.punchInAt?.getTime() ?? 0) - (left.punchInAt?.getTime() ?? 0),
@@ -446,14 +561,51 @@ export class AttendanceService {
       (total, record) => total + this.liveBreakSeconds(record.breaks, serverNow),
       0,
     );
-    const sessions = records.map((record) => this.withSessionState(record));
+    const sessions = summaryRecords.map((record) => this.withSessionState(record));
     const latestSession = latestSessionRaw
       ? this.withSessionState(latestSessionRaw)
       : null;
+    const activeSummaryAttendance = openOwnAttendance ?? latestSessionRaw;
+    const activeWorkDate = activeSummaryAttendance
+      ? this.timeBoundary.toDateKey(activeSummaryAttendance.workDate ?? activeSummaryAttendance.attendanceDate)
+      : date.toISOString().slice(0, 10);
+    const activeShiftWindow = activeSummaryAttendance
+      ? this.timeBoundary.resolveShiftWindow({
+          workDate: activeWorkDate,
+          startTime: activeSummaryAttendance.shiftStartTime,
+          endTime: activeSummaryAttendance.shiftEndTime,
+          timezone: activeSummaryAttendance.shiftTimezone,
+        })
+      : null;
+    const latestMonitoring = activeSummaryAttendance
+      ? await this.latestReliableMonitoringState(activeSummaryAttendance)
+      : { lastHeartbeatAt: null, lastActivityAt: null };
 
     return {
       date: date.toISOString().slice(0, 10),
       serverNow: serverNow.toISOString(),
+      timezone: activeSummaryAttendance?.shiftTimezone ?? ownEmployee?.shift?.timezone ?? 'UTC',
+      workDate: activeWorkDate,
+      attendanceDate: activeSummaryAttendance
+        ? activeSummaryAttendance.attendanceDate.toISOString().slice(0, 10)
+        : date.toISOString().slice(0, 10),
+      scheduledStartAt:
+        activeSummaryAttendance?.scheduledStartAt?.toISOString() ??
+        activeShiftWindow?.scheduledStartAt.toISOString() ??
+        null,
+      scheduledEndAt:
+        activeSummaryAttendance?.scheduledEndAt?.toISOString() ??
+        activeShiftWindow?.scheduledEndAt.toISOString() ??
+        null,
+      nextBoundaryAt: activeShiftWindow?.scheduledEndAt.toISOString() ?? null,
+      crossesMidnight: activeShiftWindow?.crossesMidnight ?? false,
+      openAttendanceId: openOwnAttendance?.id ?? null,
+      lastHeartbeatAt: latestMonitoring.lastHeartbeatAt?.toISOString() ?? null,
+      lastActivityAt: latestMonitoring.lastActivityAt?.toISOString() ?? null,
+      closeSource: activeSummaryAttendance?.closeSource ?? null,
+      closeReason: activeSummaryAttendance?.closeReason ?? null,
+      requiresReview: activeSummaryAttendance?.requiresReview ?? false,
+      autoClosedAt: activeSummaryAttendance?.autoClosedAt?.toISOString() ?? null,
       totalEmployees: employees.length,
       recorded: records.length,
       counts,
@@ -572,6 +724,12 @@ export class AttendanceService {
         metadata: {
           attendanceId: attendance.id,
           reason: attendance.autoPunchOutReason,
+          closeSource: attendance.closeSource,
+          closeReason: attendance.closeReason,
+          requiresReview: attendance.requiresReview,
+          autoClosedAt: attendance.autoClosedAt,
+          systemClosedAt: attendance.systemClosedAt,
+          lastReliableActivityAt: attendance.lastReliableActivityAt,
           workedMinutes: attendance.workedMinutes,
           breakMinutes: attendance.breakMinutes,
         },
@@ -711,6 +869,7 @@ export class AttendanceService {
       employeeCode: attendance.employee.employeeCode,
       user: attendance.employee.user,
       attendanceDate: attendance.attendanceDate.toISOString().slice(0, 10),
+      workDate: attendance.workDate?.toISOString().slice(0, 10) ?? null,
       punchInAt: attendance.punchInAt,
       punchOutAt: attendance.punchOutAt,
       workedMinutes: attendance.workedMinutes,
@@ -718,6 +877,14 @@ export class AttendanceService {
       breakMinutes: attendance.breakMinutes,
       status: attendance.status,
       autoPunchOutReason: attendance.autoPunchOutReason,
+      closeSource: attendance.closeSource,
+      closeReason: attendance.closeReason,
+      autoClosedAt: attendance.autoClosedAt,
+      systemClosedAt: attendance.systemClosedAt,
+      requiresReview: attendance.requiresReview,
+      lastReliableActivityAt: attendance.lastReliableActivityAt,
+      scheduledStartAt: attendance.scheduledStartAt,
+      scheduledEndAt: attendance.scheduledEndAt,
       shift: {
         startTime: attendance.shiftStartTime,
         endTime: attendance.shiftEndTime,
@@ -800,6 +967,11 @@ export class AttendanceService {
         attendanceDayStartTime: true,
         allowMultiplePunchSessions: true,
         autoClosePreviousDayOpenSession: true,
+        autoCloseEnabled: true,
+        disconnectGraceMinutes: true,
+        postShiftGraceMinutes: true,
+        maximumOpenSessionMinutes: true,
+        noHeartbeatFallbackMinutes: true,
       },
     });
     return {
@@ -807,6 +979,11 @@ export class AttendanceService {
       allowMultiplePunchSessions: policy?.allowMultiplePunchSessions ?? true,
       autoClosePreviousDayOpenSession:
         policy?.autoClosePreviousDayOpenSession ?? true,
+      autoCloseEnabled: policy?.autoCloseEnabled ?? true,
+      disconnectGraceMinutes: policy?.disconnectGraceMinutes ?? 30,
+      postShiftGraceMinutes: policy?.postShiftGraceMinutes ?? 60,
+      maximumOpenSessionMinutes: policy?.maximumOpenSessionMinutes ?? 960,
+      noHeartbeatFallbackMinutes: policy?.noHeartbeatFallbackMinutes ?? 720,
     };
   }
 
@@ -827,6 +1004,11 @@ export class AttendanceService {
             attendanceDayStartTime: '00:00',
             allowMultiplePunchSessions: true,
             autoClosePreviousDayOpenSession: true,
+            autoCloseEnabled: true,
+            disconnectGraceMinutes: 30,
+            postShiftGraceMinutes: 60,
+            maximumOpenSessionMinutes: 960,
+            noHeartbeatFallbackMinutes: 720,
           };
     }
     const openSession = await this.prisma.attendance.findFirst({
@@ -923,6 +1105,12 @@ export class AttendanceService {
           workedMinutes,
           status: AttendanceStatus.AUTO_PUNCHED_OUT,
           autoPunchOutReason: PREVIOUS_DAY_CLOSE_REASON,
+          closeSource: AttendanceCloseSource.SYSTEM,
+          closeReason: AttendanceCloseReason.PREVIOUS_DAY_AUTO_CLOSE,
+          autoClosedAt: new Date(),
+          systemClosedAt: new Date(),
+          requiresReview: true,
+          lastReliableActivityAt: punchOutAt,
           notes: session.notes
             ? `${session.notes}; ${PREVIOUS_DAY_CLOSE_REASON}`
             : PREVIOUS_DAY_CLOSE_REASON,
@@ -960,6 +1148,291 @@ export class AttendanceService {
       select: { id: true, companyId: true },
     });
     return own ? { companyId: own.companyId, employeeId: own.id } : {};
+  }
+
+  private resolveAutoClosePolicy(
+    policy?: Partial<AttendancePolicyConfig> | null,
+  ): AutoClosePolicyConfig {
+    return {
+      autoCloseEnabled: policy?.autoCloseEnabled ?? true,
+      disconnectGraceMinutes: this.positiveMinutes(
+        policy?.disconnectGraceMinutes,
+        30,
+      ),
+      postShiftGraceMinutes: this.positiveMinutes(
+        policy?.postShiftGraceMinutes,
+        60,
+      ),
+      maximumOpenSessionMinutes: this.positiveMinutes(
+        policy?.maximumOpenSessionMinutes,
+        960,
+      ),
+      noHeartbeatFallbackMinutes: this.positiveMinutes(
+        policy?.noHeartbeatFallbackMinutes,
+        720,
+      ),
+    };
+  }
+
+  private evaluateStaleAttendance(input: {
+    attendance: StaleAttendance;
+    policy: AutoClosePolicyConfig;
+    now: Date;
+    latestHeartbeatAt: Date | null;
+    latestActivityAt: Date | null;
+    latestScreenshotAt: Date | null;
+  }): StaleAttendanceEvaluation | null {
+    const { attendance, policy, now } = input;
+    if (!attendance.punchInAt || !policy.autoCloseEnabled) return null;
+
+    const workDate = this.timeBoundary.toDateKey(
+      attendance.workDate ?? attendance.attendanceDate,
+    );
+    const shiftWindow = this.timeBoundary.resolveShiftWindow({
+      workDate,
+      startTime: attendance.shiftStartTime,
+      endTime: attendance.shiftEndTime,
+      timezone: attendance.shiftTimezone,
+    });
+    const scheduledStartAt = attendance.scheduledStartAt ?? shiftWindow.scheduledStartAt;
+    const scheduledEndAt = attendance.scheduledEndAt ?? shiftWindow.scheduledEndAt;
+    const maximumBoundary = new Date(
+      attendance.punchInAt.getTime() + policy.maximumOpenSessionMinutes * 60000,
+    );
+    const postShiftBoundary = new Date(
+      scheduledEndAt.getTime() + policy.postShiftGraceMinutes * 60000,
+    );
+    const noHeartbeatBoundary = new Date(
+      attendance.punchInAt.getTime() + policy.noHeartbeatFallbackMinutes * 60000,
+    );
+
+    const reliableWorkEndAt = this.latestReliableTimestamp({
+      punchInAt: attendance.punchInAt,
+      now,
+      maximumBoundary,
+      values: [
+        input.latestActivityAt,
+        input.latestHeartbeatAt,
+        input.latestScreenshotAt,
+      ],
+    });
+    const disconnectBoundary = reliableWorkEndAt
+      ? new Date(reliableWorkEndAt.getTime() + policy.disconnectGraceMinutes * 60000)
+      : noHeartbeatBoundary;
+
+    let closeReason: AttendanceCloseReason | null = null;
+    if (now >= maximumBoundary) {
+      closeReason = AttendanceCloseReason.MAX_SESSION_EXCEEDED;
+    } else if (!reliableWorkEndAt && now >= noHeartbeatBoundary) {
+      closeReason = AttendanceCloseReason.SYSTEM_SHUTDOWN_UNCONFIRMED;
+    } else if (now >= postShiftBoundary && now >= disconnectBoundary) {
+      closeReason = reliableWorkEndAt
+        ? AttendanceCloseReason.MISSED_PUNCH_OUT
+        : AttendanceCloseReason.SYSTEM_SHUTDOWN_UNCONFIRMED;
+    }
+
+    if (!closeReason) return null;
+
+    const fallbackEndAt =
+      closeReason === AttendanceCloseReason.MAX_SESSION_EXCEEDED
+        ? maximumBoundary
+        : attendance.punchInAt;
+    return {
+      closeReason,
+      reliableWorkEndAt: reliableWorkEndAt ?? fallbackEndAt,
+      systemClosedAt: now,
+      scheduledStartAt,
+      scheduledEndAt,
+      lastHeartbeatAt: input.latestHeartbeatAt,
+      lastActivityAt: input.latestActivityAt ?? input.latestScreenshotAt,
+      policy,
+    };
+  }
+
+  private latestReliableTimestamp(input: {
+    punchInAt: Date;
+    now: Date;
+    maximumBoundary: Date;
+    values: Array<Date | null>;
+  }): Date | null {
+    const latest = input.values
+      .filter((value): value is Date => Boolean(value))
+      .filter(
+        (value) =>
+          value >= input.punchInAt &&
+          value <= input.now &&
+          value <= input.maximumBoundary,
+      )
+      .sort((left, right) => right.getTime() - left.getTime())[0];
+    return latest ?? null;
+  }
+
+  private async latestReliableMonitoringState(attendance: {
+    companyId: string;
+    employeeId: string;
+    punchInAt: Date | null;
+    punchOutAt?: Date | null;
+  }): Promise<{ lastHeartbeatAt: Date | null; lastActivityAt: Date | null }> {
+    if (!attendance.punchInAt) {
+      return { lastHeartbeatAt: null, lastActivityAt: null };
+    }
+    const end = attendance.punchOutAt ?? new Date();
+    const [heartbeat, activity, screenshot] = await Promise.all([
+      this.prisma.heartbeat.findFirst({
+        where: {
+          companyId: attendance.companyId,
+          employeeId: attendance.employeeId,
+          recordedAt: { gte: attendance.punchInAt, lte: end },
+        },
+        orderBy: { recordedAt: 'desc' },
+        select: { recordedAt: true },
+      }),
+      this.prisma.activitySession.findFirst({
+        where: {
+          companyId: attendance.companyId,
+          employeeId: attendance.employeeId,
+          endedAt: { gte: attendance.punchInAt, lte: end },
+        },
+        orderBy: { endedAt: 'desc' },
+        select: { endedAt: true },
+      }),
+      this.prisma.screenshot.findFirst({
+        where: {
+          companyId: attendance.companyId,
+          employeeId: attendance.employeeId,
+          capturedAt: { gte: attendance.punchInAt, lte: end },
+          deletedAt: null,
+        },
+        orderBy: { capturedAt: 'desc' },
+        select: { capturedAt: true },
+      }),
+    ]);
+    const lastActivityAt = [activity?.endedAt, screenshot?.capturedAt]
+      .filter((value): value is Date => Boolean(value))
+      .sort((left, right) => right.getTime() - left.getTime())[0] ?? null;
+    return {
+      lastHeartbeatAt: heartbeat?.recordedAt ?? null,
+      lastActivityAt,
+    };
+  }
+
+  private async systemAutoCloseAttendance(
+    attendance: StaleAttendance,
+    evaluation: StaleAttendanceEvaluation,
+  ): Promise<boolean> {
+    const punchOutAt =
+      evaluation.reliableWorkEndAt < attendance.punchInAt!
+        ? attendance.punchInAt!
+        : evaluation.reliableWorkEndAt;
+    const adjustedBreaks = await Promise.all(
+      attendance.breaks.map(async (breakLog) => {
+        if (breakLog.endedAt) return breakLog;
+        const breakEndAt =
+          punchOutAt > breakLog.startedAt ? punchOutAt : breakLog.startedAt;
+        const durationMinutes = this.breakDurationMinutes(
+          breakLog.startedAt,
+          breakEndAt,
+        );
+        await this.prisma.breakLog.update({
+          where: { id: breakLog.id },
+          data: {
+            endedAt: breakEndAt,
+            durationMinutes,
+            policyViolated:
+              breakLog.allowedMinutes !== null &&
+              breakLog.allowedMinutes !== undefined &&
+              durationMinutes > breakLog.allowedMinutes,
+          },
+        });
+        return { ...breakLog, endedAt: breakEndAt, durationMinutes };
+      }),
+    );
+    const breakMinutes = this.totalBreakMinutes(adjustedBreaks);
+    const workedMinutes = Math.max(
+      0,
+      Math.floor((punchOutAt.getTime() - attendance.punchInAt!.getTime()) / 60000) -
+        breakMinutes,
+    );
+    const note = this.closeReasonMessage(evaluation.closeReason);
+    const result = await this.prisma.attendance.updateMany({
+      where: {
+        id: attendance.id,
+        punchOutAt: null,
+      },
+      data: {
+        punchOutAt,
+        breakMinutes,
+        workedMinutes,
+        status: AttendanceStatus.AUTO_PUNCHED_OUT,
+        autoPunchOutReason: note,
+        closeSource: AttendanceCloseSource.SYSTEM,
+        closeReason: evaluation.closeReason,
+        autoClosedAt: evaluation.systemClosedAt,
+        systemClosedAt: evaluation.systemClosedAt,
+        requiresReview: true,
+        lastReliableActivityAt: punchOutAt,
+        scheduledStartAt: evaluation.scheduledStartAt,
+        scheduledEndAt: evaluation.scheduledEndAt,
+        notes: attendance.notes ? `${attendance.notes}; ${note}` : note,
+      },
+    });
+    if (result.count === 0) return false;
+
+    await this.prisma.attendanceLog.create({
+      data: {
+        attendanceId: attendance.id,
+        type: AttendanceLogType.PUNCH_OUT,
+        occurredAt: punchOutAt,
+        note,
+      },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        companyId: attendance.companyId,
+        action: 'ATTENDANCE_SYSTEM_AUTO_CLOSED',
+        entityType: 'Attendance',
+        entityId: attendance.id,
+        metadata: {
+          attendanceId: attendance.id,
+          employeeId: attendance.employeeId,
+          evaluatedAt: evaluation.systemClosedAt.toISOString(),
+          lastHeartbeatAt: evaluation.lastHeartbeatAt?.toISOString() ?? null,
+          lastActivityAt: evaluation.lastActivityAt?.toISOString() ?? null,
+          scheduledStartAt: evaluation.scheduledStartAt.toISOString(),
+          scheduledEndAt: evaluation.scheduledEndAt.toISOString(),
+          reliableWorkEndAt: punchOutAt.toISOString(),
+          closeSource: AttendanceCloseSource.SYSTEM,
+          closeReason: evaluation.closeReason,
+          policy: evaluation.policy,
+        },
+      },
+    });
+    return true;
+  }
+
+  private positiveMinutes(value: number | null | undefined, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : fallback;
+  }
+
+  private closeReasonMessage(reason: AttendanceCloseReason): string {
+    switch (reason) {
+      case AttendanceCloseReason.HEARTBEAT_TIMEOUT:
+        return HEARTBEAT_LOSS_REASON;
+      case AttendanceCloseReason.MAX_SESSION_EXCEEDED:
+        return 'Maximum open attendance session exceeded';
+      case AttendanceCloseReason.SYSTEM_SHUTDOWN_UNCONFIRMED:
+        return 'System shutdown or heartbeat missing before punch-out';
+      case AttendanceCloseReason.BREAK_DURATION_EXCEEDED:
+        return AUTO_PUNCH_OUT_REASON;
+      case AttendanceCloseReason.PREVIOUS_DAY_AUTO_CLOSE:
+        return PREVIOUS_DAY_CLOSE_REASON;
+      case AttendanceCloseReason.DEVICE_OFFLINE:
+      case AttendanceCloseReason.MISSED_PUNCH_OUT:
+      default:
+        return 'Missed punch-out auto closed by system';
+    }
   }
 
   private async autoPunchOutForHeartbeatLoss(
@@ -1007,6 +1480,12 @@ export class AttendanceService {
         workedMinutes,
         status: AttendanceStatus.AUTO_PUNCHED_OUT,
         autoPunchOutReason: HEARTBEAT_LOSS_REASON,
+        closeSource: AttendanceCloseSource.SYSTEM,
+        closeReason: AttendanceCloseReason.HEARTBEAT_TIMEOUT,
+        autoClosedAt: new Date(),
+        systemClosedAt: new Date(),
+        requiresReview: true,
+        lastReliableActivityAt: punchOutAt,
         notes: attendance.notes
           ? `${attendance.notes}; ${HEARTBEAT_LOSS_REASON}`
           : HEARTBEAT_LOSS_REASON,
@@ -1073,6 +1552,12 @@ export class AttendanceService {
         workedMinutes,
         status: AttendanceStatus.AUTO_PUNCHED_OUT,
         autoPunchOutReason: AUTO_PUNCH_OUT_REASON,
+        closeSource: AttendanceCloseSource.SYSTEM,
+        closeReason: AttendanceCloseReason.BREAK_DURATION_EXCEEDED,
+        autoClosedAt: timeoutAt,
+        systemClosedAt: new Date(),
+        requiresReview: true,
+        lastReliableActivityAt: timeoutAt,
         notes: attendance.notes
           ? `${attendance.notes}; ${AUTO_PUNCH_OUT_REASON}`
           : AUTO_PUNCH_OUT_REASON,

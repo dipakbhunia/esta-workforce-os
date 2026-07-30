@@ -13,6 +13,8 @@ export const environmentValidationSchema = Joi.object({
   ALERT_SCREENSHOT_MISSING_MINUTES: Joi.number().integer().min(1).default(30),
   ALERT_EVALUATION_INTERVAL_MINUTES: Joi.number().integer().min(1).default(5),
   ALERT_EVALUATION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  ATTENDANCE_STALE_EVALUATION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  ATTENDANCE_STALE_EVALUATION_INTERVAL_MINUTES: Joi.number().integer().min(1).default(5),
   EMAIL_NOTIFICATIONS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   SMTP_HOST: Joi.string().allow('', null).optional(),
   SMTP_PORT: Joi.number().port().default(587),
