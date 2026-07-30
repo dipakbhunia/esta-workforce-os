@@ -1,4 +1,4 @@
-﻿import {
+import {
   Activity,
   AlertTriangle,
   BarChart3,
@@ -31,7 +31,14 @@
   UserPlus,
   Users,
 } from 'lucide-react';
+import type { RoleName } from '@/features/auth';
 import type { NavGroup } from '@/types/navigation';
+
+const adminRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'];
+const hrRoles: RoleName[] = ['COMPANY_ADMIN', 'HR'];
+const workforceRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
+const reviewerRoles: RoleName[] = ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
+const managerRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER'];
 
 export const navigation: NavGroup[] = [
   { label: 'Dashboard', path: '/', icon: Gauge, permission: 'dashboard:view' },
@@ -41,10 +48,23 @@ export const navigation: NavGroup[] = [
     permission: 'organization:manage',
     children: [
       { label: 'Companies', path: '/organization/companies', icon: BriefcaseBusiness, permission: 'companies:manage', roles: ['SUPER_ADMIN'] },
-      { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'branches:view', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'departments:view', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'designations:view', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Shifts', path: '/organization/shifts', icon: Clock3, permission: 'shifts:view', roles: ['COMPANY_ADMIN', 'HR'] },
+      { label: 'Branches', path: '/organization/branches', icon: MapPin, permission: 'branches:view', roles: hrRoles },
+      { label: 'Departments', path: '/organization/departments', icon: Network, permission: 'departments:view', roles: hrRoles },
+      { label: 'Designations', path: '/organization/designations', icon: Layers3, permission: 'designations:view', roles: hrRoles },
+      { label: 'Teams', path: '/organization/teams', icon: Users, permission: 'organization:manage', roles: hrRoles },
+      { label: 'Work Locations', path: '/organization/work-locations', icon: MapPin, permission: 'organization:manage', roles: hrRoles },
+    ],
+  },
+  {
+    label: 'Scheduling',
+    icon: CalendarDays,
+    permission: 'shifts:view',
+    children: [
+      { label: 'Shifts', path: '/scheduling/shifts', icon: Clock3, permission: 'shifts:view', roles: hrRoles },
+      { label: 'Shift Assignments', path: '/scheduling/shift-assignments', icon: ClipboardList, permission: 'shifts:manage', roles: hrRoles },
+      { label: 'Shift Roster', path: '/scheduling/shift-roster', icon: CalendarCheck, permission: 'shifts:manage', roles: hrRoles },
+      { label: 'Weekly Off Rules', path: '/scheduling/weekly-off-rules', icon: CalendarDays, permission: 'shifts:manage', roles: hrRoles },
+      { label: 'Holiday Calendar', path: '/scheduling/holiday-calendar', icon: CalendarDays, permission: 'attendance:manage', roles: hrRoles },
     ],
   },
   {
@@ -52,10 +72,10 @@ export const navigation: NavGroup[] = [
     icon: Users,
     permission: 'employees:view',
     children: [
-      { label: 'Employee Directory', path: '/people/employees', icon: Users, permission: 'employees:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-      { label: 'Employee Documents', path: '/employees/documents', icon: FileText, permission: 'employees:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-      { label: 'Onboarding', path: '/employees/onboarding', icon: UserPlus, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Exit Management', path: '/employees/exit-management', icon: LogOut, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR'] },
+      { label: 'Employee Directory', path: '/people/employees', icon: Users, permission: 'employees:view', roles: workforceRoles },
+      { label: 'Employee Documents', path: '/employees/documents', icon: FileText, permission: 'employees:view', roles: workforceRoles },
+      { label: 'Onboarding', path: '/employees/onboarding', icon: UserPlus, permission: 'employees:view', roles: hrRoles },
+      { label: 'Exit Management', path: '/employees/exit-management', icon: LogOut, permission: 'employees:view', roles: hrRoles },
       { label: 'Assets', path: '/employees/assets', icon: HardDrive, permission: 'employees:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER'] },
     ],
   },
@@ -64,12 +84,14 @@ export const navigation: NavGroup[] = [
     icon: CalendarCheck,
     permission: 'attendance:view',
     children: [
-      { label: 'Attendance', path: '/attendance', icon: CalendarCheck, permission: 'attendance:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-      { label: 'Corrections', path: '/attendance/corrections', icon: ClipboardList, permission: 'attendance:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-      { label: 'Attendance Policies', path: '/attendance/policies', icon: TimerReset, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
+      { label: 'Attendance', path: '/attendance', icon: CalendarCheck, permission: 'attendance:view', roles: reviewerRoles },
+      { label: 'My Attendance', path: '/attendance/my-attendance', icon: IdCard, permission: 'attendance:view', roles: reviewerRoles },
+      { label: 'Corrections', path: '/attendance/corrections', icon: ClipboardList, permission: 'attendance:view', roles: reviewerRoles },
+      { label: 'Missed Punch-Out Review', path: '/attendance/missed-punch-out-review', icon: AlertTriangle, permission: 'attendance:manage', roles: hrRoles },
+      { label: 'Auto Closed Review', path: '/attendance/auto-closed-review', icon: TimerReset, permission: 'attendance:manage', roles: hrRoles },
+      { label: 'Attendance Policies', path: '/attendance/policies', icon: TimerReset, permission: 'attendance:manage', roles: hrRoles },
       { label: 'Break Policies', path: '/attendance/break-policies', icon: BellRing, permission: 'attendance:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
-      { label: 'Overtime Rules', path: '/attendance/overtime-rules', icon: Clock3, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Holiday Calendar', path: '/attendance/holiday-calendar', icon: CalendarDays, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
+      { label: 'Overtime Rules', path: '/attendance/overtime-rules', icon: Clock3, permission: 'attendance:manage', roles: hrRoles },
     ],
   },
   {
@@ -77,9 +99,9 @@ export const navigation: NavGroup[] = [
     icon: FileText,
     permission: 'leave:view',
     children: [
-      { label: 'Leave Requests', path: '/leave/requests', icon: Activity, permission: 'leave:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
-      { label: 'Leave Types', path: '/leave/types', icon: FileText, permission: 'leave:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Leave Balance', path: '/leave/balances', icon: ClipboardList, permission: 'leave:view', roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
+      { label: 'Leave Requests', path: '/leave/requests', icon: Activity, permission: 'leave:view', roles: reviewerRoles },
+      { label: 'Leave Types', path: '/leave/types', icon: FileText, permission: 'leave:manage', roles: hrRoles },
+      { label: 'Leave Balance', path: '/leave/balances', icon: ClipboardList, permission: 'leave:view', roles: reviewerRoles },
     ],
   },
   {
@@ -91,18 +113,110 @@ export const navigation: NavGroup[] = [
       { label: 'Timeline', path: '/monitoring/timeline', icon: TimerReset, permission: 'monitoring:view' },
       { label: 'Activity', path: '/monitoring/activity', icon: Activity, permission: 'monitoring:view' },
       { label: 'Screenshots', path: '/monitoring/screenshots', icon: IdCard, permission: 'monitoring:view' },
-      { label: 'Apps & URLs', path: '/monitoring/apps-urls', icon: Laptop, permission: 'monitoring:view' },
-      { label: 'Device Overview', path: '/monitoring/devices', icon: HardDrive, permission: 'monitoring:view' },
-      { label: 'Device Inventory', path: '/monitoring/devices/inventory', icon: Laptop, permission: 'monitoring:view' },
+      { label: 'Applications', path: '/monitoring/applications', icon: Laptop, permission: 'monitoring:view' },
+      { label: 'Websites', path: '/monitoring/websites', icon: Globe, permission: 'monitoring:view' },
+      { label: 'Devices', path: '/monitoring/devices', icon: HardDrive, permission: 'monitoring:view' },
       { label: 'Idle Analytics', path: '/monitoring/idle-time', icon: TimerReset, permission: 'monitoring:view' },
-      { label: 'Productivity Analytics', path: '/monitoring/productivity/analytics', icon: BarChart3, permission: 'monitoring:view' },
-      { label: 'Productivity Trends', path: '/monitoring/productivity/trends', icon: TrendingUp, permission: 'monitoring:view' },
-      { label: 'Classification Coverage', path: '/monitoring/productivity/coverage', icon: ShieldCheck, permission: 'monitoring:view' },
-      { label: 'Productivity Apps', path: '/monitoring/productivity/applications', icon: PieChart, permission: 'monitoring:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
-      { label: 'Productivity Websites', path: '/monitoring/productivity/websites', icon: Globe, permission: 'monitoring:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
-      { label: 'Alerts', path: '/monitoring/alerts', icon: AlertTriangle, permission: 'monitoring:view' },
-      { label: 'Operations Dashboard', path: '/monitoring/operations', icon: Gauge, permission: 'monitoring:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER'] },
-      { label: 'Alert Policies', path: '/monitoring/alert-policies', icon: BellRing, permission: 'monitoring:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
+    ],
+  },
+  {
+    label: 'Productivity',
+    icon: BarChart3,
+    permission: 'monitoring:view',
+    children: [
+      { label: 'Analytics', path: '/monitoring/productivity/analytics', icon: BarChart3, permission: 'monitoring:view' },
+      { label: 'Trends', path: '/monitoring/productivity/trends', icon: TrendingUp, permission: 'monitoring:view' },
+      { label: 'Coverage', path: '/monitoring/productivity/coverage', icon: ShieldCheck, permission: 'monitoring:view' },
+      { label: 'Employee Productivity', path: '/monitoring/productivity/employees', icon: Users, permission: 'monitoring:view', roles: managerRoles },
+      { label: 'Application Rules', path: '/monitoring/productivity/applications', icon: PieChart, permission: 'monitoring:view', roles: adminRoles },
+      { label: 'Website Rules', path: '/monitoring/productivity/websites', icon: Globe, permission: 'monitoring:view', roles: adminRoles },
+    ],
+  },
+  {
+    label: 'Alerts & Notifications',
+    icon: Bell,
+    permission: 'monitoring:view',
+    children: [
+      { label: 'Alert Center', path: '/monitoring/alerts', icon: AlertTriangle, permission: 'monitoring:view' },
+      { label: 'Alert Policies', path: '/monitoring/alert-policies', icon: BellRing, permission: 'monitoring:view', roles: adminRoles },
+      { label: 'Operations Dashboard', path: '/monitoring/operations', icon: Gauge, permission: 'monitoring:view', roles: managerRoles },
+      { label: 'Notification Center', path: '/notifications', icon: Bell, permission: 'monitoring:view', roles: workforceRoles },
+      { label: 'Notification Preferences', path: '/notifications/preferences', icon: Settings, permission: 'settings:view', roles: workforceRoles },
+    ],
+  },
+  {
+    label: 'CRM',
+    icon: BriefcaseBusiness,
+    permission: 'settings:view',
+    roles: managerRoles,
+    children: [
+      { label: 'Lead Management', path: '/crm/leads', icon: Activity, permission: 'settings:view', roles: managerRoles },
+      { label: 'Contacts', path: '/crm/contacts', icon: Users, permission: 'settings:view', roles: managerRoles },
+      { label: 'Companies', path: '/crm/companies', icon: Building2, permission: 'settings:view', roles: managerRoles },
+      { label: 'Sales Pipeline', path: '/crm/sales-pipeline', icon: TrendingUp, permission: 'settings:view', roles: managerRoles },
+      { label: 'Follow Up', path: '/crm/follow-up', icon: Bell, permission: 'settings:view', roles: managerRoles },
+      { label: 'Quotations', path: '/crm/quotations', icon: FileText, permission: 'settings:view', roles: managerRoles },
+    ],
+  },
+  {
+    label: 'Projects & Tasks',
+    icon: ClipboardList,
+    permission: 'dashboard:view',
+    roles: workforceRoles,
+    children: [
+      { label: 'Projects', path: '/projects/projects', icon: ClipboardList, permission: 'dashboard:view', roles: workforceRoles },
+      { label: 'Tasks', path: '/projects/tasks', icon: Activity, permission: 'dashboard:view', roles: workforceRoles },
+      { label: 'Kanban Board', path: '/projects/kanban', icon: Split, permission: 'dashboard:view', roles: workforceRoles },
+      { label: 'Calendar', path: '/projects/calendar', icon: CalendarDays, permission: 'dashboard:view', roles: workforceRoles },
+    ],
+  },
+  {
+    label: 'HRMS',
+    icon: UserCog,
+    permission: 'employees:view',
+    roles: hrRoles,
+    children: [
+      { label: 'Payroll', path: '/hrms/payroll', icon: FileText, permission: 'employees:view', roles: hrRoles },
+      { label: 'Reimbursement', path: '/hrms/reimbursement', icon: ClipboardList, permission: 'employees:view', roles: hrRoles },
+      { label: 'Recruitment', path: '/hrms/recruitment', icon: UserPlus, permission: 'employees:view', roles: hrRoles },
+    ],
+  },
+  {
+    label: 'ERP Lite',
+    icon: Building2,
+    permission: 'settings:view',
+    roles: adminRoles,
+    children: [
+      { label: 'Customers', path: '/erp/customers', icon: Users, permission: 'settings:view', roles: adminRoles },
+      { label: 'Customer Groups', path: '/erp/customer-groups', icon: Network, permission: 'settings:view', roles: adminRoles },
+      { label: 'Vendors', path: '/erp/vendors', icon: BriefcaseBusiness, permission: 'settings:view', roles: adminRoles },
+      { label: 'Purchase Orders', path: '/erp/purchase-orders', icon: ClipboardList, permission: 'settings:view', roles: adminRoles },
+      { label: 'Inventory', path: '/erp/inventory', icon: HardDrive, permission: 'settings:view', roles: adminRoles },
+      { label: 'Finance', path: '/erp/finance', icon: BarChart3, permission: 'settings:view', roles: adminRoles },
+      { label: 'Invoicing', path: '/erp/invoicing', icon: FileText, permission: 'settings:view', roles: adminRoles },
+    ],
+  },
+  {
+    label: 'Communication Hub',
+    icon: Bell,
+    permission: 'settings:view',
+    roles: adminRoles,
+    children: [
+      { label: 'WhatsApp', path: '/communication/whatsapp', icon: Bell, permission: 'settings:view', roles: adminRoles },
+      { label: 'Email', path: '/communication/email', icon: FileText, permission: 'settings:view', roles: adminRoles },
+      { label: 'Call Tracking', path: '/communication/call-tracking', icon: Activity, permission: 'settings:view', roles: adminRoles },
+    ],
+  },
+  {
+    label: 'AI Analytics',
+    icon: PieChart,
+    permission: 'settings:view',
+    roles: adminRoles,
+    children: [
+      { label: 'AI Productivity', path: '/ai/productivity', icon: BarChart3, permission: 'settings:view', roles: adminRoles },
+      { label: 'AI HR Analytics', path: '/ai/hr-analytics', icon: Users, permission: 'settings:view', roles: adminRoles },
+      { label: 'AI Sales Analytics', path: '/ai/sales-analytics', icon: TrendingUp, permission: 'settings:view', roles: adminRoles },
+      { label: 'AI Assistant', path: '/ai/assistant', icon: BellRing, permission: 'settings:view', roles: adminRoles },
     ],
   },
   {
@@ -114,6 +228,11 @@ export const navigation: NavGroup[] = [
       { label: 'Employee Reports', path: '/reports/employees', icon: Users, permission: 'reports:view' },
       { label: 'Leave Reports', path: '/reports/leave', icon: FileText, permission: 'reports:view' },
       { label: 'Monitoring Reports', path: '/reports/monitoring', icon: MonitorDot, permission: 'reports:view' },
+      { label: 'Productivity Reports', path: '/reports/productivity', icon: TrendingUp, permission: 'reports:view' },
+      { label: 'CEO Dashboard', path: '/reports/ceo-dashboard', icon: Gauge, permission: 'reports:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN'] },
+      { label: 'HR Dashboard', path: '/reports/hr-dashboard', icon: UserCog, permission: 'reports:view', roles: hrRoles },
+      { label: 'Sales Dashboard', path: '/reports/sales-dashboard', icon: BriefcaseBusiness, permission: 'reports:view', roles: managerRoles },
+      { label: 'Manager Dashboard', path: '/reports/manager-dashboard', icon: Users, permission: 'reports:view', roles: managerRoles },
     ],
   },
   {
@@ -121,13 +240,11 @@ export const navigation: NavGroup[] = [
     icon: Settings,
     permission: 'settings:view',
     children: [
-      { label: 'Company Profile', path: '/settings/company-profile', icon: Building2, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Users', path: '/settings/users', icon: UserCog, permission: 'people:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
-      { label: 'Roles', path: '/settings/roles', icon: ShieldCheck, permission: 'people:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
-      { label: 'Permissions', path: '/settings/permissions', icon: Split, permission: 'people:manage', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'] },
-      { label: 'Attendance Settings', path: '/settings/attendance', icon: TimerReset, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Desktop Agent Settings', path: '/settings/desktop-agent', icon: Laptop, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
-      { label: 'Notification Settings', path: '/settings/notifications', icon: Bell, permission: 'settings:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'] },
+      { label: 'Company Profile', path: '/settings/company-profile', icon: Building2, permission: 'settings:view', roles: hrRoles },
+      { label: 'Users', path: '/settings/users', icon: UserCog, permission: 'people:manage', roles: adminRoles },
+      { label: 'Roles', path: '/settings/roles', icon: ShieldCheck, permission: 'people:manage', roles: adminRoles },
+      { label: 'Permissions', path: '/settings/permissions', icon: Split, permission: 'people:manage', roles: adminRoles },
+      { label: 'Desktop Agent', path: '/settings/desktop-agent', icon: Laptop, permission: 'settings:view', roles: hrRoles },
       { label: 'General Settings', path: '/settings/general', icon: Settings, permission: 'settings:view' },
     ],
   },

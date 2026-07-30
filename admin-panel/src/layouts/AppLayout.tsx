@@ -1,4 +1,4 @@
-﻿import { Box, Drawer } from '@mui/material';
+import { Box, Drawer } from '@mui/material';
 import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Header } from './Header';
@@ -14,7 +14,7 @@ export function AppLayout() {
         <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} />
       </Box>
       <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} sx={{ display: { lg: 'none' } }}>
-        <Sidebar collapsed={false} onToggle={() => setMobileOpen(false)} />
+        <Sidebar collapsed={false} onToggle={() => setMobileOpen(false)} onNavigate={() => setMobileOpen(false)} />
       </Drawer>
       <Box sx={{ ml: { xs: 0, lg: `${sidebarWidth}px` }, transition: 'margin-left 180ms ease' }}>
         <Header onOpenMobileSidebar={() => setMobileOpen(true)} />

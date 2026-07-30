@@ -1,7 +1,7 @@
 import { Box, Collapse, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Stack, Tooltip, Typography } from '@mui/material';
 import { ChevronDown, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/features/auth';
 import { navigation } from '@/routes/navigation';
@@ -10,13 +10,17 @@ import type { NavGroup, NavItem } from '@/types/navigation';
 export const SIDEBAR_WIDTH = 284;
 export const SIDEBAR_COLLAPSED_WIDTH = 84;
 
-export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+export function Sidebar({ collapsed, onToggle, onNavigate }: { collapsed: boolean; onToggle: () => void; onNavigate?: () => void }) {
   const location = useLocation();
   const { permissions, roles } = useAuth();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ Organization: true, Employees: true, Attendance: true, Settings: true });
+  const [manualOpenGroup, setManualOpenGroup] = useState<string | null>(null);
   const allowedNavigation = useMemo(() => filterNavigation(navigation, permissions, roles), [permissions, roles]);
   const activePath = useMemo(() => findActivePath(allowedNavigation, location.pathname), [allowedNavigation, location.pathname]);
   const activeGroup = useMemo(() => allowedNavigation.find((group) => group.children?.some((item) => item.path === activePath)), [activePath, allowedNavigation]);
+
+  useEffect(() => {
+    setManualOpenGroup(null);
+  }, [location.pathname]);
 
   return (
     <Box sx={{ width: collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH, transition: 'width 180ms ease', height: '100%', bgcolor: '#fff', borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
@@ -38,18 +42,19 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
           if (!group.children && group.path) {
             return (
               <Tooltip title={collapsed ? group.label : ''} placement="right" key={group.label}>
-                <ListItemButton component={NavLink} to={group.path} sx={navItemSx(isGroupActive, collapsed)}>
+                <ListItemButton component={NavLink} to={group.path} onClick={onNavigate} sx={navItemSx(isGroupActive, collapsed)}>
                   <ListItemIcon sx={iconSx(isGroupActive)}><Icon size={19} /></ListItemIcon>
                   {!collapsed && <ListItemText primary={group.label} primaryTypographyProps={{ fontWeight: 750, fontSize: 14 }} />}
                 </ListItemButton>
               </Tooltip>
             );
           }
-          const open = openGroups[group.label] ?? false;
+          const openGroupLabel = manualOpenGroup ?? activeGroup?.label;
+          const open = openGroupLabel === group.label;
           return (
             <Box key={group.label}>
               <Tooltip title={collapsed ? group.label : ''} placement="right">
-                <ListItemButton onClick={() => !collapsed && setOpenGroups((current) => ({ ...current, [group.label]: !open }))} sx={navItemSx(Boolean(isGroupActive), collapsed)}>
+                <ListItemButton onClick={() => !collapsed && setManualOpenGroup((current) => (current === group.label ? null : group.label))} sx={navItemSx(Boolean(isGroupActive), collapsed)}>
                   <ListItemIcon sx={iconSx(Boolean(isGroupActive))}><Icon size={19} /></ListItemIcon>
                   {!collapsed && <ListItemText primary={group.label} primaryTypographyProps={{ fontWeight: 800, fontSize: 13, color: 'text.secondary' }} />}
                   {!collapsed && <ChevronDown size={16} style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
@@ -62,7 +67,7 @@ export function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle:
                       const ItemIcon = item.icon;
                       const active = item.path === activePath;
                       return (
-                        <ListItemButton key={item.path} component={NavLink} to={item.path} sx={{ ...navItemSx(active, false), ml: 1.5, minHeight: 38 }}>
+                        <ListItemButton key={item.path} component={NavLink} to={item.path} onClick={onNavigate} sx={{ ...navItemSx(active, false), ml: 1.5, minHeight: 38 }}>
                           <ListItemIcon sx={iconSx(active)}>{ItemIcon && <ItemIcon size={17} />}</ListItemIcon>
                           <ListItemText primary={item.label} primaryTypographyProps={{ fontWeight: active ? 800 : 650, fontSize: 13 }} />
                         </ListItemButton>
