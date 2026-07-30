@@ -19,6 +19,7 @@ import {
 } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { ShiftResolutionService } from '../shift-assignments/shift-resolution.service';
 import { AttendanceActionDto } from './dto/attendance-action.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import {
@@ -111,18 +112,27 @@ export class AttendanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly timeBoundary: TimeBoundaryService,
+    private readonly shiftResolution: ShiftResolutionService,
   ) {}
 
   async punchIn(dto: AttendanceActionDto, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
-    if (!employee.shift) {
-      throw new BadRequestException('An active shift is required to punch in');
-    }
     const policy = await this.activeAttendancePolicy(employee.companyId);
     const now = new Date();
+    const effectiveShift = await this.shiftResolution.resolveForTimestamp({
+      companyId: employee.companyId,
+      employeeId: employee.id,
+      timestamp: now,
+    });
+    if (!effectiveShift) {
+      throw new BadRequestException(
+        'No active shift assignment or default shift is configured for this employee.',
+      );
+    }
+    const shift = effectiveShift.shift;
     const key = dateKey(
       now,
-      employee.shift.timezone,
+      shift.timezone,
       policy.attendanceDayStartTime,
     );
     const attendanceDate = dateOnly(key);
@@ -156,14 +166,14 @@ export class AttendanceService {
 
     const shiftStart = zonedDateTimeToUtc(
       key,
-      employee.shift.startTime,
-      employee.shift.timezone,
+      shift.startTime,
+      shift.timezone,
     );
     const shiftWindow = this.timeBoundary.resolveShiftWindow({
       workDate: key,
-      startTime: employee.shift.startTime,
-      endTime: employee.shift.endTime,
-      timezone: employee.shift.timezone,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      timezone: shift.timezone,
     });
     const lateMinutes = Math.max(
       0,
@@ -181,12 +191,16 @@ export class AttendanceService {
           lateMinutes > 0 ? AttendanceStatus.LATE : AttendanceStatus.PRESENT,
         lateMinutes,
         expectedMinutes: expectedShiftMinutes(
-          employee.shift.startTime,
-          employee.shift.endTime,
+          shift.startTime,
+          shift.endTime,
         ),
-        shiftStartTime: employee.shift.startTime,
-        shiftEndTime: employee.shift.endTime,
-        shiftTimezone: employee.shift.timezone,
+        shiftId: shift.id,
+        shiftAssignmentId: effectiveShift.assignmentId,
+        shiftName: shift.name,
+        shiftCode: shift.code,
+        shiftStartTime: shift.startTime,
+        shiftEndTime: shift.endTime,
+        shiftTimezone: shift.timezone,
         scheduledStartAt: shiftWindow.scheduledStartAt,
         scheduledEndAt: shiftWindow.scheduledEndAt,
         notes: dto.note?.trim(),
@@ -874,6 +888,10 @@ export class AttendanceService {
       punchOutAt: attendance.punchOutAt,
       workedMinutes: attendance.workedMinutes,
       expectedMinutes: attendance.expectedMinutes,
+      shiftId: attendance.shiftId,
+      shiftAssignmentId: attendance.shiftAssignmentId,
+      shiftName: attendance.shiftName,
+      shiftCode: attendance.shiftCode,
       breakMinutes: attendance.breakMinutes,
       status: attendance.status,
       autoPunchOutReason: attendance.autoPunchOutReason,

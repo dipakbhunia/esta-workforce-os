@@ -151,6 +151,18 @@ export class AttendanceResponseDto {
   @ApiProperty()
   expectedMinutes!: number;
 
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  shiftId!: string | null;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  shiftAssignmentId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  shiftName!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  shiftCode!: string | null;
+
   @ApiProperty()
   breakMinutes!: number;
 

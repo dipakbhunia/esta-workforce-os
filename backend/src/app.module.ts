@@ -20,6 +20,7 @@ import { MonitoringAlertsModule } from './modules/monitoring-alerts/monitoring-a
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ProductivityModule } from './modules/productivity/productivity.module';
 import { RolesModule } from './modules/roles/roles.module';
+import { ShiftAssignmentsModule } from './modules/shift-assignments/shift-assignments.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -50,6 +51,7 @@ import { UsersModule } from './modules/users/users.module';
     MonitoringAlertsModule,
     NotificationsModule,
     ProductivityModule,
+    ShiftAssignmentsModule,
     ShiftsModule,
     UsersModule,
     RolesModule,

@@ -182,6 +182,28 @@ enum ProductivityCategory {
   UNCLASSIFIED
 }
 
+enum ShiftAssignmentStatus {
+  ACTIVE
+  SCHEDULED
+  ENDED
+  CANCELLED
+}
+
+enum ShiftAssignmentType {
+  PERMANENT
+  TEMPORARY
+  ROTATIONAL
+  MANUAL_OVERRIDE
+}
+
+enum AssignmentSource {
+  EMPLOYEE_PROFILE
+  SHIFT_ASSIGNMENT
+  ROSTER
+  SYSTEM
+  IMPORT
+}
+
 model Company {
   id                 String             @id @default(uuid()) @db.Uuid
   name               String
@@ -196,6 +218,7 @@ model Company {
   shifts             Shift[]
   users              User[]
   employees          Employee[]
+  shiftAssignments   EmployeeShiftAssignment[]
   attendances        Attendance[]
   attendanceCorrectionRequests AttendanceCorrectionRequest[]
   leaveTypes         LeaveType[]
@@ -303,6 +326,8 @@ model Shift {
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users     User[]
   employees Employee[]
+  shiftAssignments EmployeeShiftAssignment[]
+  attendanceSnapshots Attendance[] @relation("AttendanceShiftSnapshot")
 
   @@index([companyId])
   @@index([companyId, code])
@@ -333,6 +358,8 @@ model User {
   roles         UserRole[]
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]     @relation("AuditLogActor")
+  createdShiftAssignments EmployeeShiftAssignment[] @relation("ShiftAssignmentCreator")
+  updatedShiftAssignments EmployeeShiftAssignment[] @relation("ShiftAssignmentUpdater")
   employee      Employee?
   requestedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequester")
   reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
@@ -389,6 +416,7 @@ model Employee {
   shift                        Shift?             @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   reportingManager             Employee?          @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
   directReports                Employee[]         @relation("EmployeeReporting")
+  shiftAssignments             EmployeeShiftAssignment[]
   attendances                  Attendance[]
   attendanceCorrectionRequests AttendanceCorrectionRequest[]
   leaveRequests                LeaveRequest[]     @relation("LeaveRequestEmployee")
@@ -416,6 +444,39 @@ model Employee {
   @@index([deletedAt])
 }
 
+model EmployeeShiftAssignment {
+  id             String                @id @default(uuid()) @db.Uuid
+  companyId      String                @db.Uuid
+  employeeId     String                @db.Uuid
+  shiftId        String                @db.Uuid
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  status         ShiftAssignmentStatus @default(ACTIVE)
+  assignmentType ShiftAssignmentType   @default(PERMANENT)
+  source         AssignmentSource      @default(SHIFT_ASSIGNMENT)
+  reason         String?
+  notes          String?
+  createdById    String?               @db.Uuid
+  updatedById    String?               @db.Uuid
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  deletedAt      DateTime?
+  company        Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee       Employee              @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift          Shift                 @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  createdBy      User?                 @relation("ShiftAssignmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      User?                 @relation("ShiftAssignmentUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  attendances    Attendance[]          @relation("AttendanceShiftAssignmentSnapshot")
+
+  @@index([companyId, employeeId, effectiveFrom])
+  @@index([employeeId, effectiveFrom, effectiveTo])
+  @@index([companyId, status])
+  @@index([shiftId])
+  @@index([createdById])
+  @@index([updatedById])
+  @@index([deletedAt])
+}
+
 model Attendance {
   id                 String           @id @default(uuid()) @db.Uuid
   companyId          String           @db.Uuid
@@ -429,6 +490,10 @@ model Attendance {
   breakMinutes       Int              @default(0)
   lateMinutes        Int              @default(0)
   expectedMinutes    Int
+  shiftId            String?          @db.Uuid
+  shiftAssignmentId  String?          @db.Uuid
+  shiftName          String?
+  shiftCode          String?
   shiftStartTime     String
   shiftEndTime       String
   shiftTimezone      String
@@ -446,6 +511,8 @@ model Attendance {
   updatedAt          DateTime         @updatedAt
   company            Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift              Shift?           @relation("AttendanceShiftSnapshot", fields: [shiftId], references: [id], onDelete: SetNull)
+  shiftAssignment    EmployeeShiftAssignment? @relation("AttendanceShiftAssignmentSnapshot", fields: [shiftAssignmentId], references: [id], onDelete: SetNull)
   logs               AttendanceLog[]
   breaks             BreakLog[]
   correctionRequests AttendanceCorrectionRequest[]
@@ -454,6 +521,8 @@ model Attendance {
   @@index([companyId, workDate])
   @@index([employeeId, attendanceDate])
   @@index([employeeId, workDate])
+  @@index([shiftId])
+  @@index([shiftAssignmentId])
   @@index([status])
   @@index([punchOutAt])
   @@index([requiresReview])
