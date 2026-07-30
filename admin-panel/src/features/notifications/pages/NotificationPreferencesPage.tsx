@@ -49,7 +49,7 @@ export default function NotificationPreferencesPage() {
 
   return (
     <PageLayout>
-      <PageHeader title="Notification Settings" description="Choose how monitoring alert lifecycle notifications reach you. Critical alerts may bypass quiet hours." breadcrumbs={['Admin', 'Settings', 'Notifications']} />
+      <PageHeader title="Notification Settings" description="Choose how monitoring alert lifecycle notifications reach you. Critical alerts may bypass quiet hours." breadcrumbs={['Admin', 'Alerts & Notifications', 'Notification Preferences']} />
       {toast && <Alert severity="success" onClose={() => setToast(null)}>{toast}</Alert>}
       {preferencesQuery.isError && <Alert severity="error" action={<Button color="inherit" onClick={() => void preferencesQuery.refetch()}>Retry</Button>}>Unable to load notification preferences.</Alert>}
       <Box component="form" onSubmit={(event) => { event.preventDefault(); updateMutation.mutate(form); }}>

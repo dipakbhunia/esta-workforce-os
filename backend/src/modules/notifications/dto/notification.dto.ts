@@ -1,12 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import { MonitoringAlertSeverity, NotificationChannel, NotificationStatus, NotificationType } from '@prisma/client';
 
 export class NotificationQueryDto {
-  @ApiPropertyOptional({ default: 1 }) @IsOptional() @IsInt() @Min(1) page?: number = 1;
-  @ApiPropertyOptional({ default: 20 }) @IsOptional() @IsInt() @Min(1) @Max(100) pageSize?: number = 20;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(100) limit?: number;
-  @ApiPropertyOptional() @IsOptional() @IsBoolean() read?: boolean;
+  @ApiPropertyOptional({ default: 1 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number = 1;
+  @ApiPropertyOptional({ default: 20 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number = 20;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
+  @ApiPropertyOptional() @IsOptional() @Transform(({ value }) => (value === undefined || value === null || value === '' ? undefined : value === true || value === 'true')) @IsBoolean() read?: boolean;
   @ApiPropertyOptional({ enum: MonitoringAlertSeverity }) @IsOptional() @IsEnum(MonitoringAlertSeverity) severity?: MonitoringAlertSeverity;
   @ApiPropertyOptional({ enum: NotificationType }) @IsOptional() @IsEnum(NotificationType) type?: NotificationType;
   @ApiPropertyOptional() @IsOptional() @IsString() dateFrom?: string;
@@ -15,8 +16,8 @@ export class NotificationQueryDto {
 }
 
 export class NotificationDeliveryQueryDto {
-  @ApiPropertyOptional({ default: 1 }) @IsOptional() @IsInt() @Min(1) page?: number = 1;
-  @ApiPropertyOptional({ default: 20 }) @IsOptional() @IsInt() @Min(1) @Max(100) pageSize?: number = 20;
+  @ApiPropertyOptional({ default: 1 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number = 1;
+  @ApiPropertyOptional({ default: 20 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number = 20;
   @ApiPropertyOptional({ enum: NotificationStatus }) @IsOptional() @IsEnum(NotificationStatus) status?: NotificationStatus;
   @ApiPropertyOptional({ enum: NotificationChannel }) @IsOptional() @IsEnum(NotificationChannel) channel?: NotificationChannel;
   @ApiPropertyOptional() @IsOptional() @IsString() recipient?: string;

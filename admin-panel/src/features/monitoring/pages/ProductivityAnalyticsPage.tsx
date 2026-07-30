@@ -155,7 +155,7 @@ export default function ProductivityAnalyticsPage() {
       <PageHeader
         title="Productivity Analytics"
         description="Classified productivity analytics from real application and website usage. Unclassified time is reported but excluded from productivity percentage."
-        breadcrumbs={['Admin', 'Monitoring', 'Productivity', 'Analytics']}
+        breadcrumbs={['Admin', 'Productivity', 'Analytics']}
       />
 
       {data && (

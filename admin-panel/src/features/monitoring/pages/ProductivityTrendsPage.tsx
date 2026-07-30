@@ -1,4 +1,4 @@
-﻿import { Box, Button, LinearProgress, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, LinearProgress, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import type { GridColDef } from '@mui/x-data-grid';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, LineChart, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
@@ -94,7 +94,7 @@ export default function ProductivityTrendsPage() {
       <PageHeader
         title="Productivity Trends"
         description="Historical productivity, classification coverage, rankings, and department benchmarks from classified application and hostname usage."
-        breadcrumbs={['Admin', 'Monitoring', 'Productivity', 'Trends']}
+        breadcrumbs={['Admin', 'Productivity', 'Trends']}
       />
       <FilterToolbar actions={<><ResetButton onClick={resetFilters} /><RefreshButton onClick={() => trendsQuery.refetch()} /></>}>
         <SearchFilter placeholder="Search employee, app, website" value={search} onChange={(value) => updateFilter(setSearch, value)} />

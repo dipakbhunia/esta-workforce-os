@@ -104,7 +104,7 @@ export default function AttendancePage() {
       <PageHeader
         title="Attendance"
         description="Review daily attendance sessions and exception classifications."
-        breadcrumbs={['Admin', 'Attendance', 'Attendance']}
+        breadcrumbs={['Admin', 'Attendance']}
       />
 
       <SummaryCardsContainer>

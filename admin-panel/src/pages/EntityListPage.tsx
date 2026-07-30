@@ -1,4 +1,4 @@
-﻿import { Button, Card, CardContent, Stack } from '@mui/material';
+import { Button, Card, CardContent, Stack } from '@mui/material';
 import { SlidersHorizontal } from 'lucide-react';
 import { DataTable } from '@/components/data-table';
 import { EmptyState } from '@/components/empty-state';
@@ -11,13 +11,14 @@ interface EntityListPageProps {
   description: string;
   entity: string;
   createPath?: string;
+  breadcrumbs?: string[];
 }
 
-export default function EntityListPage({ title, description, entity, createPath = 'create' }: EntityListPageProps) {
+export default function EntityListPage({ title, description, entity, createPath = 'create', breadcrumbs = ['Admin', title] }: EntityListPageProps) {
   const rows = entityRows(entity);
   return (
     <Stack gap={3}>
-      <PageHeader title={title} description={description} breadcrumbs={['Admin', title]} primaryActionLabel={`Add ${entity}`} primaryActionTo={createPath} />
+      <PageHeader title={title} description={description} breadcrumbs={breadcrumbs} primaryActionLabel={`Add ${entity}`} primaryActionTo={createPath} />
       <Card>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} gap={1.5} justifyContent="space-between">

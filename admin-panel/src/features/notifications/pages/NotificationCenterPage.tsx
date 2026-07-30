@@ -80,7 +80,7 @@ export default function NotificationCenterPage() {
 
   return (
     <PageLayout>
-      <PageHeader title="Notification Center" description="Review in-app alert notifications and manage read status without changing the underlying alert lifecycle." breadcrumbs={['Admin', 'Notifications']} />
+      <PageHeader title="Notification Center" description="Review in-app alert notifications and manage read status without changing the underlying alert lifecycle." breadcrumbs={['Admin', 'Alerts & Notifications', 'Notification Center']} />
       <Stack direction="row" justifyContent="flex-end"><Button startIcon={<CheckCheck size={17} />} onClick={() => markAllMutation.mutate()} disabled={markAllMutation.isPending}>Mark all read</Button></Stack>
       {toast && <Alert severity="success" onClose={() => setToast(null)}>{toast}</Alert>}
       {notificationsQuery.isError && <Alert severity="error" action={<Button color="inherit" onClick={() => void notificationsQuery.refetch()}>Retry</Button>}>Unable to load notifications.</Alert>}

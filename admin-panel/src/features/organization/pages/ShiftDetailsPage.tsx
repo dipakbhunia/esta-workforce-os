@@ -41,7 +41,7 @@ export default function ShiftDetailsPage() {
 
   return (
     <Stack gap={3}>
-      <PageHeader title={shift.name} description="Read-only shift schedule foundation profile." breadcrumbs={['Admin', 'Organization', 'Shifts', shift.name]} />
+      <PageHeader title={shift.name} description="Read-only shift schedule foundation profile." breadcrumbs={['Admin', 'Scheduling', 'Shifts', shift.name]} />
 
       {canManage && (
         <Stack direction="row" justifyContent="flex-end">

@@ -243,7 +243,7 @@ export function ProductivityRulesPage({ kind }: { kind: RuleKind }) {
       <PageHeader
         title={labels.title}
         description={labels.description}
-        breadcrumbs={['Admin', 'Monitoring', 'Productivity', isApplication ? 'Applications' : 'Websites']}
+        breadcrumbs={['Admin', 'Productivity', isApplication ? 'Applications' : 'Websites']}
       />
 
       <Alert severity="info">

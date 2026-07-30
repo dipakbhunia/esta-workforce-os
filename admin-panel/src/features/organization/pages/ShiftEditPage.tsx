@@ -35,7 +35,7 @@ export default function ShiftEditPage() {
 
   return (
     <Stack gap={3}>
-      <PageHeader title="Edit Shift" description="Update shift identity, timing, and timezone." breadcrumbs={['Admin', 'Organization', 'Shifts', 'Edit']} />
+      <PageHeader title="Edit Shift" description="Update shift identity, timing, and timezone." breadcrumbs={['Admin', 'Scheduling', 'Shifts', 'Edit']} />
       <ShiftForm shift={shiftQuery.data.data} submitLabel="Save shift" loading={mutation.isPending} onSubmit={(payload) => mutation.mutateAsync(payload).then(() => undefined)} />
       <Snackbar open={Boolean(error)} autoHideDuration={5000} onClose={() => setError(null)}>
         <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>

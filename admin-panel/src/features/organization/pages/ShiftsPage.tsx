@@ -83,7 +83,7 @@ export default function ShiftsPage() {
       <PageHeader
         title="Shifts"
         description="Manage shift schedules, working windows, and timezones."
-        breadcrumbs={['Admin', 'Organization', 'Shifts']}
+        breadcrumbs={['Admin', 'Scheduling', 'Shifts']}
         primaryActionLabel={canManage ? 'Add Shift' : undefined}
         primaryActionTo={canManage ? '/organization/shifts/create' : undefined}
       />

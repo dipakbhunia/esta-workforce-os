@@ -72,6 +72,7 @@ const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage'));
 const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage'));
 const NotificationCenterPage = lazy(() => import('@/features/notifications/pages/NotificationCenterPage'));
 const NotificationPreferencesPage = lazy(() => import('@/features/notifications/pages/NotificationPreferencesPage'));
+const DownloadsPage = lazy(() => import('@/features/downloads/pages/DownloadsPage'));
 const ComingSoonPage = lazy(() => import('@/pages/ComingSoonPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
@@ -231,6 +232,7 @@ export const router = createBrowserRouter([
           { path: 'settings/notifications', element: protectedElement(<Navigate to="/notifications/preferences" replace />, 'settings:view', workforceRoles) },
           { path: 'notifications', element: protectedElement(<NotificationCenterPage />, 'monitoring:view', workforceRoles) },
           { path: 'notifications/preferences', element: protectedElement(<NotificationPreferencesPage />, 'settings:view', workforceRoles) },
+          { path: 'downloads', element: protectedElement(<DownloadsPage />, 'dashboard:view', workforceRoles) },
           { path: 'attendance', element: protectedElement(<AttendancePage />, 'attendance:view', attendanceRoles) },
           { path: 'attendance/create', element: lazyElement(<NotFoundPage />) },
           { path: 'attendance/corrections', element: protectedElement(<AttendanceCorrectionsPage />, 'attendance:view', attendanceRoles) },

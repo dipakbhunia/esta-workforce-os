@@ -1,5 +1,5 @@
-﻿import EntityListPage from '@/pages/EntityListPage';
+import EntityListPage from '@/pages/EntityListPage';
 
 export default function PermissionsPage() {
-  return <EntityListPage title="Permissions" entity="Permission" description="Review permission catalog and access scopes." />;
+  return <EntityListPage title="Permissions" entity="Permission" description="Review permission catalog and access scopes." breadcrumbs={['Admin', 'Settings', 'Permissions']} />;
 }

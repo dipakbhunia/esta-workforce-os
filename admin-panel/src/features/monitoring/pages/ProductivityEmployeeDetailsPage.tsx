@@ -115,7 +115,7 @@ export default function ProductivityEmployeeDetailsPage() {
       <PageHeader
         title="Employee Productivity Drill-down"
         description="Review one employee's classified application and hostname usage. Full URLs and typed content are not exported or displayed."
-        breadcrumbs={['Admin', 'Monitoring', 'Productivity', 'Employee Drill-down']}
+        breadcrumbs={['Admin', 'Productivity', 'Employee Drill-down']}
       />
       <FilterToolbar actions={<><ResetButton onClick={resetFilters} /><RefreshButton onClick={() => detailsQuery.refetch()} /><ExportButton onClick={exportCsv} /></>}>
         <SearchFilter placeholder="Search app, hostname, timeline" value={search} onChange={(value) => { setSearch(value); setPagination((current) => ({ ...current, page: 0 })); }} />

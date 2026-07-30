@@ -162,7 +162,7 @@ export default function ProductivityCoveragePage() {
       <PageHeader
         title="Classification Coverage"
         description="Find the highest-impact unclassified applications and hostnames, then create rules to improve productivity analytics coverage."
-        breadcrumbs={['Admin', 'Monitoring', 'Productivity', 'Classification Coverage']}
+        breadcrumbs={['Admin', 'Productivity', 'Classification Coverage']}
       />
       {toast && <Alert severity={toast.includes('could not') ? 'error' : 'success'} onClose={() => setToast(null)}>{toast}</Alert>}
       {data && (

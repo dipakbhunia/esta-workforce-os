@@ -22,7 +22,7 @@ export default function ShiftCreatePage() {
 
   return (
     <Stack gap={3}>
-      <PageHeader title="Create Shift" description="Add a shift schedule to the current company workspace." breadcrumbs={['Admin', 'Organization', 'Shifts', 'Create']} />
+      <PageHeader title="Create Shift" description="Add a shift schedule to the current company workspace." breadcrumbs={['Admin', 'Scheduling', 'Shifts', 'Create']} />
       <ShiftForm submitLabel="Create shift" loading={mutation.isPending} onSubmit={(payload) => mutation.mutateAsync(payload).then(() => undefined)} />
       <Snackbar open={Boolean(error)} autoHideDuration={5000} onClose={() => setError(null)}>
         <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
