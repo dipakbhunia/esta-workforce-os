@@ -1,4 +1,4 @@
-import type { StatusTone } from '@/components/status-chip';
+﻿import type { StatusTone } from '@/components/status-chip';
 import type {
   LiveHeartbeatState,
   LiveStatusValue,
@@ -78,9 +78,12 @@ export function heartbeatTone(status?: LiveHeartbeatState | null): StatusTone {
 export function deviceStatusTone(status?: MonitoringDeviceStatus | string | null): StatusTone {
   switch (status) {
     case 'ACTIVE':
+    case 'TRUSTED':
       return 'success';
     case 'REVOKED':
       return 'danger';
+    case 'REREGISTRATION_REQUIRED':
+      return 'warning';
     case 'INACTIVE':
     default:
       return 'neutral';

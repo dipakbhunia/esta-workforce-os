@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+﻿import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { resolve } from 'node:path';
 import { environmentValidationSchema } from './config/environment.validation';
 import { DatabaseModule } from './database/database.module';
@@ -15,6 +16,9 @@ import { EmployeesModule } from './modules/employees/employees.module';
 import { HealthModule } from './modules/health/health.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { MonitoringAlertsModule } from './modules/monitoring-alerts/monitoring-alerts.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ProductivityModule } from './modules/productivity/productivity.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { UsersModule } from './modules/users/users.module';
@@ -30,6 +34,7 @@ import { UsersModule } from './modules/users/users.module';
       ],
       validationSchema: environmentValidationSchema,
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     AttendanceModule,
@@ -42,6 +47,9 @@ import { UsersModule } from './modules/users/users.module';
     EmployeesModule,
     LeaveModule,
     MonitoringModule,
+    MonitoringAlertsModule,
+    NotificationsModule,
+    ProductivityModule,
     ShiftsModule,
     UsersModule,
     RolesModule,

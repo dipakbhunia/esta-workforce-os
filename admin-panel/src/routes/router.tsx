@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+﻿import type { ReactElement } from 'react';
 import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
@@ -53,9 +53,25 @@ const MonitoringTimelinePage = lazy(() => import('@/features/monitoring/pages/Mo
 const MonitoringActivityPage = lazy(() => import('@/features/monitoring/pages/MonitoringActivityPage'));
 const MonitoringScreenshotsPage = lazy(() => import('@/features/monitoring/pages/MonitoringScreenshotsPage'));
 const MonitoringAppsUrlsPage = lazy(() => import('@/features/monitoring/pages/MonitoringAppsUrlsPage'));
+const MonitoringDevicesOverviewPage = lazy(() => import('@/features/monitoring/pages/MonitoringDevicesOverviewPage'));
+const MonitoringIdleAnalyticsPage = lazy(() => import('@/features/monitoring/pages/MonitoringIdleAnalyticsPage'));
+const MonitoringAlertsPage = lazy(() => import('@/features/monitoring/pages/MonitoringAlertsPage'));
+const MonitoringOperationsPage = lazy(() => import('@/features/monitoring/pages/MonitoringOperationsPage'));
+const MonitoringAlertPoliciesPage = lazy(() => import('@/features/monitoring/pages/MonitoringAlertPoliciesPage'));
+const MonitoringAlertPolicyFormPage = lazy(() => import('@/features/monitoring/pages/MonitoringAlertPolicyFormPage'));
+const MonitoringAlertDetailsPage = lazy(() => import('@/features/monitoring/pages/MonitoringAlertDetailsPage'));
 const MonitoringDevicesPage = lazy(() => import('@/features/monitoring/pages/MonitoringDevicesPage'));
+const MonitoringDeviceDetailsPage = lazy(() => import('@/features/monitoring/pages/MonitoringDeviceDetailsPage'));
+const ProductivityAnalyticsPage = lazy(() => import('@/features/monitoring/pages/ProductivityAnalyticsPage'));
+const ProductivityApplicationsPage = lazy(() => import('@/features/monitoring/pages/ProductivityApplicationsPage'));
+const ProductivityCoveragePage = lazy(() => import('@/features/monitoring/pages/ProductivityCoveragePage'));
+const ProductivityTrendsPage = lazy(() => import('@/features/monitoring/pages/ProductivityTrendsPage'));
+const ProductivityEmployeeDetailsPage = lazy(() => import('@/features/monitoring/pages/ProductivityEmployeeDetailsPage'));
+const ProductivityWebsitesPage = lazy(() => import('@/features/monitoring/pages/ProductivityWebsitesPage'));
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage'));
 const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage'));
+const NotificationCenterPage = lazy(() => import('@/features/notifications/pages/NotificationCenterPage'));
+const NotificationPreferencesPage = lazy(() => import('@/features/notifications/pages/NotificationPreferencesPage'));
 const ComingSoonPage = lazy(() => import('@/pages/ComingSoonPage'));
 const CreatePage = lazy(() => import('@/pages/CreatePage'));
 const EditPage = lazy(() => import('@/pages/EditPage'));
@@ -98,8 +114,6 @@ const comingSoonRoutes: AppRoute[] = [
   { path: 'attendance/overtime-rules', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'attendance/holiday-calendar', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'monitoring/idle-time', element: <ComingSoonPage />, permission: 'monitoring:view' },
-  { path: 'monitoring/productivity', element: <ComingSoonPage />, permission: 'monitoring:view' },
-  { path: 'monitoring/alerts', element: <ComingSoonPage />, permission: 'monitoring:view' },
   { path: 'reports/attendance', element: <ComingSoonPage />, permission: 'reports:view' },
   { path: 'reports/employees', element: <ComingSoonPage />, permission: 'reports:view' },
   { path: 'reports/leave', element: <ComingSoonPage />, permission: 'reports:view' },
@@ -107,7 +121,6 @@ const comingSoonRoutes: AppRoute[] = [
   { path: 'settings/company-profile', element: <ComingSoonPage />, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'settings/attendance', element: <ComingSoonPage />, permission: 'attendance:manage', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'settings/desktop-agent', element: <ComingSoonPage />, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
-  { path: 'settings/notifications', element: <ComingSoonPage />, permission: 'settings:view', roles: ['COMPANY_ADMIN', 'HR'] },
   { path: 'settings/general', element: <ComingSoonPage />, permission: 'settings:view' },
 ];
 
@@ -153,6 +166,8 @@ export const router = createBrowserRouter([
           { path: 'settings/users', element: protectedElement(<UsersPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
           { path: 'settings/roles', element: protectedElement(<RolesPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
           { path: 'settings/permissions', element: protectedElement(<PermissionsPage />, 'people:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'settings/notifications', element: protectedElement(<NotificationPreferencesPage />, 'settings:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
+          { path: 'notifications', element: protectedElement(<NotificationCenterPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance', element: protectedElement(<AttendancePage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
           { path: 'attendance/create', element: lazyElement(<NotFoundPage />) },
           { path: 'attendance/corrections', element: protectedElement(<AttendanceCorrectionsPage />, 'attendance:view', ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']) },
@@ -171,7 +186,23 @@ export const router = createBrowserRouter([
           { path: 'monitoring/activity', element: protectedElement(<MonitoringActivityPage />, 'monitoring:view') },
           { path: 'monitoring/screenshots', element: protectedElement(<MonitoringScreenshotsPage />, 'monitoring:view') },
           { path: 'monitoring/apps-urls', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view') },
-          { path: 'monitoring/devices', element: protectedElement(<MonitoringDevicesPage />, 'monitoring:view') },
+          { path: 'monitoring/devices', element: protectedElement(<MonitoringDevicesOverviewPage />, 'monitoring:view') },
+          { path: 'monitoring/devices/inventory', element: protectedElement(<MonitoringDevicesPage />, 'monitoring:view') },
+          { path: 'monitoring/devices/:deviceId', element: protectedElement(<MonitoringDeviceDetailsPage />, 'monitoring:view') },
+          { path: 'monitoring/idle-time', element: protectedElement(<MonitoringIdleAnalyticsPage />, 'monitoring:view') },
+          { path: 'monitoring/alert-policies', element: protectedElement(<MonitoringAlertPoliciesPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'monitoring/alert-policies/create', element: protectedElement(<MonitoringAlertPolicyFormPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'monitoring/alert-policies/:id/edit', element: protectedElement(<MonitoringAlertPolicyFormPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'monitoring/alerts', element: protectedElement(<MonitoringAlertsPage />, 'monitoring:view') },
+          { path: 'monitoring/operations', element: protectedElement(<MonitoringOperationsPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER']) },
+          { path: 'monitoring/alerts/:alertId', element: protectedElement(<MonitoringAlertDetailsPage />, 'monitoring:view') },
+          { path: 'monitoring/productivity', element: protectedElement(<Navigate to="/monitoring/productivity/analytics" replace />, 'monitoring:view') },
+          { path: 'monitoring/productivity/analytics', element: protectedElement(<ProductivityAnalyticsPage />, 'monitoring:view') },
+          { path: 'monitoring/productivity/coverage', element: protectedElement(<ProductivityCoveragePage />, 'monitoring:view') },
+          { path: 'monitoring/productivity/trends', element: protectedElement(<ProductivityTrendsPage />, 'monitoring:view') },
+          { path: 'monitoring/productivity/employees/:employeeId', element: protectedElement(<ProductivityEmployeeDetailsPage />, 'monitoring:view') },
+          { path: 'monitoring/productivity/applications', element: protectedElement(<ProductivityApplicationsPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'monitoring/productivity/websites', element: protectedElement(<ProductivityWebsitesPage />, 'monitoring:view', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
           ...comingSoonRoutes.map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...listRoutes.filter((route) => route.path !== 'attendance').map((route) => ({ ...route, element: protectedElement(route.element, route.permission, route.roles) })),
           ...formPlaceholderRoutes.map((route) => ({ path: `${route.path}/create`, element: protectedElement(<CreatePage />, route.permission, route.roles) })),

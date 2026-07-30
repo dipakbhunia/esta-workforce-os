@@ -1,9 +1,11 @@
-import { Avatar, Badge, Box, Button, Divider, IconButton, InputAdornment, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
+﻿import { Avatar, Badge, Box, Button, Divider, IconButton, InputAdornment, Menu, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { useQuery } from '@tanstack/react-query';
 import { Bell, Building2, HelpCircle, LogOut, Menu as MenuIcon, Moon, Search, UserCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AppBreadcrumb } from '@/components/breadcrumb';
 import { useAuth } from '@/features/auth';
-import { NotificationDrawer } from './NotificationDrawer';
+import { getNotificationUnreadCount } from '@/features/notifications/services/notifications-api';
+import { NotificationDrawer } from '@/layouts/NotificationDrawer';
 
 export function Header({ onOpenMobileSidebar }: { onOpenMobileSidebar: () => void }) {
   const { logout, roles, user } = useAuth();
@@ -13,6 +15,14 @@ export function Header({ onOpenMobileSidebar }: { onOpenMobileSidebar: () => voi
   const initials = useMemo(() => fullName.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), [fullName]);
   const primaryRole = roles[0]?.replaceAll('_', ' ') ?? 'ADMIN';
   const companyLabel = user?.companyId ? 'Company workspace' : 'Global workspace';
+  const unreadQuery = useQuery({
+    queryKey: ['notifications', 'unread-count'],
+    queryFn: () => getNotificationUnreadCount().then((response) => response.data),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+  const unread = unreadQuery.data?.unread ?? 0;
 
   async function handleLogout() {
     setProfileAnchor(null);
@@ -36,7 +46,9 @@ export function Header({ onOpenMobileSidebar }: { onOpenMobileSidebar: () => voi
         <Button variant="outlined" startIcon={<Building2 size={17} />} sx={{ display: { xs: 'none', md: 'inline-flex' }, bgcolor: '#fff' }}>{companyLabel}</Button>
         <IconButton aria-label="Toggle theme placeholder"><Moon size={19} /></IconButton>
         <IconButton aria-label="Help"><HelpCircle size={19} /></IconButton>
-        <IconButton aria-label="Open notifications" onClick={() => setNotificationsOpen(true)}><Badge color="error" variant="dot"><Bell size={19} /></Badge></IconButton>
+        <IconButton aria-label={unread ? `Open notifications, ${unread} unread` : 'Open notifications'} onClick={() => setNotificationsOpen(true)}>
+          <Badge color="error" badgeContent={unread || undefined}><Bell size={19} /></Badge>
+        </IconButton>
         <Divider orientation="vertical" flexItem sx={{ my: 2 }} />
         <Stack direction="row" alignItems="center" gap={1} sx={{ display: { xs: 'none', md: 'flex' } }}>
           <Box sx={{ textAlign: 'right' }}>

@@ -92,7 +92,75 @@ enum LeaveApprovalAction {
 enum MonitoringDeviceStatus {
   ACTIVE
   INACTIVE
+  TRUSTED
   REVOKED
+  REREGISTRATION_REQUIRED
+}
+
+enum MonitoringAlertType {
+  DEVICE_OFFLINE
+  MISSING_HEARTBEAT
+  MONITORING_DISABLED
+  DEVICE_REVOKED
+  REREGISTRATION_REQUIRED
+  EXCESSIVE_IDLE
+  SCREENSHOT_MISSING
+}
+
+enum MonitoringAlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum MonitoringAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum MonitoringAlertEventType {
+  DETECTED
+  REDETECTED
+  ACKNOWLEDGED
+  RESOLVED
+  AUTO_RESOLVED
+  REOPENED
+}
+
+enum MonitoringAlertPolicyScope {
+  SYSTEM
+  COMPANY
+  BRANCH
+  DEPARTMENT
+  EMPLOYEE
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum NotificationType {
+  ALERT_OPENED
+  ALERT_REOPENED
+  ALERT_ACKNOWLEDGED
+  ALERT_RESOLVED
+  ALERT_AUTO_RESOLVED
+}
+
+enum ProductivityCategory {
+  PRODUCTIVE
+  NEUTRAL
+  UNPRODUCTIVE
+  UNCLASSIFIED
 }
 
 model Company {
@@ -123,6 +191,13 @@ model Company {
   screenshots        Screenshot[]
   applicationUsages  ApplicationUsage[]
   websiteUsages      WebsiteUsage[]
+    monitoringAlerts   MonitoringAlert[]
+  monitoringAlertEvents MonitoringAlertEvent[]
+    monitoringAlertPolicies MonitoringAlertPolicy[]
+  notifications      Notification[]
+  notificationPreferences NotificationPreference[]
+  applicationProductivityRules ApplicationProductivityRule[]
+  websiteProductivityRules WebsiteProductivityRule[]
   roles              Role[]
   auditLogs          AuditLog[]
 
@@ -145,6 +220,8 @@ model Branch {
   users       User[]
   employees   Employee[]
 
+    monitoringAlertPolicies MonitoringAlertPolicy[]
+
   @@index([companyId])
   @@index([companyId, code])
   @@index([deletedAt])
@@ -164,6 +241,8 @@ model Department {
   designations Designation[]
   users        User[]
   employees    Employee[]
+
+    monitoringAlertPolicies MonitoringAlertPolicy[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -240,6 +319,12 @@ model User {
   reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
   leaveApprovalHistories         LeaveApprovalHistory[]        @relation("LeaveApprovalHistoryActor")
 
+    acknowledgedMonitoringAlerts   MonitoringAlert[]            @relation("MonitoringAlertAcknowledgedBy")
+  resolvedMonitoringAlerts       MonitoringAlert[]            @relation("MonitoringAlertResolvedBy")
+  monitoringAlertEvents          MonitoringAlertEvent[]       @relation("MonitoringAlertEventActor")
+  notifications                  Notification[]
+  notificationPreference         NotificationPreference?
+
   @@index([companyId])
   @@index([branchId])
   @@index([departmentId])
@@ -296,6 +381,10 @@ model Employee {
   screenshots                  Screenshot[]
   applicationUsages            ApplicationUsage[]
   websiteUsages                WebsiteUsage[]
+
+    monitoringAlerts             MonitoringAlert[]
+
+    monitoringAlertPolicies             MonitoringAlertPolicy[]
 
   @@index([companyId])
   @@index([companyId, employeeCode])
@@ -536,6 +625,11 @@ model MonitoringDevice {
   osVersion         String?
   appVersion        String?
   status            MonitoringDeviceStatus @default(ACTIVE)
+  trustedAt         DateTime?
+  revokedAt         DateTime?
+  registrationResetAt DateTime?
+  reregistrationRequiredAt DateTime?
+  registrationVersion Int                  @default(1)
   lastSeenAt        DateTime?
   registeredAt      DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
@@ -547,6 +641,8 @@ model MonitoringDevice {
   screenshots       Screenshot[]
   applicationUsages ApplicationUsage[]
   websiteUsages     WebsiteUsage[]
+
+    monitoringAlerts  MonitoringAlert[]
 
   @@unique([employeeId, deviceIdentifier])
   @@index([companyId, status])
@@ -680,6 +776,48 @@ model WebsiteUsage {
   @@index([domain])
 }
 
+
+model ApplicationProductivityRule {
+  id             String               @id @default(uuid()) @db.Uuid
+  companyId      String?              @db.Uuid
+  scope          String               @default("GLOBAL")
+  applicationName String
+  normalizedName String
+  category       ProductivityCategory @default(UNCLASSIFIED)
+  notes          String?
+  enabled        Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  deletedAt      DateTime?
+  company        Company?             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, normalizedName])
+  @@index([companyId])
+  @@index([category])
+  @@index([enabled])
+  @@index([deletedAt])
+}
+
+model WebsiteProductivityRule {
+  id                 String               @id @default(uuid()) @db.Uuid
+  companyId          String?              @db.Uuid
+  scope              String               @default("GLOBAL")
+  hostname           String
+  normalizedHostname String
+  category           ProductivityCategory @default(UNCLASSIFIED)
+  notes              String?
+  enabled            Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  deletedAt          DateTime?
+  company            Company?             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, normalizedHostname])
+  @@index([companyId])
+  @@index([category])
+  @@index([enabled])
+  @@index([deletedAt])
+}
 model Role {
   id          String           @id @default(uuid()) @db.Uuid
   companyId   String?          @db.Uuid
@@ -744,6 +882,167 @@ model RefreshToken {
   @@index([expiresAt])
 }
 
+
+model MonitoringAlertPolicy {
+  id             String                     @id @default(uuid()) @db.Uuid
+  companyId      String?                    @db.Uuid
+  branchId       String?                    @db.Uuid
+  departmentId   String?                    @db.Uuid
+  employeeId     String?                    @db.Uuid
+  name           String
+  description    String?
+  enabled        Boolean                    @default(true)
+  priority       Int                        @default(100)
+  scope          MonitoringAlertPolicyScope
+  settings       Json
+  maintenanceStart DateTime?
+  maintenanceEnd   DateTime?
+  maintenanceReason String?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  deletedAt      DateTime?
+  company        Company?                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch         Branch?                    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  department     Department?                @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  employee       Employee?                  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([scope, enabled])
+  @@index([companyId, scope, priority])
+  @@index([branchId, priority])
+  @@index([departmentId, priority])
+  @@index([employeeId, priority])
+  @@index([deletedAt])
+}
+
+model MonitoringAlert {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  companyId            String                  @db.Uuid
+  employeeId           String?                 @db.Uuid
+  deviceId             String?                 @db.Uuid
+  type                 MonitoringAlertType
+  severity             MonitoringAlertSeverity
+  status               MonitoringAlertStatus   @default(OPEN)
+  title                String
+  message              String
+  deduplicationKey     String
+  detectedAt           DateTime
+  lastDetectedAt       DateTime
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId String?                 @db.Uuid
+  resolvedAt           DateTime?
+  resolvedByUserId     String?                 @db.Uuid
+  resolutionNote       String?
+  metadata             Json?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  company              Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee             Employee?               @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  device               MonitoringDevice?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  acknowledgedBy       User?                   @relation("MonitoringAlertAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  resolvedBy           User?                   @relation("MonitoringAlertResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  events               MonitoringAlertEvent[]
+  notifications        Notification[]
+
+  @@index([companyId, status])
+  @@index([companyId, type, status])
+  @@index([employeeId, status])
+  @@index([deviceId, status])
+  @@index([deduplicationKey])
+  @@index([detectedAt])
+  @@index([lastDetectedAt])
+}
+
+model MonitoringAlertEvent {
+  id          String                   @id @default(uuid()) @db.Uuid
+  alertId     String                   @db.Uuid
+  companyId   String                   @db.Uuid
+  type        MonitoringAlertEventType
+  actorUserId String?                  @db.Uuid
+  occurredAt  DateTime                 @default(now())
+  note        String?
+  metadata    Json?
+  alert       MonitoringAlert          @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  company     Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actor       User?                    @relation("MonitoringAlertEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([alertId, occurredAt])
+  @@index([companyId, occurredAt])
+  @@index([type])
+}
+
+model NotificationPreference {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String?  @db.Uuid
+  userId                String   @unique @db.Uuid
+  inAppEnabled          Boolean  @default(true)
+  emailEnabled          Boolean  @default(true)
+  criticalAlerts        Boolean  @default(true)
+  warningAlerts         Boolean  @default(true)
+  infoAlerts            Boolean  @default(true)
+  alertOpened           Boolean  @default(true)
+  alertResolved         Boolean  @default(false)
+  quietHoursStart       String?
+  quietHoursEnd         String?
+  timezone              String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  company               Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([userId])
+}
+
+model Notification {
+  id             String                   @id @default(uuid()) @db.Uuid
+  companyId      String?                  @db.Uuid
+  userId         String                   @db.Uuid
+  alertId        String?                  @db.Uuid
+  type           NotificationType
+  channel        NotificationChannel
+  title          String
+  message        String
+  severity       MonitoringAlertSeverity?
+  status         NotificationStatus       @default(PENDING)
+  readAt         DateTime?
+  detailsPath    String?
+  idempotencyKey String                   @unique
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  company        Company?                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alert          MonitoringAlert?         @relation(fields: [alertId], references: [id], onDelete: SetNull)
+  deliveries     NotificationDelivery[]
+
+  @@index([userId, readAt, createdAt])
+  @@index([companyId, createdAt])
+  @@index([alertId])
+  @@index([channel, status])
+}
+
+model NotificationDelivery {
+  id                String              @id @default(uuid()) @db.Uuid
+  notificationId    String              @db.Uuid
+  channel           NotificationChannel
+  recipient         String
+  status            NotificationStatus  @default(PENDING)
+  attemptCount      Int                 @default(0)
+  lastAttemptAt     DateTime?
+  nextRetryAt       DateTime?
+  sentAt            DateTime?
+  failedAt          DateTime?
+  errorCode         String?
+  safeErrorMessage  String?
+  providerMessageId String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  notification      Notification        @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, channel])
+  @@index([status, nextRetryAt])
+  @@index([channel, status])
+  @@index([recipient])
+}
 model AuditLog {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String?  @db.Uuid

@@ -1,11 +1,13 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -17,14 +19,22 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import type { Response } from 'express';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { ReassignMonitoringDeviceDto, RenameMonitoringDeviceDto, UpdateMonitoringDeviceMonitoringDto } from './dto/device-actions.dto';
+import { DeviceHistoryQueryDto, DeviceHistoryResponseDto } from './dto/device-history.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { LiveStatusQueryDto } from './dto/live-status-query.dto';
 import { LiveStatusResponseDto } from './dto/live-status-response.dto';
+import { MonitoringIdleQueryDto, MonitoringIdleResponseDto } from './dto/monitoring-idle.dto';
+import { MonitoringOperationsDashboardResponseDto, MonitoringOperationsQueryDto, MonitoringOperationsReportQueryDto } from './dto/monitoring-operations.dto';
 import { MonitoringReadQueryDto } from './dto/monitoring-read-query.dto';
 import {
   PaginatedMonitoringActivityResponseDto,
   PaginatedMonitoringApplicationUsageResponseDto,
+  MonitoringDeviceActionResponseDto,
+  MonitoringDeviceDetailResponseDto,
+  MonitoringDeviceOverviewResponseDto,
   PaginatedMonitoringDeviceResponseDto,
   PaginatedMonitoringScreenshotResponseDto,
   PaginatedMonitoringSummaryResponseDto,
@@ -37,6 +47,7 @@ import { MonitoringTimelineQueryDto, MonitoringTimelineResponseDto } from './dto
 import { RegisterDeviceDto } from './dto/register-device.dto';
 import { UploadActivityDto } from './dto/upload-activity.dto';
 import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
+import { MonitoringOperationsService } from './monitoring-operations.service';
 import { MonitoringService } from './monitoring.service';
 
 const monitoringRoles = [
@@ -53,8 +64,31 @@ const monitoringRoles = [
 @Roles(...monitoringRoles)
 @Controller('monitoring')
 export class MonitoringController {
-  constructor(private readonly service: MonitoringService) {}
+  constructor(private readonly service: MonitoringService, private readonly operations: MonitoringOperationsService) {}
 
+
+  @Get('operations/dashboard')
+  @ApiOperation({ summary: 'Get monitoring operations dashboard analytics' })
+  @ApiOkResponse({ type: MonitoringOperationsDashboardResponseDto })
+  operationsDashboard(
+    @Query() query: MonitoringOperationsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.operations.dashboard(query, user);
+  }
+
+  @Get('operations/report')
+  @ApiOperation({ summary: 'Export monitoring operations report as CSV or PDF' })
+  async operationsReport(
+    @Query() query: MonitoringOperationsReportQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() response: Response,
+  ) {
+    const report = await this.operations.report(query, user);
+    response.setHeader('Content-Type', report.contentType);
+    response.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`);
+    response.send(report.buffer);
+  }
   @Post('devices/register')
   @ApiOperation({ summary: 'Register or refresh the authenticated employee device' })
   registerDevice(
@@ -78,6 +112,18 @@ export class MonitoringController {
     return this.service.timeline(query, user);
   }
 
+  @Get('idle')
+  @ApiOperation({
+    summary: 'Get idle time analytics',
+    description: 'Returns server-side idle analytics derived from persisted activity sessions for the visible employee scope.',
+  })
+  @ApiOkResponse({ type: MonitoringIdleResponseDto })
+  idle(
+    @Query() query: MonitoringIdleQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.idle(query, user);
+  }
   @Get('activity')
   @ApiOperation({ summary: 'List employee monitoring activity sessions' })
   @ApiOkResponse({ type: PaginatedMonitoringActivityResponseDto })
@@ -180,6 +226,108 @@ export class MonitoringController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.devices(query, user);
+  }
+
+  @Get('devices/overview')
+  @ApiOperation({ summary: 'Get aggregated monitoring device overview' })
+  @ApiOkResponse({ type: MonitoringDeviceOverviewResponseDto })
+  devicesOverview(
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.devicesOverview(user);
+  }
+
+  @Get('devices/:deviceId/detail')
+  @ApiOperation({ summary: 'Get a read-only monitoring device profile' })
+  @ApiOkResponse({ type: MonitoringDeviceDetailResponseDto })
+  deviceDetail(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.deviceDetail(deviceId, user);
+  }
+
+  @Get('devices/:deviceId/history')
+  @ApiOperation({ summary: 'List monitoring device audit history' })
+  @ApiOkResponse({ type: DeviceHistoryResponseDto })
+  deviceHistory(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Query() query: DeviceHistoryQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.deviceHistory(deviceId, query, user);
+  }
+  @Patch('devices/:deviceId/name')
+  @ApiOperation({ summary: 'Rename a monitoring device display name' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  renameDevice(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Body() dto: RenameMonitoringDeviceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.renameDevice(deviceId, dto, user);
+  }
+
+  @Patch('devices/:deviceId/assignment')
+  @ApiOperation({ summary: 'Reassign a monitoring device to another active employee' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  reassignDevice(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Body() dto: ReassignMonitoringDeviceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.reassignDevice(deviceId, dto, user);
+  }
+
+  @Patch('devices/:deviceId/monitoring')
+  @ApiOperation({ summary: 'Enable or disable monitoring ingestion for a device' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  updateDeviceMonitoring(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @Body() dto: UpdateMonitoringDeviceMonitoringDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.updateDeviceMonitoring(deviceId, dto, user);
+  }
+
+  @Patch('devices/:deviceId/trust')
+  @ApiOperation({ summary: 'Mark a monitoring device as trusted' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  trustDevice(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.trustDevice(deviceId, user);
+  }
+
+  @Patch('devices/:deviceId/revoke')
+  @ApiOperation({ summary: 'Revoke a monitoring device without deleting history' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  revokeDevice(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.revokeDevice(deviceId, user);
+  }
+
+  @Post('devices/:deviceId/reset-registration')
+  @ApiOperation({ summary: 'Reset monitoring device registration state' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  resetDeviceRegistration(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.resetDeviceRegistration(deviceId, user);
+  }
+
+  @Post('devices/:deviceId/force-reregister')
+  @ApiOperation({ summary: 'Force a monitoring device to perform fresh registration' })
+  @ApiOkResponse({ type: MonitoringDeviceActionResponseDto })
+  forceDeviceReregistration(
+    @Param('deviceId', ParseUUIDPipe) deviceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.forceDeviceReregistration(deviceId, user);
   }
 
   @Get('devices/:employeeId')
@@ -289,6 +437,3 @@ export class MonitoringController {
     return this.service.summary(query, user);
   }
 }
-
-
-

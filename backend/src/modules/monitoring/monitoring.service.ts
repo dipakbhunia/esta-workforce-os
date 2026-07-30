@@ -21,6 +21,13 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { AttendanceService } from '../attendance/attendance.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { ReassignMonitoringDeviceDto, RenameMonitoringDeviceDto, UpdateMonitoringDeviceMonitoringDto } from './dto/device-actions.dto';
+import {
+  DeviceHistoryCategory,
+  DeviceHistoryItemDto,
+  DeviceHistoryQueryDto,
+  DeviceHistoryResponseDto,
+} from './dto/device-history.dto';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { LiveStatusQueryDto, LiveStatusValue } from './dto/live-status-query.dto';
 import { LiveAttendanceState, LiveHeartbeatState, LiveStatusResponseDto } from './dto/live-status-response.dto';
@@ -28,12 +35,16 @@ import { MonitoringReadQueryDto } from './dto/monitoring-read-query.dto';
 import {
   MonitoringActivityResponseDto,
   MonitoringApplicationUsageResponseDto,
+  MonitoringDeviceActionResponseDto,
+  MonitoringDeviceDetailResponseDto,
+  MonitoringDeviceOverviewResponseDto,
   MonitoringDeviceResponseDto,
   MonitoringEmployeeDto,
   PaginatedMonitoringSummaryResponseDto,
   MonitoringScreenshotResponseDto,
   MonitoringWebsiteUsageResponseDto,
 } from './dto/monitoring-read-response.dto';
+import { MonitoringIdleQueryDto, MonitoringIdleResponseDto } from './dto/monitoring-idle.dto';
 import { MonitoringSummaryQueryDto } from './dto/monitoring-summary-query.dto';
 import {
   MonitoringTimelineEmployeeDto,
@@ -51,6 +62,17 @@ import { UploadScreenshotDto } from './dto/upload-screenshot.dto';
 import { MinioObjectStorageService } from './minio-object-storage.service';
 
 const DEFAULT_HEARTBEAT_TIMEOUT_MINUTES = 30;
+const HIGH_IDLE_PERCENTAGE_THRESHOLD = 30;
+const monitoringUploadEnabledStatuses: MonitoringDeviceStatus[] = [
+  MonitoringDeviceStatus.ACTIVE,
+  MonitoringDeviceStatus.TRUSTED,
+];
+const heartbeatAllowedDeviceStatuses: MonitoringDeviceStatus[] = [
+  MonitoringDeviceStatus.ACTIVE,
+  MonitoringDeviceStatus.INACTIVE,
+  MonitoringDeviceStatus.TRUSTED,
+  MonitoringDeviceStatus.REVOKED,
+];
 const forbiddenActivityMetadataKeys = new Set([
   'key',
   'keycode',
@@ -159,8 +181,41 @@ const fakeWebsiteDomains = new Set([
   'electron',
 ]);
 
+const deviceHistoryActionCategories = {
+  DEVICE_REGISTERED: 'REGISTRATION',
+  DEVICE_REGISTRATION_RESET: 'REGISTRATION',
+  DEVICE_FORCE_REREGISTRATION: 'REGISTRATION',
+  DEVICE_TRUSTED: 'SECURITY',
+  DEVICE_REVOKED: 'SECURITY',
+  MONITORING_DEVICE_REASSIGNED: 'ASSIGNMENT',
+  DEVICE_REASSIGNED: 'ASSIGNMENT',
+  MONITORING_DEVICE_ENABLED: 'MONITORING',
+  MONITORING_DEVICE_DISABLED: 'MONITORING',
+  DEVICE_MONITORING_ENABLED: 'MONITORING',
+  DEVICE_MONITORING_DISABLED: 'MONITORING',
+  MONITORING_DEVICE_RENAMED: 'DEVICE',
+  DEVICE_RENAMED: 'DEVICE',
+} as const satisfies Record<string, DeviceHistoryCategory>;
+
+type DeviceHistoryAction = keyof typeof deviceHistoryActionCategories;
+
+const sensitiveDeviceHistoryMetadataKeys = [
+  'token',
+  'jwt',
+  'secret',
+  'password',
+  'refresh',
+  'authorization',
+  'cookie',
+  'pairing',
+  'registrationsecret',
+  'browsersecret',
+];
+
 const deviceSelect = {
   id: true,
+  companyId: true,
+  employeeId: true,
   deviceIdentifier: true,
   deviceName: true,
   platform: true,
@@ -169,7 +224,14 @@ const deviceSelect = {
   status: true,
   lastSeenAt: true,
   registeredAt: true,
+  registrationVersion: true,
 } satisfies Prisma.MonitoringDeviceSelect;
+
+const monitoringOrgUnitSelect = {
+  id: true,
+  name: true,
+  code: true,
+};
 
 const monitoringEmployeeSelect = {
   id: true,
@@ -349,6 +411,21 @@ interface ScreenshotInputMetricsSession extends ScreenshotInputMetrics {
   endedAt: Date;
 }
 
+type DeviceRecentActivityType =
+  | 'HEARTBEAT'
+  | 'ACTIVITY'
+  | 'SCREENSHOT'
+  | 'APPLICATION'
+  | 'WEBSITE';
+
+interface DeviceRecentActivityItem {
+  id: string;
+  type: DeviceRecentActivityType;
+  occurredAt: Date;
+  title: string;
+  description: string | null;
+}
+
 type ScreenshotWithEmployee = Prisma.ScreenshotGetPayload<{
   include: { employee: { select: typeof monitoringEmployeeSelect } };
 }>;
@@ -363,6 +440,18 @@ interface UploadedScreenshotFile {
   size: number;
 }
 
+type MonitoringDeviceActionRecord = Prisma.MonitoringDeviceGetPayload<{
+  include: { employee: { select: typeof monitoringEmployeeSelect } };
+}>;
+
+type DeviceHistoryAuditLogRecord = Prisma.AuditLogGetPayload<{
+  include: {
+    actor: {
+      select: { id: true; firstName: true; lastName: true; email: true };
+    };
+  };
+}>;
+
 @Injectable()
 export class MonitoringService {
   private readonly logger = new Logger(MonitoringService.name);
@@ -375,38 +464,63 @@ export class MonitoringService {
 
   async registerDevice(dto: RegisterDeviceDto, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
-    return this.prisma.monitoringDevice.upsert({
+    const deviceIdentifier = dto.deviceIdentifier.trim();
+    const commonData = {
+      deviceName: dto.deviceName.trim(),
+      platform: dto.platform.trim().toLowerCase(),
+      osVersion: dto.osVersion?.trim(),
+      appVersion: dto.appVersion?.trim(),
+      lastSeenAt: new Date(),
+      deletedAt: null,
+    };
+    const existing = await this.prisma.monitoringDevice.findUnique({
       where: {
         employeeId_deviceIdentifier: {
           employeeId: employee.id,
-          deviceIdentifier: dto.deviceIdentifier.trim(),
+          deviceIdentifier,
         },
       },
-      create: {
+      select: { id: true, status: true },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.monitoringDevice.update({
+        where: { id: existing.id },
+        data: {
+          ...commonData,
+          ...(existing.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED
+            ? { status: MonitoringDeviceStatus.ACTIVE, reregistrationRequiredAt: null }
+            : {}),
+        },
+        select: deviceSelect,
+      });
+      if (existing.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED) {
+        await this.writeDeviceAuditLog(actor, updated.companyId, 'DEVICE_REGISTERED', updated.id, {
+          previousStatus: existing.status,
+          status: updated.status,
+          registrationVersion: updated.registrationVersion,
+        });
+      }
+      return updated;
+    }
+
+    const created = await this.prisma.monitoringDevice.create({
+      data: {
         companyId: employee.companyId,
         employeeId: employee.id,
-        deviceIdentifier: dto.deviceIdentifier.trim(),
-        deviceName: dto.deviceName.trim(),
-        platform: dto.platform.trim().toLowerCase(),
-        osVersion: dto.osVersion?.trim(),
-        appVersion: dto.appVersion?.trim(),
-        lastSeenAt: new Date(),
-      },
-      update: {
-        deviceName: dto.deviceName.trim(),
-        platform: dto.platform.trim().toLowerCase(),
-        osVersion: dto.osVersion?.trim(),
-        appVersion: dto.appVersion?.trim(),
-        status: MonitoringDeviceStatus.ACTIVE,
-        lastSeenAt: new Date(),
-        deletedAt: null,
+        deviceIdentifier,
+        ...commonData,
       },
       select: deviceSelect,
     });
+    await this.writeDeviceAuditLog(actor, created.companyId, 'DEVICE_REGISTERED', created.id, {
+      status: created.status,
+      registrationVersion: created.registrationVersion,
+    });
+    return created;
   }
-
   async receiveHeartbeat(dto: HeartbeatDto, actor: AuthenticatedUser) {
-    const device = await this.ownedActiveDevice(dto.deviceId, actor);
+    const device = await this.ownedHeartbeatDevice(dto.deviceId, actor);
     const enforcedStaleSessions =
       await this.attendanceService.enforceStaleAttendanceSessions({
         companyId: device.companyId,
@@ -767,23 +881,78 @@ export class MonitoringService {
 
   async devices(query: MonitoringReadQueryDto, actor: AuthenticatedUser) {
     const where = await this.deviceWhere(query, actor);
-    const [records, total] = await this.prisma.$transaction([
+    const onlineThreshold = await this.deviceOnlineThreshold(actor);
+    const onlineWhere: Prisma.MonitoringDeviceWhereInput = {
+      AND: [
+        where,
+        { status: { in: monitoringUploadEnabledStatuses } },
+        { lastSeenAt: { gte: onlineThreshold } },
+      ],
+    };
+    const monitoringDisabledWhere: Prisma.MonitoringDeviceWhereInput = {
+      AND: [
+        where,
+        { status: { not: MonitoringDeviceStatus.ACTIVE } },
+      ],
+    };
+    const [records, total, online, monitoringDisabled] = await this.prisma.$transaction([
       this.prisma.monitoringDevice.findMany({
         where,
         ...paginationArgs(query),
         orderBy: { registeredAt: 'desc' },
         include: {
-          employee: { select: monitoringEmployeeSelect },
+          employee: {
+            select: {
+              ...monitoringEmployeeSelect,
+              branch: { select: monitoringOrgUnitSelect },
+              department: { select: monitoringOrgUnitSelect },
+            },
+          },
+          company: {
+            select: {
+              attendancePolicies: {
+                where: { isActive: true },
+                take: 1,
+                select: { heartbeatTimeoutMinutes: true },
+              },
+            },
+          },
           heartbeats: {
             orderBy: { recordedAt: 'desc' },
             take: 1,
             select: { recordedAt: true },
           },
+          activitySessions: {
+            orderBy: { endedAt: 'desc' },
+            take: 1,
+            select: { endedAt: true },
+          },
+          screenshots: {
+            where: { deletedAt: null },
+            orderBy: { capturedAt: 'desc' },
+            take: 1,
+            select: { capturedAt: true },
+          },
+          websiteUsages: {
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+            select: { startedAt: true },
+          },
         },
       }),
       this.prisma.monitoringDevice.count({ where }),
+      this.prisma.monitoringDevice.count({ where: onlineWhere }),
+      this.prisma.monitoringDevice.count({ where: monitoringDisabledWhere }),
     ]);
-    return paginatedResult(records.map((record) => this.mapDevice(record)), total, query);
+    return {
+      ...paginatedResult(records.map((record) => this.mapDevice(record)), total, query),
+      summary: {
+        totalDevices: total,
+        online,
+        offline: Math.max(0, total - online),
+        monitoringDisabled,
+      },
+    };
   }
 
   async devicesByEmployee(
@@ -794,6 +963,633 @@ export class MonitoringService {
     return this.devices({ ...query, employeeId }, actor);
   }
 
+  async devicesOverview(
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceOverviewResponseDto> {
+    const where = await this.deviceWhere({ page: 1, limit: 1 }, actor);
+    const onlineThreshold = await this.deviceOnlineThreshold(actor);
+    const onlineWhere: Prisma.MonitoringDeviceWhereInput = {
+      AND: [
+        where,
+        { status: { in: monitoringUploadEnabledStatuses } },
+        { lastSeenAt: { gte: onlineThreshold } },
+      ],
+    };
+    const monitoringDisabledWhere: Prisma.MonitoringDeviceWhereInput = {
+      AND: [where, { status: { not: MonitoringDeviceStatus.ACTIVE } }],
+    };
+    const neverReportedWhere: Prisma.MonitoringDeviceWhereInput = {
+      AND: [where, { lastSeenAt: null }],
+    };
+    const browserConnectedWhere: Prisma.MonitoringDeviceWhereInput = {
+      AND: [where, { websiteUsages: { some: {} } }],
+    };
+    const [
+      total,
+      online,
+      monitoringDisabled,
+      neverReported,
+      browserConnected,
+      operatingSystemGroups,
+      agentVersionGroups,
+      recentlyRegistered,
+    ] = await this.prisma.$transaction([
+      this.prisma.monitoringDevice.count({ where }),
+      this.prisma.monitoringDevice.count({ where: onlineWhere }),
+      this.prisma.monitoringDevice.count({ where: monitoringDisabledWhere }),
+      this.prisma.monitoringDevice.count({ where: neverReportedWhere }),
+      this.prisma.monitoringDevice.count({ where: browserConnectedWhere }),
+      this.prisma.monitoringDevice.groupBy({
+        by: ['platform'],
+        where,
+        orderBy: { platform: 'asc' },
+        _count: { id: true },
+      }),
+      this.prisma.monitoringDevice.groupBy({
+        by: ['appVersion'],
+        where,
+        orderBy: { appVersion: 'asc' },
+        _count: { id: true },
+      }),
+      this.prisma.monitoringDevice.findMany({
+        where,
+        orderBy: { registeredAt: 'desc' },
+        take: 10,
+        include: {
+          employee: { select: monitoringEmployeeSelect },
+          company: {
+            select: {
+              attendancePolicies: {
+                where: { isActive: true },
+                take: 1,
+                select: { heartbeatTimeoutMinutes: true },
+              },
+            },
+          },
+          heartbeats: {
+            orderBy: { recordedAt: 'desc' },
+            take: 1,
+            select: { recordedAt: true },
+          },
+        },
+      }),
+    ]);
+
+    const offline = Math.max(0, total - online);
+    return {
+      totals: {
+        devices: total,
+        online,
+        offline,
+        monitoringDisabled,
+        unassigned: 0,
+      },
+      operatingSystems: operatingSystemGroups
+        .map((group) => ({
+          name: this.displayOperatingSystem(group.platform),
+          count: this.groupCount(group),
+        }))
+        .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+      agentVersions: agentVersionGroups
+        .map((group) => ({
+          name: group.appVersion || 'Unknown',
+          count: this.groupCount(group),
+        }))
+        .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+      browserStatus: {
+        connected: browserConnected,
+        unknown: Math.max(0, total - browserConnected),
+      },
+      recentlyRegistered: recentlyRegistered.map((device) => {
+        const lastHeartbeatAt = device.heartbeats[0]?.recordedAt ?? device.lastSeenAt ?? null;
+        const heartbeatTimeoutMinutes =
+          device.company.attendancePolicies[0]?.heartbeatTimeoutMinutes ??
+          DEFAULT_HEARTBEAT_TIMEOUT_MINUTES;
+        const deviceOnline = Boolean(
+          this.isMonitoringUploadEnabledStatus(device.status) &&
+          lastHeartbeatAt &&
+          Date.now() - lastHeartbeatAt.getTime() <= Math.max(heartbeatTimeoutMinutes, 1) * 60000,
+        );
+        return {
+          id: device.id,
+          deviceName: device.deviceName,
+          employee: this.mapEmployee(device.employee),
+          registeredAt: device.registeredAt.toISOString(),
+          online: deviceOnline,
+          status: device.status,
+        };
+      }),
+      attention: {
+        offlineLongTime: offline,
+        neverReported,
+        monitoringDisabled,
+        noEmployeeAssigned: 0,
+      },
+    };
+  }
+
+  async deviceDetail(
+    deviceId: string,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceDetailResponseDto> {
+    const where = await this.deviceWhere({ page: 1, limit: 1, deviceId }, actor);
+    const device = await this.prisma.monitoringDevice.findFirst({
+      where,
+      include: {
+        employee: {
+          select: {
+            ...monitoringEmployeeSelect,
+            branch: { select: monitoringOrgUnitSelect },
+            department: { select: monitoringOrgUnitSelect },
+            company: { select: { id: true, name: true } },
+          },
+        },
+        company: {
+          select: {
+            attendancePolicies: {
+              where: { isActive: true },
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+              select: { heartbeatTimeoutMinutes: true },
+            },
+          },
+        },
+      },
+    });
+    if (!device) throw new NotFoundException('Monitoring device not found');
+
+    const now = new Date();
+    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const todayRange = { gte: todayStart, lte: now };
+    const activityOverlapWhere: Prisma.ActivitySessionWhereInput = {
+      deviceId: device.id,
+      startedAt: { lte: todayRange.lte },
+      endedAt: { gte: todayRange.gte },
+    };
+    const usageRangeWhere = {
+      deviceId: device.id,
+      startedAt: todayRange,
+    };
+
+    const [
+      latestHeartbeat,
+      latestActivity,
+      latestScreenshot,
+      latestWebsite,
+      todayActivity,
+      appsUsed,
+      websitesUsed,
+      todayScreenshotCount,
+      recentHeartbeats,
+      recentActivitySessions,
+      recentScreenshots,
+      recentApplications,
+      recentWebsites,
+    ] = await this.prisma.$transaction([
+      this.prisma.heartbeat.findFirst({
+        where: { deviceId: device.id },
+        orderBy: { recordedAt: 'desc' },
+        select: { id: true, recordedAt: true },
+      }),
+      this.prisma.activitySession.findFirst({
+        where: { deviceId: device.id },
+        orderBy: { endedAt: 'desc' },
+        select: { id: true, endedAt: true },
+      }),
+      this.prisma.screenshot.findFirst({
+        where: { deviceId: device.id, deletedAt: null },
+        orderBy: { capturedAt: 'desc' },
+        select: { id: true, capturedAt: true },
+      }),
+      this.prisma.websiteUsage.findFirst({
+        where: { deviceId: device.id },
+        orderBy: { startedAt: 'desc' },
+        select: { id: true, startedAt: true },
+      }),
+      this.prisma.activitySession.aggregate({
+        where: activityOverlapWhere,
+        _count: { _all: true },
+        _sum: {
+          activeSeconds: true,
+          idleSeconds: true,
+          keyboardCount: true,
+          mouseClickCount: true,
+          mouseMoveCount: true,
+          scrollCount: true,
+        },
+      }),
+      this.prisma.applicationUsage.groupBy({
+        by: ['applicationName'],
+        where: usageRangeWhere,
+        orderBy: { applicationName: 'asc' },
+      }),
+      this.prisma.websiteUsage.groupBy({
+        by: ['domain'],
+        where: usageRangeWhere,
+        orderBy: { domain: 'asc' },
+      }),
+      this.prisma.screenshot.count({
+        where: { deviceId: device.id, capturedAt: todayRange, deletedAt: null },
+      }),
+      this.prisma.heartbeat.findMany({
+        where: { deviceId: device.id },
+        orderBy: { recordedAt: 'desc' },
+        take: 5,
+        select: { id: true, recordedAt: true },
+      }),
+      this.prisma.activitySession.findMany({
+        where: { deviceId: device.id },
+        orderBy: { endedAt: 'desc' },
+        take: 5,
+        select: { id: true, startedAt: true, endedAt: true, activeSeconds: true, idleSeconds: true },
+      }),
+      this.prisma.screenshot.findMany({
+        where: { deviceId: device.id, deletedAt: null },
+        orderBy: { capturedAt: 'desc' },
+        take: 5,
+        select: { id: true, capturedAt: true, mimeType: true },
+      }),
+      this.prisma.applicationUsage.findMany({
+        where: { deviceId: device.id },
+        orderBy: { startedAt: 'desc' },
+        take: 5,
+        select: { id: true, applicationName: true, startedAt: true, durationSeconds: true },
+      }),
+      this.prisma.websiteUsage.findMany({
+        where: { deviceId: device.id },
+        orderBy: { startedAt: 'desc' },
+        take: 5,
+        select: { id: true, domain: true, startedAt: true, durationSeconds: true },
+      }),
+    ]);
+
+    const heartbeatTimeoutMinutes =
+      device.company.attendancePolicies[0]?.heartbeatTimeoutMinutes ??
+      DEFAULT_HEARTBEAT_TIMEOUT_MINUTES;
+    const lastHeartbeatAt = latestHeartbeat?.recordedAt ?? device.lastSeenAt ?? null;
+    const online = Boolean(
+      this.isMonitoringUploadEnabledStatus(device.status) &&
+      lastHeartbeatAt &&
+      Date.now() - lastHeartbeatAt.getTime() <= Math.max(heartbeatTimeoutMinutes, 1) * 60000,
+    );
+    const lastSeenAt = this.latestDate([
+      device.lastSeenAt,
+      latestHeartbeat?.recordedAt ?? null,
+      latestActivity?.endedAt ?? null,
+      latestScreenshot?.capturedAt ?? null,
+    ]);
+    const hasTodayActivity = todayActivity._count._all > 0;
+    const browserStatus = latestWebsite ? 'CONNECTED' : 'UNKNOWN';
+
+    return {
+      id: device.id,
+      identity: {
+        deviceName: device.deviceName,
+        hostname: device.deviceName,
+        deviceIdentifier: this.maskDeviceIdentifier(device.deviceIdentifier),
+        deviceType: 'Desktop',
+        platform: device.platform,
+        operatingSystem: this.displayOperatingSystem(device.platform),
+        osVersion: device.osVersion,
+        architecture: null,
+        agentVersion: device.appVersion,
+        registeredAt: device.registeredAt.toISOString(),
+      },
+      assignment: {
+        employee: {
+          id: device.employee.id,
+          name: `${device.employee.user.firstName} ${device.employee.user.lastName}`.trim() || device.employee.user.email,
+          employeeCode: device.employee.employeeCode,
+          avatarUrl: null,
+        },
+        department: this.mapOrgUnit(device.employee.department),
+        branch: this.mapOrgUnit(device.employee.branch),
+        company: {
+          id: device.employee.company.id,
+          name: device.employee.company.name,
+        },
+      },
+      monitoring: {
+        online,
+        monitoringEnabled: this.isMonitoringUploadEnabledStatus(device.status),
+        securityStatus: device.status,
+        trusted: device.status === MonitoringDeviceStatus.TRUSTED,
+        revoked: device.status === MonitoringDeviceStatus.REVOKED,
+        registrationRequired: device.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED,
+        trustedAt: device.trustedAt?.toISOString() ?? null,
+        revokedAt: device.revokedAt?.toISOString() ?? null,
+        registrationResetAt: device.registrationResetAt?.toISOString() ?? null,
+        reregistrationRequiredAt: device.reregistrationRequiredAt?.toISOString() ?? null,
+        registrationVersion: device.registrationVersion,
+        lastHeartbeatAt: lastHeartbeatAt?.toISOString() ?? null,
+        lastActivityAt: latestActivity?.endedAt.toISOString() ?? null,
+        lastScreenshotAt: latestScreenshot?.capturedAt.toISOString() ?? null,
+        lastSeenAt: lastSeenAt?.toISOString() ?? null,
+      },
+      browserIntegration: {
+        status: browserStatus,
+        lastConnectedAt: latestWebsite?.startedAt.toISOString() ?? null,
+      },
+      todayActivity: {
+        activeSeconds: todayActivity._sum.activeSeconds ?? 0,
+        idleSeconds: todayActivity._sum.idleSeconds ?? 0,
+        appsUsed: appsUsed.length,
+        websitesUsed: websitesUsed.length,
+        keyboardCount: hasTodayActivity ? todayActivity._sum.keyboardCount ?? 0 : null,
+        mouseClickCount: hasTodayActivity ? todayActivity._sum.mouseClickCount ?? 0 : null,
+        mouseMoveCount: hasTodayActivity ? todayActivity._sum.mouseMoveCount ?? 0 : null,
+        scrollCount: hasTodayActivity ? todayActivity._sum.scrollCount ?? 0 : null,
+      },
+      screenshots: {
+        todayCount: todayScreenshotCount,
+        lastScreenshotAt: latestScreenshot?.capturedAt.toISOString() ?? null,
+        latestScreenshot: latestScreenshot
+          ? {
+              id: latestScreenshot.id,
+              capturedAt: latestScreenshot.capturedAt.toISOString(),
+              previewUrl: null,
+            }
+          : null,
+      },
+      recentActivity: this.deviceRecentActivityFeed({
+        heartbeats: recentHeartbeats,
+        activitySessions: recentActivitySessions,
+        screenshots: recentScreenshots,
+        applications: recentApplications,
+        websites: recentWebsites,
+      }),
+    };
+  }
+
+  async deviceHistory(
+    deviceId: string,
+    query: DeviceHistoryQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<DeviceHistoryResponseDto> {
+    const where = await this.deviceWhere({ page: 1, limit: 1, deviceId }, actor);
+    const device = await this.prisma.monitoringDevice.findFirst({
+      where,
+      select: { id: true, companyId: true },
+    });
+    if (!device) throw new NotFoundException('Monitoring device not found');
+
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(Math.max(1, query.limit ?? 20), 100);
+    const actions = this.deviceHistoryActionsForCategory(query.category);
+    const filters: Prisma.AuditLogWhereInput[] = [
+      {
+        companyId: device.companyId,
+        entityType: 'MonitoringDevice',
+        entityId: device.id,
+        action: { in: actions },
+      },
+    ];
+
+    if (query.actor) filters.push({ actorUserId: query.actor });
+    if (query.dateFrom || query.dateTo) {
+      const range = this.dateRange({
+        page: 1,
+        limit: 1,
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+      });
+      filters.push({ createdAt: range });
+    }
+    if (query.search?.trim()) {
+      const search = query.search.trim();
+      filters.push({
+        OR: [
+          { action: { contains: search, mode: 'insensitive' } },
+          { actor: { is: { firstName: { contains: search, mode: 'insensitive' } } } },
+          { actor: { is: { lastName: { contains: search, mode: 'insensitive' } } } },
+          { actor: { is: { email: { contains: search, mode: 'insensitive' } } } },
+        ],
+      });
+    }
+
+    const auditWhere: Prisma.AuditLogWhereInput = { AND: filters };
+    const [records, total] = await this.prisma.$transaction([
+      this.prisma.auditLog.findMany({
+        where: auditWhere,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          actor: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      }),
+      this.prisma.auditLog.count({ where: auditWhere }),
+    ]);
+
+    return {
+      items: records.map((record) => this.mapDeviceHistoryItem(record)),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
+  }
+  async renameDevice(
+    deviceId: string,
+    dto: RenameMonitoringDeviceDto,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const deviceName = dto.deviceName.trim();
+    if (deviceName.length < 2) {
+      throw new BadRequestException('Device name must contain at least 2 characters');
+    }
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const updated = await this.prisma.monitoringDevice.update({
+      where: { id: device.id },
+      data: { deviceName },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    await this.writeDeviceAuditLog(actor, updated.companyId, 'MONITORING_DEVICE_RENAMED', updated.id, {
+      previousDeviceName: device.deviceName,
+      deviceName,
+    });
+    return this.mapDeviceAction(updated);
+  }
+
+  async reassignDevice(
+    deviceId: string,
+    dto: ReassignMonitoringDeviceDto,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const targetEmployee = await this.prisma.employee.findFirst({
+      where: {
+        id: dto.employeeId,
+        companyId: device.companyId,
+        deletedAt: null,
+        status: EmployeeStatus.ACTIVE,
+        AND: [await this.employeeVisibilityWhere(actor)],
+      },
+      select: monitoringEmployeeSelect,
+    });
+    if (!targetEmployee) throw new NotFoundException('Target employee not found');
+
+    if (targetEmployee.id === device.employeeId) {
+      return this.mapDeviceAction(device);
+    }
+
+    try {
+      const updated = await this.prisma.monitoringDevice.update({
+        where: { id: device.id },
+        data: { employeeId: targetEmployee.id },
+        include: { employee: { select: monitoringEmployeeSelect } },
+      });
+      await this.writeDeviceAuditLog(actor, updated.companyId, 'MONITORING_DEVICE_REASSIGNED', updated.id, {
+        fromEmployeeId: device.employeeId,
+        toEmployeeId: targetEmployee.id,
+      });
+      return this.mapDeviceAction(updated);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Target employee already has a device with this identifier');
+      }
+      throw error;
+    }
+  }
+
+  async updateDeviceMonitoring(
+    deviceId: string,
+    dto: UpdateMonitoringDeviceMonitoringDto,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const monitoringChangeBlockedStatuses: MonitoringDeviceStatus[] = [MonitoringDeviceStatus.REVOKED, MonitoringDeviceStatus.REREGISTRATION_REQUIRED];
+    if (monitoringChangeBlockedStatuses.includes(device.status)) {
+      throw new BadRequestException('Revoked or registration-required devices cannot be changed by monitoring enablement');
+    }
+    const nextStatus = dto.enabled ? MonitoringDeviceStatus.ACTIVE : MonitoringDeviceStatus.INACTIVE;
+    const updated = await this.prisma.monitoringDevice.update({
+      where: { id: device.id },
+      data: { status: nextStatus },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    if (device.status !== nextStatus) {
+      await this.writeDeviceAuditLog(
+        actor,
+        updated.companyId,
+        dto.enabled ? 'MONITORING_DEVICE_ENABLED' : 'MONITORING_DEVICE_DISABLED',
+        updated.id,
+        { previousStatus: device.status, status: nextStatus },
+      );
+    }
+    return this.mapDeviceAction(updated);
+  }
+  async trustDevice(
+    deviceId: string,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const alreadyTrusted = device.status === MonitoringDeviceStatus.TRUSTED;
+    const now = new Date();
+    const updated = await this.prisma.monitoringDevice.update({
+      where: { id: device.id },
+      data: {
+        status: MonitoringDeviceStatus.TRUSTED,
+        trustedAt: device.trustedAt ?? now,
+        revokedAt: null,
+        reregistrationRequiredAt: null,
+      },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    if (!alreadyTrusted) {
+      await this.writeDeviceAuditLog(actor, updated.companyId, 'DEVICE_TRUSTED', updated.id, {
+        previousStatus: device.status,
+        status: updated.status,
+      });
+    }
+    return this.mapDeviceAction(updated);
+  }
+
+  async revokeDevice(
+    deviceId: string,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const alreadyRevoked = device.status === MonitoringDeviceStatus.REVOKED;
+    const now = new Date();
+    const updated = await this.prisma.monitoringDevice.update({
+      where: { id: device.id },
+      data: {
+        status: MonitoringDeviceStatus.REVOKED,
+        revokedAt: device.revokedAt ?? now,
+        reregistrationRequiredAt: null,
+      },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    if (!alreadyRevoked) {
+      await this.writeDeviceAuditLog(actor, updated.companyId, 'DEVICE_REVOKED', updated.id, {
+        previousStatus: device.status,
+        status: updated.status,
+      });
+    }
+    return this.mapDeviceAction(updated);
+  }
+
+  async resetDeviceRegistration(
+    deviceId: string,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const now = new Date();
+    const updated = await this.prisma.monitoringDevice.update({
+      where: { id: device.id },
+      data: {
+        status: MonitoringDeviceStatus.REREGISTRATION_REQUIRED,
+        registrationVersion: { increment: 1 },
+        registrationResetAt: now,
+        reregistrationRequiredAt: now,
+      },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    await this.writeDeviceAuditLog(actor, updated.companyId, 'DEVICE_REGISTRATION_RESET', updated.id, {
+      previousStatus: device.status,
+      status: updated.status,
+      registrationVersion: updated.registrationVersion,
+    });
+    return this.mapDeviceAction(updated);
+  }
+
+  async forceDeviceReregistration(
+    deviceId: string,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionResponseDto> {
+    this.assertCanManageDevice(actor);
+    const device = await this.visibleDeviceForAction(deviceId, actor);
+    const now = new Date();
+    const updated = await this.prisma.monitoringDevice.update({
+      where: { id: device.id },
+      data: {
+        status: MonitoringDeviceStatus.REREGISTRATION_REQUIRED,
+        registrationVersion: { increment: 1 },
+        reregistrationRequiredAt: now,
+      },
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    await this.writeDeviceAuditLog(actor, updated.companyId, 'DEVICE_FORCE_REREGISTRATION', updated.id, {
+      previousStatus: device.status,
+      status: updated.status,
+      registrationVersion: updated.registrationVersion,
+    });
+    return this.mapDeviceAction(updated);
+  }
   async timeline(
     query: MonitoringTimelineQueryDto,
     actor: AuthenticatedUser,
@@ -963,6 +1759,175 @@ export class MonitoringService {
     return this.buildLiveStatus(employee);
   }
 
+  async idle(
+    query: MonitoringIdleQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringIdleResponseDto> {
+    const range = this.dateRange(query);
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, query.pageSize ?? query.limit ?? 20));
+    const employeeFilters: Prisma.EmployeeWhereInput[] = [
+      await this.employeeVisibilityWhere(actor),
+      { deletedAt: null },
+    ];
+
+    if (query.companyId) employeeFilters.push({ companyId: query.companyId });
+    if (query.employeeId) employeeFilters.push({ id: query.employeeId });
+    if (query.branchId) employeeFilters.push({ branchId: query.branchId });
+    if (query.departmentId) employeeFilters.push({ departmentId: query.departmentId });
+    if (query.search) employeeFilters.push(this.employeeSearchWhere(query.search));
+
+    const employeeWhere: Prisma.EmployeeWhereInput = { AND: employeeFilters };
+    const sessionWhere: Prisma.ActivitySessionWhereInput = {
+      employee: { is: employeeWhere },
+      startedAt: { lte: range.lte },
+      endedAt: { gte: range.gte },
+    };
+
+    const groupedSessions = await this.prisma.activitySession.groupBy({
+      by: ['employeeId'],
+      where: sessionWhere,
+      _count: { _all: true },
+      _sum: { activeSeconds: true, idleSeconds: true },
+      _max: { idleSeconds: true },
+    });
+
+    const allEmployeeMetrics = groupedSessions
+      .map((group) => {
+        const activeSeconds = this.nonNegativeSeconds(group._sum.activeSeconds);
+        const idleSeconds = this.nonNegativeSeconds(group._sum.idleSeconds);
+        const onlineSeconds = activeSeconds + idleSeconds;
+        return {
+          employeeId: group.employeeId,
+          activeSeconds,
+          idleSeconds,
+          onlineSeconds,
+          idlePercentage: this.idlePercentage(idleSeconds, onlineSeconds),
+          longestIdleSeconds: this.nonNegativeSeconds(group._max.idleSeconds),
+          sessions: group._count._all,
+        };
+      })
+      .filter((metric) => metric.onlineSeconds > 0)
+      .filter((metric) => query.idlePercentageMin === undefined || metric.idlePercentage >= query.idlePercentageMin)
+      .sort((a, b) => b.idleSeconds - a.idleSeconds || a.employeeId.localeCompare(b.employeeId));
+
+    const total = allEmployeeMetrics.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const pagedMetrics = allEmployeeMetrics.slice((page - 1) * pageSize, page * pageSize);
+    const pagedEmployeeIds = pagedMetrics.map((metric) => metric.employeeId);
+    const analyticsEmployeeIds = allEmployeeMetrics.map((metric) => metric.employeeId);
+
+    const [employees, timelineSessions, longestIdleSessions] = await this.prisma.$transaction([
+      this.prisma.employee.findMany({
+        where: { id: { in: pagedEmployeeIds } },
+        select: {
+          ...monitoringEmployeeSelect,
+          department: { select: monitoringOrgUnitSelect },
+          branch: { select: monitoringOrgUnitSelect },
+        },
+      }),
+      this.prisma.activitySession.findMany({
+        where: {
+          employeeId: { in: pagedEmployeeIds.length > 0 ? pagedEmployeeIds : ['__empty__'] },
+          startedAt: { lte: range.lte },
+          endedAt: { gte: range.gte },
+        },
+        orderBy: [{ employeeId: 'asc' }, { startedAt: 'asc' }],
+        take: pageSize * 80,
+        select: {
+          id: true,
+          employeeId: true,
+          startedAt: true,
+          endedAt: true,
+          activeSeconds: true,
+          idleSeconds: true,
+        },
+      }),
+      this.prisma.activitySession.findMany({
+        where: {
+          ...sessionWhere,
+          ...(analyticsEmployeeIds.length > 0 ? { employeeId: { in: analyticsEmployeeIds } } : { employeeId: '__empty__' }),
+          idleSeconds: { gt: 0 },
+        },
+        orderBy: [{ idleSeconds: 'desc' }, { startedAt: 'desc' }],
+        take: 10,
+        include: {
+          employee: {
+            select: {
+              ...monitoringEmployeeSelect,
+              department: { select: monitoringOrgUnitSelect },
+              branch: { select: monitoringOrgUnitSelect },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+    const employeeRows = pagedMetrics
+      .map((metric) => {
+        const employee = employeeById.get(metric.employeeId);
+        if (!employee) return null;
+        return {
+          employeeId: employee.id,
+          employeeCode: employee.employeeCode,
+          employee: this.mapEmployee(employee),
+          department: this.mapOrgUnit(employee.department),
+          branch: this.mapOrgUnit(employee.branch),
+          activeSeconds: metric.activeSeconds,
+          idleSeconds: metric.idleSeconds,
+          onlineSeconds: metric.onlineSeconds,
+          idlePercentage: metric.idlePercentage,
+          longestIdleSeconds: metric.longestIdleSeconds,
+          sessions: metric.sessions,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    const totalActiveSeconds = allEmployeeMetrics.reduce((totalValue, item) => totalValue + item.activeSeconds, 0);
+    const totalIdleSeconds = allEmployeeMetrics.reduce((totalValue, item) => totalValue + item.idleSeconds, 0);
+    const totalOnlineSeconds = totalActiveSeconds + totalIdleSeconds;
+    const totalSessions = allEmployeeMetrics.reduce((totalValue, item) => totalValue + item.sessions, 0);
+
+    return {
+      summary: {
+        totalActiveSeconds,
+        totalIdleSeconds,
+        idlePercentage: this.idlePercentage(totalIdleSeconds, totalOnlineSeconds),
+        employeesWithHighIdle: allEmployeeMetrics.filter((item) => item.idlePercentage >= HIGH_IDLE_PERCENTAGE_THRESHOLD).length,
+        averageIdleSeconds: allEmployeeMetrics.length > 0 ? Math.round(totalIdleSeconds / allEmployeeMetrics.length) : 0,
+        totalSessions,
+      },
+      employees: employeeRows,
+      timeline: timelineSessions
+        .map((session) => this.mapIdleTimelineSegment(session, range))
+        .filter((segment): segment is NonNullable<typeof segment> => segment !== null),
+      longestIdlePeriods: longestIdleSessions.map((session) => ({
+        id: session.id,
+        employeeId: session.employeeId,
+        employeeCode: session.employee.employeeCode,
+        employee: this.mapEmployee(session.employee),
+        department: this.mapOrgUnit(session.employee.department),
+        branch: this.mapOrgUnit(session.employee.branch),
+        start: this.clampDate(session.startedAt, range.gte, range.lte).toISOString(),
+        end: this.clampDate(session.endedAt, range.gte, range.lte).toISOString(),
+        durationSeconds: Math.min(
+          this.nonNegativeSeconds(session.idleSeconds),
+          this.durationSeconds(this.clampDate(session.startedAt, range.gte, range.lte), this.clampDate(session.endedAt, range.gte, range.lte)),
+        ),
+      })),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
+      },
+      range: {
+        from: range.gte.toISOString(),
+        to: range.lte.toISOString(),
+      },
+    };
+  }
   async summary(
     query: MonitoringSummaryQueryDto,
     actor: AuthenticatedUser,
@@ -1245,6 +2210,38 @@ export class MonitoringService {
       .sort((a, b) => b.onlineSeconds - a.onlineSeconds || a.departmentName.localeCompare(b.departmentName));
   }
 
+  private idlePercentage(idleSeconds: number, onlineSeconds: number): number {
+    if (onlineSeconds <= 0) return 0;
+    return Math.min(100, Math.max(0, Number(((idleSeconds / onlineSeconds) * 100).toFixed(2))));
+  }
+
+  private clampDate(value: Date, min: Date, max: Date): Date {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
+  private mapIdleTimelineSegment(
+    session: Pick<Prisma.ActivitySessionGetPayload<Record<string, never>>, 'id' | 'employeeId' | 'startedAt' | 'endedAt' | 'activeSeconds' | 'idleSeconds'>,
+    range: { gte: Date; lte: Date },
+  ) {
+    const start = this.clampDate(session.startedAt, range.gte, range.lte);
+    const end = this.clampDate(session.endedAt, range.gte, range.lte);
+    const durationSeconds = this.durationSeconds(start, end);
+    if (durationSeconds <= 0) return null;
+    const idleSeconds = this.nonNegativeSeconds(session.idleSeconds);
+    const activeSeconds = this.nonNegativeSeconds(session.activeSeconds);
+    const type: 'ACTIVE' | 'IDLE' = idleSeconds > 0 && activeSeconds === 0 ? 'IDLE' : 'ACTIVE';
+    return {
+      employeeId: session.employeeId,
+      type,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      durationSeconds: Math.min(durationSeconds, type === 'IDLE' ? idleSeconds : activeSeconds || durationSeconds),
+      source: 'ACTIVITY_SESSION' as const,
+      activitySessionId: session.id,
+    };
+  }
   private nonNegativeSeconds(value: number | null | undefined): number {
     return Math.max(0, Math.round(value ?? 0));
   }
@@ -1376,15 +2373,45 @@ export class MonitoringService {
     query: MonitoringReadQueryDto,
     actor: AuthenticatedUser,
   ): Promise<Prisma.MonitoringDeviceWhereInput> {
+    const onlineThreshold = await this.deviceOnlineThreshold(actor);
     const filters: Prisma.MonitoringDeviceWhereInput[] = [
       { employee: { is: await this.employeeReadWhere(actor, query) } },
       { deletedAt: null },
     ];
     if (query.deviceId) filters.push({ id: query.deviceId });
+    if (query.branchId) filters.push({ employee: { is: { branchId: query.branchId } } });
+    if (query.departmentId) filters.push({ employee: { is: { departmentId: query.departmentId } } });
+    if (query.status) filters.push({ status: query.status });
+    if (typeof query.monitoringEnabled === 'boolean') {
+      filters.push(query.monitoringEnabled
+        ? { status: { in: monitoringUploadEnabledStatuses } }
+        : { status: { not: MonitoringDeviceStatus.ACTIVE } });
+    }
+    if (typeof query.browserConnected === 'boolean') {
+      filters.push(query.browserConnected
+        ? { websiteUsages: { some: {} } }
+        : { websiteUsages: { none: {} } });
+    }
+    if (typeof query.online === 'boolean') {
+      filters.push(query.online
+        ? {
+            status: MonitoringDeviceStatus.ACTIVE,
+            lastSeenAt: { gte: onlineThreshold },
+          }
+        : {
+            OR: [
+              { status: { not: MonitoringDeviceStatus.ACTIVE } },
+              { lastSeenAt: null },
+              { lastSeenAt: { lt: onlineThreshold } },
+            ],
+          });
+    }
     if (query.search) {
       filters.push({
         OR: [
           { employee: { is: this.employeeSearchWhere(query.search) } },
+          { employee: { is: { branch: { is: { name: { contains: query.search, mode: 'insensitive' } } } } } },
+          { employee: { is: { department: { is: { name: { contains: query.search, mode: 'insensitive' } } } } } },
           { deviceIdentifier: { contains: query.search, mode: 'insensitive' } },
           { deviceName: { contains: query.search, mode: 'insensitive' } },
           { platform: { contains: query.search, mode: 'insensitive' } },
@@ -1394,6 +2421,18 @@ export class MonitoringService {
       });
     }
     return { AND: filters };
+  }
+
+  private async deviceOnlineThreshold(actor: AuthenticatedUser): Promise<Date> {
+    let timeoutMinutes = DEFAULT_HEARTBEAT_TIMEOUT_MINUTES;
+    if (actor.companyId) {
+      const policy = await this.prisma.attendancePolicy.findFirst({
+        where: { companyId: actor.companyId, isActive: true },
+        select: { heartbeatTimeoutMinutes: true },
+      });
+      timeoutMinutes = policy?.heartbeatTimeoutMinutes ?? timeoutMinutes;
+    }
+    return new Date(Date.now() - Math.max(timeoutMinutes, 1) * 60000);
   }
 
   private mapEmployee(
@@ -1407,26 +2446,178 @@ export class MonitoringService {
     };
   }
 
+  private mapOrgUnit(
+    unit: { id: string; name: string; code: string } | null,
+  ) {
+    return unit
+      ? {
+          id: unit.id,
+          name: unit.name,
+          code: unit.code,
+        }
+      : null;
+  }
+
   private mapDevice(
     device: Prisma.MonitoringDeviceGetPayload<{
       include: {
-        employee: { select: typeof monitoringEmployeeSelect };
+        employee: {
+          select: typeof monitoringEmployeeSelect & {
+            branch: { select: typeof monitoringOrgUnitSelect };
+            department: { select: typeof monitoringOrgUnitSelect };
+          };
+        };
+        company: {
+          select: {
+            attendancePolicies: {
+              where: { isActive: true };
+              take: 1;
+              select: { heartbeatTimeoutMinutes: true };
+            };
+          };
+        };
         heartbeats: { select: { recordedAt: true } };
+        activitySessions: { select: { endedAt: true } };
+        screenshots: { select: { capturedAt: true } };
+        websiteUsages: { select: { startedAt: true } };
       };
     }>,
   ): MonitoringDeviceResponseDto {
+    const lastHeartbeatAt = device.heartbeats[0]?.recordedAt ?? device.lastSeenAt ?? null;
+    const heartbeatTimeoutMinutes =
+      device.company.attendancePolicies[0]?.heartbeatTimeoutMinutes ??
+      DEFAULT_HEARTBEAT_TIMEOUT_MINUTES;
+    const online = Boolean(
+      this.isMonitoringUploadEnabledStatus(device.status) &&
+      lastHeartbeatAt &&
+      Date.now() - lastHeartbeatAt.getTime() <= Math.max(heartbeatTimeoutMinutes, 1) * 60000,
+    );
     return {
       id: device.id,
       employee: this.mapEmployee(device.employee),
       deviceIdentifier: device.deviceIdentifier,
+      deviceName: device.deviceName,
       hostname: device.deviceName,
       platform: device.platform,
+      operatingSystem: this.displayOperatingSystem(device.platform),
       osVersion: device.osVersion,
+      deviceType: 'Desktop',
       agentVersion: device.appVersion,
+      department: this.mapOrgUnit(device.employee.department),
+      branch: this.mapOrgUnit(device.employee.branch),
+      browserExtensionInstalled: null,
+      browserExtensionConnected: device.websiteUsages.length > 0,
+      monitoringEnabled: this.isMonitoringUploadEnabledStatus(device.status),
+      online,
       status: device.status,
-      lastHeartbeatAt: device.heartbeats[0]?.recordedAt.toISOString() ?? device.lastSeenAt?.toISOString() ?? null,
+      securityStatus: device.status,
+      trusted: device.status === MonitoringDeviceStatus.TRUSTED,
+      revoked: device.status === MonitoringDeviceStatus.REVOKED,
+      registrationRequired: device.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED,
+      lastHeartbeatAt: lastHeartbeatAt?.toISOString() ?? null,
+      lastActivityAt: device.activitySessions[0]?.endedAt.toISOString() ?? null,
+      lastScreenshotAt: device.screenshots[0]?.capturedAt.toISOString() ?? null,
       registeredAt: device.registeredAt.toISOString(),
     };
+  }
+
+  private displayOperatingSystem(platform: string): string {
+    const normalized = platform.trim().toLowerCase();
+    if (['win32', 'windows', 'win'].includes(normalized)) return 'Windows';
+    if (['darwin', 'macos', 'mac'].includes(normalized)) return 'macOS';
+    if (['linux'].includes(normalized)) return 'Linux';
+    return platform || 'Unknown';
+  }
+
+  private groupCount(group: { _count?: true | { id?: number; _all?: number } }): number {
+    if (!group._count || group._count === true) return 0;
+    return group._count.id ?? group._count._all ?? 0;
+  }
+
+  private maskDeviceIdentifier(value: string | null): string | null {
+    if (!value) return null;
+    if (value.length <= 8) return value;
+    return `${value.slice(0, 4)}...${value.slice(-4)}`;
+  }
+
+  private latestDate(values: Array<Date | null>): Date | null {
+    return values.reduce<Date | null>((latest, value) => {
+      if (!value) return latest;
+      if (!latest || value > latest) return value;
+      return latest;
+    }, null);
+  }
+
+  private deviceRecentActivityFeed(records: {
+    heartbeats: Array<{ id: string; recordedAt: Date }>;
+    activitySessions: Array<{
+      id: string;
+      startedAt: Date;
+      endedAt: Date;
+      activeSeconds: number;
+      idleSeconds: number;
+    }>;
+    screenshots: Array<{ id: string; capturedAt: Date; mimeType: string }>;
+    applications: Array<{
+      id: string;
+      applicationName: string;
+      startedAt: Date;
+      durationSeconds: number;
+    }>;
+    websites: Array<{
+      id: string;
+      domain: string;
+      startedAt: Date;
+      durationSeconds: number;
+    }>;
+  }): MonitoringDeviceDetailResponseDto['recentActivity'] {
+    const items: DeviceRecentActivityItem[] = [
+      ...records.heartbeats.map((heartbeat) => ({
+        id: heartbeat.id,
+        type: 'HEARTBEAT' as const,
+        occurredAt: heartbeat.recordedAt,
+        title: 'Heartbeat received',
+        description: 'The desktop agent reported device availability.',
+      })),
+      ...records.activitySessions.map((session) => ({
+        id: session.id,
+        type: 'ACTIVITY' as const,
+        occurredAt: session.endedAt,
+        title: 'Activity session recorded',
+        description: `${this.durationSeconds(session.startedAt, session.endedAt)} seconds captured with ${session.activeSeconds} active seconds and ${session.idleSeconds} idle seconds.`,
+      })),
+      ...records.screenshots.map((screenshot) => ({
+        id: screenshot.id,
+        type: 'SCREENSHOT' as const,
+        occurredAt: screenshot.capturedAt,
+        title: 'Screenshot captured',
+        description: screenshot.mimeType,
+      })),
+      ...records.applications.map((application) => ({
+        id: application.id,
+        type: 'APPLICATION' as const,
+        occurredAt: application.startedAt,
+        title: `Application used: ${application.applicationName}`,
+        description: `${application.durationSeconds} seconds`,
+      })),
+      ...records.websites.map((website) => ({
+        id: website.id,
+        type: 'WEBSITE' as const,
+        occurredAt: website.startedAt,
+        title: `Website used: ${website.domain}`,
+        description: `${website.durationSeconds} seconds`,
+      })),
+    ];
+    return items
+      .sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime())
+      .slice(0, 15)
+      .map((item) => ({
+        id: item.id,
+        type: item.type,
+        occurredAt: item.occurredAt.toISOString(),
+        title: item.title,
+        description: item.description,
+      }));
   }
 
   private mapApplication(
@@ -1906,12 +3097,29 @@ export class MonitoringService {
             id: device.id,
             employee: this.mapEmployee(employee),
             deviceIdentifier: device.deviceIdentifier,
+            deviceName: device.deviceName,
             hostname: device.deviceName,
             platform: device.platform,
+            operatingSystem: this.displayOperatingSystem(device.platform),
             osVersion: device.osVersion,
+            deviceType: 'Desktop',
             agentVersion: device.appVersion,
+            department: null,
+            branch: null,
+            browserExtensionInstalled: null,
+            browserExtensionConnected: null,
+            monitoringEnabled: this.isMonitoringUploadEnabledStatus(device.status),
+            online: this.isMonitoringUploadEnabledStatus(device.status)
+              && device.lastSeenAt !== null
+              && device.lastSeenAt >= new Date(Date.now() - heartbeatTimeoutMinutes * 60 * 1000),
             status: device.status,
+            securityStatus: device.status,
+            trusted: device.status === MonitoringDeviceStatus.TRUSTED,
+            revoked: device.status === MonitoringDeviceStatus.REVOKED,
+            registrationRequired: device.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED,
             lastHeartbeatAt: device.lastSeenAt?.toISOString() ?? null,
+            lastActivityAt: null,
+            lastScreenshotAt: null,
             registeredAt: device.registeredAt.toISOString(),
           }
         : null,
@@ -2318,6 +3526,188 @@ export class MonitoringService {
     return employee;
   }
 
+  private isMonitoringUploadEnabledStatus(status: MonitoringDeviceStatus): boolean {
+    return monitoringUploadEnabledStatuses.includes(status);
+  }
+  private assertCanManageDevice(actor: AuthenticatedUser): void {
+    const allowed: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN, RoleName.HR];
+    if (actor.roles.some((role) => allowed.includes(role))) return;
+    throw new ForbiddenException('Device management is not allowed for this role');
+  }
+
+  private async visibleDeviceForAction(
+    deviceId: string,
+    actor: AuthenticatedUser,
+  ): Promise<MonitoringDeviceActionRecord> {
+    const where = await this.deviceWhere({ page: 1, limit: 1, deviceId }, actor);
+    const device = await this.prisma.monitoringDevice.findFirst({
+      where,
+      include: { employee: { select: monitoringEmployeeSelect } },
+    });
+    if (!device) throw new NotFoundException('Monitoring device not found');
+    return device;
+  }
+
+  private mapDeviceAction(device: MonitoringDeviceActionRecord): MonitoringDeviceActionResponseDto {
+    return {
+      success: true,
+      device: {
+        id: device.id,
+        deviceName: device.deviceName,
+        employee: this.mapEmployee(device.employee),
+        monitoringEnabled: this.isMonitoringUploadEnabledStatus(device.status),
+        status: device.status,
+        securityStatus: device.status,
+        registrationRequired: device.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED,
+        registrationVersion: device.registrationVersion,
+        trustedAt: device.trustedAt?.toISOString() ?? null,
+        revokedAt: device.revokedAt?.toISOString() ?? null,
+        registrationResetAt: device.registrationResetAt?.toISOString() ?? null,
+        reregistrationRequiredAt: device.reregistrationRequiredAt?.toISOString() ?? null,
+        updatedAt: device.updatedAt.toISOString(),
+      },
+    };
+  }
+
+  private deviceHistoryActionsForCategory(category?: DeviceHistoryCategory): DeviceHistoryAction[] {
+    const actions = Object.keys(deviceHistoryActionCategories) as DeviceHistoryAction[];
+    if (!category) return actions;
+    return actions.filter((action) => deviceHistoryActionCategories[action] === category);
+  }
+
+  private mapDeviceHistoryItem(record: DeviceHistoryAuditLogRecord): DeviceHistoryItemDto {
+    const action = this.normalizeDeviceHistoryAction(record.action);
+    const category = deviceHistoryActionCategories[action] ?? 'SYSTEM';
+    const actorName = record.actor
+      ? `${record.actor.firstName} ${record.actor.lastName}`.trim() || record.actor.email
+      : 'System';
+    const metadata = this.sanitizeDeviceHistoryMetadata(record.metadata);
+    const descriptor = this.deviceHistoryDescriptor(action, metadata, actorName);
+
+    return {
+      id: record.id,
+      occurredAt: record.createdAt.toISOString(),
+      actor: {
+        id: record.actor?.id ?? null,
+        name: actorName,
+        email: record.actor?.email ?? null,
+      },
+      action: record.action,
+      category,
+      title: descriptor.title,
+      description: descriptor.description,
+      metadata,
+    };
+  }
+
+  private normalizeDeviceHistoryAction(action: string): DeviceHistoryAction {
+    return (action in deviceHistoryActionCategories
+      ? action
+      : 'DEVICE_REGISTERED') as DeviceHistoryAction;
+  }
+
+  private deviceHistoryDescriptor(
+    action: DeviceHistoryAction,
+    metadata: Record<string, unknown> | null,
+    actorName: string,
+  ): { title: string; description: string } {
+    switch (action) {
+      case 'DEVICE_REGISTERED':
+        return { title: 'Device registered', description: `Device registration was completed by ${actorName}.` };
+      case 'MONITORING_DEVICE_RENAMED':
+      case 'DEVICE_RENAMED':
+        return { title: 'Device renamed', description: this.renameHistoryDescription(metadata, actorName) };
+      case 'MONITORING_DEVICE_REASSIGNED':
+      case 'DEVICE_REASSIGNED':
+        return { title: 'Device reassigned', description: `Device assignment was changed by ${actorName}.` };
+      case 'MONITORING_DEVICE_ENABLED':
+      case 'DEVICE_MONITORING_ENABLED':
+        return { title: 'Monitoring enabled', description: `Monitoring ingestion was enabled by ${actorName}.` };
+      case 'MONITORING_DEVICE_DISABLED':
+      case 'DEVICE_MONITORING_DISABLED':
+        return { title: 'Monitoring disabled', description: `Monitoring ingestion was disabled by ${actorName}.` };
+      case 'DEVICE_TRUSTED':
+        return { title: 'Device trusted', description: `Device was marked as trusted by ${actorName}.` };
+      case 'DEVICE_REVOKED':
+        return { title: 'Device revoked', description: `Device access was revoked by ${actorName}.` };
+      case 'DEVICE_REGISTRATION_RESET':
+        return { title: 'Registration reset', description: `Device registration was reset by ${actorName}.` };
+      case 'DEVICE_FORCE_REREGISTRATION':
+        return { title: 'Re-registration required', description: `Fresh device registration was required by ${actorName}.` };
+      default:
+        return { title: 'Device event', description: `Device history event was recorded by ${actorName}.` };
+    }
+  }
+
+  private renameHistoryDescription(metadata: Record<string, unknown> | null, actorName: string): string {
+    const previous = typeof metadata?.previousDeviceName === 'string' ? metadata.previousDeviceName : null;
+    const next = typeof metadata?.deviceName === 'string' ? metadata.deviceName : null;
+    if (previous && next) return `Device name changed from "${previous}" to "${next}" by ${actorName}.`;
+    return `Device name was changed by ${actorName}.`;
+  }
+
+  private sanitizeDeviceHistoryMetadata(value: Prisma.JsonValue): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return this.sanitizeDeviceHistoryMetadataObject(value as Record<string, unknown>);
+  }
+
+  private sanitizeDeviceHistoryMetadataObject(value: Record<string, unknown>): Record<string, unknown> | null {
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (this.isSensitiveDeviceHistoryMetadataKey(key)) continue;
+      if (entry === null || ['string', 'number', 'boolean'].includes(typeof entry)) {
+        sanitized[key] = entry;
+      } else if (Array.isArray(entry)) {
+        const safeArray = entry.filter((item) => item === null || ['string', 'number', 'boolean'].includes(typeof item)).slice(0, 20);
+        if (safeArray.length) sanitized[key] = safeArray;
+      } else if (typeof entry === 'object') {
+        const nested = this.sanitizeDeviceHistoryMetadataObject(entry as Record<string, unknown>);
+        if (nested && Object.keys(nested).length) sanitized[key] = nested;
+      }
+    }
+    return Object.keys(sanitized).length ? sanitized : null;
+  }
+
+  private isSensitiveDeviceHistoryMetadataKey(key: string): boolean {
+    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return sensitiveDeviceHistoryMetadataKeys.some((sensitiveKey) => normalized.includes(sensitiveKey));
+  }
+  private async writeDeviceAuditLog(
+    actor: AuthenticatedUser,
+    companyId: string,
+    action: string,
+    deviceId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        companyId,
+        actorUserId: actor.id,
+        action,
+        entityType: 'MonitoringDevice',
+        entityId: deviceId,
+        metadata: metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async ownedHeartbeatDevice(id: string, actor: AuthenticatedUser) {
+    const employee = await this.ownActiveEmployee(actor);
+    const device = await this.prisma.monitoringDevice.findFirst({
+      where: {
+        id,
+        employeeId: employee.id,
+        companyId: employee.companyId,
+        status: { in: heartbeatAllowedDeviceStatuses },
+        deletedAt: null,
+      },
+      select: { id: true, companyId: true, employeeId: true },
+    });
+    if (!device) {
+      throw new NotFoundException('Monitoring device not found');
+    }
+    return device;
+  }
   private async ownedActiveDevice(id: string, actor: AuthenticatedUser) {
     const employee = await this.ownActiveEmployee(actor);
     const device = await this.prisma.monitoringDevice.findFirst({
@@ -2474,4 +3864,3 @@ export class MonitoringService {
     return domain;
   }
 }
-
