@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { ShiftAssignmentStatus } from '@prisma/client';
+import { ShiftAssignmentStatus, ShiftAssignmentType } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
@@ -40,6 +40,11 @@ export class ShiftAssignmentQueryDto extends PaginationQueryDto {
   @IsEnum(ShiftAssignmentStatus)
   @IsOptional()
   status?: ShiftAssignmentStatus;
+
+  @ApiPropertyOptional({ enum: ShiftAssignmentType })
+  @IsEnum(ShiftAssignmentType)
+  @IsOptional()
+  assignmentType?: ShiftAssignmentType;
 
   @ApiPropertyOptional({
     format: 'date-time',

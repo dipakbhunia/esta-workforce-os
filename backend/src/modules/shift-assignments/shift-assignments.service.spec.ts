@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { validate } from 'class-validator';
 import { AssignmentSource, RoleName, ShiftAssignmentType } from '@prisma/client';
+import { ShiftAssignmentQueryDto } from './dto/shift-assignment-query.dto';
 import { ShiftAssignmentsService } from './shift-assignments.service';
 
 const actor = {
@@ -37,6 +39,8 @@ const assignment = {
     branchId: null,
     departmentId: null,
     designationId: null,
+    department: { id: 'department-1', name: 'Engineering' },
+    designation: { id: 'designation-1', name: 'Software Engineer' },
     user: {
       id: 'user-2',
       firstName: 'Demo',
@@ -71,6 +75,118 @@ function serviceWith(prisma: Record<string, unknown>) {
 }
 
 describe('ShiftAssignmentsService', () => {
+  it('applies assignmentType server-side and uses filtered pagination total', async () => {
+    let findWhere: unknown;
+    let countWhere: unknown;
+    const service = serviceWith({
+      employeeShiftAssignment: {
+        findMany: async (args: { where: unknown }) => {
+          findWhere = args.where;
+          return [assignment];
+        },
+        count: async (args: { where: unknown }) => {
+          countWhere = args.where;
+          return 1;
+        },
+      },
+      $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    });
+
+    const result = await service.findAll(
+      { page: 1, limit: 20, assignmentType: ShiftAssignmentType.PERMANENT },
+      actor as never,
+    );
+
+    assert.equal(result.meta.total, 1);
+    assert.deepEqual(findWhere, countWhere);
+    assert.equal((findWhere as { assignmentType: ShiftAssignmentType }).assignmentType, ShiftAssignmentType.PERMANENT);
+  });
+
+  it('applies department and designation filters through employee relation', async () => {
+    let where: unknown;
+    const service = serviceWith({
+      employeeShiftAssignment: {
+        findMany: async (args: { where: unknown }) => {
+          where = args.where;
+          return [];
+        },
+        count: async () => 0,
+      },
+      $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    });
+
+    await service.findAll(
+      { page: 1, limit: 20, departmentId: 'department-1', designationId: 'designation-1' },
+      actor as never,
+    );
+
+    assert.equal((where as { employee: { departmentId?: string; designationId?: string } }).employee.departmentId, 'department-1');
+    assert.equal((where as { employee: { departmentId?: string; designationId?: string } }).employee.designationId, 'designation-1');
+  });
+
+  it('uses effective-date filtering as assignment covering the selected timestamp', async () => {
+    let where: unknown;
+    const effectiveAt = '2026-07-30T10:00:00.000Z';
+    const service = serviceWith({
+      employeeShiftAssignment: {
+        findMany: async (args: { where: unknown }) => {
+          where = args.where;
+          return [];
+        },
+        count: async () => 0,
+      },
+      $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    });
+
+    await service.findAll({ page: 1, limit: 20, effectiveAt }, actor as never);
+
+    assert.deepEqual(where, {
+      companyId: 'company-1',
+      deletedAt: null,
+      effectiveFrom: { lte: new Date(effectiveAt) },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gt: new Date(effectiveAt) } }],
+    });
+  });
+
+  it('returns enriched employee department and designation fields in list responses', async () => {
+    const service = serviceWith({
+      employeeShiftAssignment: {
+        findMany: async () => [assignment],
+        count: async () => 1,
+      },
+      $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    });
+
+    const result = await service.findAll({ page: 1, limit: 20 }, actor as never);
+
+    assert.equal(result.data[0].employee.displayName, 'Demo Employee');
+    assert.equal(result.data[0].employee.department?.name, 'Engineering');
+    assert.equal(result.data[0].employee.designation?.name, 'Software Engineer');
+  });
+
+  it('keeps tenant isolation by requiring a tenant company for list access', async () => {
+    const service = serviceWith({});
+
+    await assert.rejects(
+      () =>
+        service.findAll(
+          { page: 1, limit: 20 },
+          { ...actor, companyId: null } as never,
+        ),
+      ForbiddenException,
+    );
+  });
+
+  it('rejects invalid assignmentType query values through DTO validation', async () => {
+    const dto = Object.assign(new ShiftAssignmentQueryDto(), {
+      assignmentType: 'NIGHT_ONLY',
+    });
+
+    const errors = await validate(dto);
+
+    assert.equal(errors.some((error) => error.property === 'assignmentType'), true);
+  });
+
   it('rejects overlapping assignments before creating records', async () => {
     const service = serviceWith({
       employee: { findFirst: async () => ({ id: 'employee-1' }) },

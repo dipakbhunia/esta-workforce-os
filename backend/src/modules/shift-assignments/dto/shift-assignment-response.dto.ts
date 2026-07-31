@@ -26,8 +26,23 @@ export class ShiftAssignmentEmployeeDto {
   @ApiProperty({ example: 'EMP-001' })
   employeeCode!: string;
 
+  @ApiProperty({ example: 'Demo Employee' })
+  displayName!: string;
+
   @ApiProperty({ type: ShiftAssignmentUserDto })
   user!: ShiftAssignmentUserDto;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: { id: 'uuid', name: 'Engineering' },
+  })
+  department!: { id: string; name: string } | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: { id: 'uuid', name: 'Software Engineer' },
+  })
+  designation!: { id: string; name: string } | null;
 }
 
 export class ShiftAssignmentShiftDto {

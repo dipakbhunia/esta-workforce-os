@@ -31,6 +31,12 @@ const assignmentInclude = {
       branchId: true,
       departmentId: true,
       designationId: true,
+      department: {
+        select: { id: true, name: true },
+      },
+      designation: {
+        select: { id: true, name: true },
+      },
       user: {
         select: { id: true, firstName: true, lastName: true, email: true },
       },
@@ -301,15 +307,19 @@ export class ShiftAssignmentsService {
   ): Prisma.EmployeeShiftAssignmentWhereInput {
     const now = new Date();
     const effectiveAt = query.effectiveAt ? this.parseDate(query.effectiveAt) : null;
+    const employeeFilter: Prisma.EmployeeWhereInput = {
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      ...(query.designationId ? { designationId: query.designationId } : {}),
+    };
     return {
       companyId,
-      ...(query.includeDeleted ? {} : { deletedAt: null }),
+      ...(query.includeDeleted || query.status === ShiftAssignmentStatus.CANCELLED ? {} : { deletedAt: null }),
       ...(query.employeeId ? { employeeId: query.employeeId } : {}),
       ...(query.shiftId ? { shiftId: query.shiftId } : {}),
-      ...(query.branchId ? { employee: { branchId: query.branchId } } : {}),
-      ...(query.departmentId ? { employee: { departmentId: query.departmentId } } : {}),
-      ...(query.designationId ? { employee: { designationId: query.designationId } } : {}),
+      ...(Object.keys(employeeFilter).length ? { employee: employeeFilter } : {}),
       ...(query.status ? this.statusWhere(query.status, now) : {}),
+      ...(query.assignmentType ? { assignmentType: query.assignmentType } : {}),
       ...(effectiveAt ? this.coveringWhere(effectiveAt) : {}),
       ...(query.search
         ? {
@@ -517,6 +527,14 @@ export class ShiftAssignmentsService {
   private toResponse(assignment: AssignmentWithDetails): ShiftAssignmentResponseDto {
     return {
       ...assignment,
+      employee: {
+        id: assignment.employee.id,
+        employeeCode: assignment.employee.employeeCode,
+        displayName: this.displayName(assignment.employee.user),
+        user: assignment.employee.user,
+        department: assignment.employee.department,
+        designation: assignment.employee.designation,
+      },
       status: assignment.deletedAt
         ? ShiftAssignmentStatus.CANCELLED
         : this.statusForRange(assignment.effectiveFrom, assignment.effectiveTo),
@@ -526,5 +544,9 @@ export class ShiftAssignmentsService {
   private trimOptional(value?: string | null): string | null {
     const trimmed = value?.trim();
     return trimmed || null;
+  }
+
+  private displayName(user: { firstName: string; lastName: string; email: string }): string {
+    return [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
   }
 }

@@ -27,6 +27,11 @@ const ShiftsPage = lazy(() => import('@/features/organization/pages/ShiftsPage')
 const ShiftCreatePage = lazy(() => import('@/features/organization/pages/ShiftCreatePage'));
 const ShiftDetailsPage = lazy(() => import('@/features/organization/pages/ShiftDetailsPage'));
 const ShiftEditPage = lazy(() => import('@/features/organization/pages/ShiftEditPage'));
+const ShiftAssignmentsPage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentsPage'));
+const ShiftAssignmentCreatePage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentCreatePage'));
+const ShiftAssignmentDetailsPage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentDetailsPage'));
+const ShiftAssignmentEditPage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentEditPage'));
+const ShiftAssignmentHistoryPage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentHistoryPage'));
 const UsersPage = lazy(() => import('@/features/people/pages/UsersPage'));
 const EmployeesPage = lazy(() => import('@/features/people/pages/EmployeesPage'));
 const EmployeeCreatePage = lazy(() => import('@/features/people/pages/EmployeeCreatePage'));
@@ -128,7 +133,6 @@ function LegacyShiftEditRedirect() {
 const comingSoonRoutes: ComingSoonRoute[] = [
   { path: 'organization/teams', title: 'Teams', moduleName: 'Organization', description: 'Team grouping will be introduced after department and reporting-line workflows are finalized.', plannedPhase: 'Organization Expansion', permission: 'organization:manage', roles: hrRoles },
   { path: 'organization/work-locations', title: 'Work Locations', moduleName: 'Organization', description: 'Office and field work locations will be connected in a future organization phase.', plannedPhase: 'Organization Expansion', permission: 'organization:manage', roles: hrRoles },
-  { path: 'scheduling/shift-assignments', title: 'Shift Assignments', moduleName: 'Scheduling', description: 'Employee-to-shift assignment workflows are reserved for the scheduling expansion phase.', plannedPhase: 'Scheduling', permission: 'shifts:manage', roles: hrRoles },
   { path: 'scheduling/shift-roster', title: 'Shift Roster', moduleName: 'Scheduling', description: 'Roster planning will be added after shift assignment APIs are ready.', plannedPhase: 'Scheduling', permission: 'shifts:manage', roles: hrRoles },
   { path: 'scheduling/weekly-off-rules', title: 'Weekly Off Rules', moduleName: 'Scheduling', description: 'Weekly off rules will be configured after the scheduling policy layer is introduced.', plannedPhase: 'Scheduling', permission: 'shifts:manage', roles: hrRoles },
   { path: 'scheduling/holiday-calendar', title: 'Holiday Calendar', moduleName: 'Scheduling', description: 'Holiday calendar management will be added after scheduling policy workflows.', plannedPhase: 'Scheduling', permission: 'attendance:manage', roles: hrRoles },
@@ -219,6 +223,11 @@ export const router = createBrowserRouter([
           { path: 'scheduling/shifts/create', element: protectedElement(<ShiftCreatePage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/shifts/:id', element: protectedElement(<ShiftDetailsPage />, 'shifts:view', hrRoles) },
           { path: 'scheduling/shifts/:id/edit', element: protectedElement(<ShiftEditPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/shift-assignments', element: protectedElement(<ShiftAssignmentsPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/shift-assignments/create', element: protectedElement(<ShiftAssignmentCreatePage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/shift-assignments/employee/:employeeId/history', element: protectedElement(<ShiftAssignmentHistoryPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/shift-assignments/:id', element: protectedElement(<ShiftAssignmentDetailsPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/shift-assignments/:id/edit', element: protectedElement(<ShiftAssignmentEditPage />, 'shifts:manage', hrRoles) },
           { path: 'people/employees', element: protectedElement(<EmployeesPage />, 'employees:view', workforceRoles) },
           { path: 'people/employees/create', element: protectedElement(<EmployeeCreatePage />, 'employees:manage', hrRoles) },
           { path: 'people/employees/:id', element: protectedElement(<EmployeeDetailsPage />, 'employees:view', workforceRoles) },

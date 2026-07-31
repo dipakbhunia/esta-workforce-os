@@ -8,6 +8,9 @@ import { PageHeader } from '@/components/page-header';
 import { SectionCard } from '@/components/section-card';
 import { StatusChip } from '@/components/status-chip';
 import { useAuth } from '@/features/auth';
+import { getCurrentShiftAssignment, getFutureShiftAssignments, getShiftAssignmentHistory } from '@/features/scheduling/services/shift-assignments-api';
+import type { ShiftAssignment } from '@/features/scheduling/types/shift-assignment.types';
+import { assignmentStatusLabel, assignmentStatusTone, formatAssignmentType, formatDateTime as formatAssignmentDateTime, shiftLabel } from '@/features/scheduling/utils/shift-assignment-utils';
 import { getEmployee } from '../services/employees-api';
 import type { Employee } from '../types/employee.types';
 import { formatDate, formatDateTime, formatEnum, fullName, statusTone } from '../utils/employee-form';
@@ -27,6 +30,21 @@ export default function EmployeeDetailsPage() {
     enabled: Boolean(id),
   });
   const canManage = roles.includes('COMPANY_ADMIN') || roles.includes('HR');
+  const currentAssignmentQuery = useQuery({
+    queryKey: ['shift-assignment-current', id],
+    queryFn: () => getCurrentShiftAssignment(id!),
+    enabled: Boolean(id) && canManage,
+  });
+  const futureAssignmentsQuery = useQuery({
+    queryKey: ['shift-assignment-future', id],
+    queryFn: () => getFutureShiftAssignments(id!, { page: 1, limit: 5 }),
+    enabled: Boolean(id) && canManage,
+  });
+  const assignmentHistoryQuery = useQuery({
+    queryKey: ['shift-assignment-history-preview', id],
+    queryFn: () => getShiftAssignmentHistory(id!, { page: 1, limit: 5 }),
+    enabled: Boolean(id) && canManage,
+  });
 
   useEffect(() => {
     const success = (location.state as LocationState | null)?.success;
@@ -74,6 +92,20 @@ export default function EmployeeDetailsPage() {
           <Detail label="Manager" value={managerName(employee)} />
         </Box>
       </SectionCard>
+
+      {canManage && (
+        <SectionCard title="Shift Assignments" description="Effective-dated shift assignment context for attendance resolution.">
+          <Alert severity="info" sx={{ mb: 2 }}>Current Shift is maintained for legacy compatibility. Effective assignments are the primary scheduling source.</Alert>
+          <Box sx={cardGrid}>
+            <AssignmentPreviewCard title="Current Assignment" assignment={currentAssignmentQuery.data?.data ?? null} loading={currentAssignmentQuery.isLoading} empty="No current assignment. Legacy shift fallback may still apply." />
+            <AssignmentListPreview title="Future Assignments" assignments={futureAssignmentsQuery.data?.data.data ?? []} loading={futureAssignmentsQuery.isLoading} empty="No future assignments." />
+            <AssignmentListPreview title="Recent History" assignments={assignmentHistoryQuery.data?.data.data ?? []} loading={assignmentHistoryQuery.isLoading} empty="No history available." />
+          </Box>
+          <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2 }}>
+            <Button component={RouterLink} to={`/scheduling/shift-assignments/employee/${employee.id}/history`} variant="outlined">View Full History</Button>
+          </Stack>
+        </SectionCard>
+      )}
 
       <SectionCard title="Employment" description="Employment classification and profile lifecycle.">
         <Box sx={detailGrid}>
@@ -179,6 +211,61 @@ function ProfileHeader({ employee }: { employee: Employee }) {
             </Box>
           </Box>
         </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AssignmentPreviewCard({ title, assignment, loading, empty }: { title: string; assignment: ShiftAssignment | null; loading: boolean; empty: string }) {
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="caption" color="text.secondary">{title}</Typography>
+        {loading ? (
+          <Typography fontWeight={800}>Loading...</Typography>
+        ) : assignment ? (
+          <Stack gap={0.75} sx={{ mt: 0.5 }}>
+            <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+              <Typography fontWeight={850}>{shiftLabel(assignment)}</Typography>
+              <StatusChip label={assignmentStatusLabel(assignment.status)} tone={assignmentStatusTone(assignment.status)} />
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              {formatAssignmentDateTime(assignment.effectiveFrom)} to {formatAssignmentDateTime(assignment.effectiveTo)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">{formatAssignmentType(assignment.assignmentType)}</Typography>
+          </Stack>
+        ) : (
+          <Typography fontWeight={800}>{empty}</Typography>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AssignmentListPreview({ title, assignments, loading, empty }: { title: string; assignments: ShiftAssignment[]; loading: boolean; empty: string }) {
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="caption" color="text.secondary">{title}</Typography>
+        {loading ? (
+          <Typography fontWeight={800}>Loading...</Typography>
+        ) : assignments.length ? (
+          <Stack gap={1} sx={{ mt: 0.75 }}>
+            {assignments.map((assignment) => (
+              <Box key={assignment.id}>
+                <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+                  <Typography fontWeight={850}>{shiftLabel(assignment)}</Typography>
+                  <StatusChip label={assignmentStatusLabel(assignment.status)} tone={assignmentStatusTone(assignment.status)} />
+                </Stack>
+                <Typography variant="caption" color="text.secondary">
+                  {formatAssignmentDateTime(assignment.effectiveFrom)} to {formatAssignmentDateTime(assignment.effectiveTo)}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        ) : (
+          <Typography fontWeight={800}>{empty}</Typography>
+        )}
       </CardContent>
     </Card>
   );
