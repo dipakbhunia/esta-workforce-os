@@ -11,6 +11,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -92,8 +93,148 @@ export class ShiftRosterPeriodQueryDto extends PaginationQueryDto {
   @IsISO8601({ strict: true })
   @IsOptional()
   dateTo?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
 }
 
+export class ShiftRosterSummaryDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  draft!: number;
+
+  @ApiProperty()
+  published!: number;
+
+  @ApiProperty()
+  locked!: number;
+
+  @ApiProperty()
+  cancelled!: number;
+}
+
+export class ShiftRosterPeriodListResponseDto {
+  @ApiProperty({ isArray: true, type: Object })
+  data!: unknown[];
+
+  @ApiProperty({ type: Object })
+  meta!: unknown;
+
+  @ApiProperty({ type: ShiftRosterSummaryDto })
+  summary!: ShiftRosterSummaryDto;
+}
+
+export class ShiftRosterEmployeeUserDto {
+  @ApiPropertyOptional({ nullable: true })
+  firstName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  lastName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  email?: string | null;
+}
+
+export class ShiftRosterOrgUnitDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  name!: string;
+}
+
+export class ShiftRosterDayEmployeeDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  employeeCode!: string;
+
+  @ApiProperty()
+  displayName!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  firstName?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  lastName?: string | null;
+
+  @ApiPropertyOptional({ type: ShiftRosterEmployeeUserDto, nullable: true })
+  user?: ShiftRosterEmployeeUserDto | null;
+
+  @ApiPropertyOptional({ type: ShiftRosterOrgUnitDto, nullable: true })
+  department?: ShiftRosterOrgUnitDto | null;
+
+  @ApiPropertyOptional({ type: ShiftRosterOrgUnitDto, nullable: true })
+  designation?: ShiftRosterOrgUnitDto | null;
+}
+
+export class ShiftRosterDayShiftDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty()
+  code!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  startTime!: string;
+
+  @ApiProperty()
+  endTime!: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  timezone?: string | null;
+}
+
+export class ShiftRosterDayResponseDto {
+  @ApiProperty({ format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ format: 'uuid' })
+  employeeId!: string;
+
+  @ApiProperty({ format: 'date' })
+  workDate!: string;
+
+  @ApiProperty({ enum: RosterDayType })
+  dayType!: RosterDayType;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  shiftId?: string | null;
+
+  @ApiProperty({ enum: RosterDaySource })
+  source!: RosterDaySource;
+
+  @ApiPropertyOptional({ nullable: true })
+  notes?: string | null;
+
+  @ApiPropertyOptional({ type: ShiftRosterDayEmployeeDto, nullable: true })
+  employee?: ShiftRosterDayEmployeeDto | null;
+
+  @ApiPropertyOptional({ type: ShiftRosterDayShiftDto, nullable: true })
+  shift?: ShiftRosterDayShiftDto | null;
+
+  @ApiProperty()
+  createdAt!: string;
+
+  @ApiProperty()
+  updatedAt!: string;
+}
+
+export class ShiftRosterDayListResponseDto {
+  @ApiProperty({ isArray: true, type: ShiftRosterDayResponseDto })
+  data!: ShiftRosterDayResponseDto[];
+
+  @ApiProperty({ type: Object })
+  meta!: unknown;
+}
 export class UpsertShiftRosterDayDto {
   @ApiProperty({ format: 'uuid' })
   @IsUUID()
@@ -152,6 +293,11 @@ export class ShiftRosterDayQueryDto extends PaginationQueryDto {
   @IsISO8601({ strict: true })
   @IsOptional()
   dateTo?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
 }
 
 export class ResolveDayQueryDto {
@@ -322,4 +468,7 @@ export class RosterPreviewResponseDto {
 
   @ApiProperty({ type: SchedulingValidationIssueDto, isArray: true })
   warnings!: SchedulingValidationIssueDto[];
+
+  @ApiPropertyOptional({ type: SchedulingValidationIssueDto, isArray: true })
+  info?: SchedulingValidationIssueDto[];
 }

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Box,
   Card,
   CardContent,
@@ -62,11 +62,14 @@ export function EnterpriseFilterCard({
         borderRadius: 3,
         boxShadow: '0 12px 32px rgba(15, 23, 42, 0.05)',
         opacity: disabled ? 0.72 : 1,
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
       }}
       aria-busy={loading}
     >
-      <CardContent sx={{ p: { xs: 2, md: 2.5 }, '&:last-child': { pb: { xs: 1.75, md: 2.25 } } }}>
-        <Stack gap={1.75}>
+      <CardContent sx={{ p: { xs: 2, md: 2.5 }, minWidth: 0, '&:last-child': { pb: { xs: 1.75, md: 2.25 } } }}>
+        <Stack gap={1.75} sx={{ minWidth: 0 }}>
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             justifyContent="space-between"
@@ -102,7 +105,7 @@ export function EnterpriseFilterCard({
             {actions ? <EnterpriseFilterActions>{actions}</EnterpriseFilterActions> : null}
           </Stack>
 
-          {search ? <Box>{search}</Box> : null}
+          {search ? <Box sx={{ minWidth: 0 }}>{search}</Box> : null}
           {filters ? <EnterpriseFilterGrid>{filters}</EnterpriseFilterGrid> : null}
 
           {advancedFilters ? (
@@ -146,6 +149,9 @@ export function EnterpriseFilterGrid({ children }: { children: ReactNode }) {
     <Box
       sx={{
         display: 'grid',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
         gridTemplateColumns: {
           xs: '1fr',
           sm: 'repeat(2, minmax(0, 1fr))',

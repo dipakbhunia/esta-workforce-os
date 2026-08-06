@@ -14,18 +14,38 @@ import {
   UpsertShiftRosterDayDto,
 } from './dto/scheduling.dto';
 
+const EXPORT_LIMIT = 10000;
+
+const rosterDayInclude = {
+  employee: {
+    select: {
+      id: true,
+      employeeCode: true,
+      user: { select: { firstName: true, lastName: true, email: true } },
+      department: { select: { id: true, name: true } },
+      designation: { select: { id: true, name: true } },
+    },
+  },
+  shift: { select: { id: true, name: true, code: true, startTime: true, endTime: true, timezone: true } },
+} satisfies Prisma.ShiftRosterDayInclude;
+
 const rosterInclude = {
   branch: { select: { id: true, name: true, code: true } },
   department: { select: { id: true, name: true, code: true } },
   days: {
     where: { deletedAt: null },
-    include: {
-      employee: { select: { id: true, employeeCode: true, user: { select: { firstName: true, lastName: true, email: true } } } },
-      shift: { select: { id: true, name: true, code: true, startTime: true, endTime: true, timezone: true } },
-    },
+    include: rosterDayInclude,
     orderBy: [{ workDate: 'asc' as const }],
   },
 };
+
+const rosterExportInclude = {
+  branch: { select: { id: true, name: true, code: true } },
+  department: { select: { id: true, name: true, code: true } },
+} satisfies Prisma.ShiftRosterPeriodInclude;
+
+type RosterDayWithRelations = Prisma.ShiftRosterDayGetPayload<{ include: typeof rosterDayInclude }>;
+type RosterPeriodForExport = Prisma.ShiftRosterPeriodGetPayload<{ include: typeof rosterExportInclude }>;
 
 @Injectable()
 export class ShiftRostersService {
@@ -59,34 +79,47 @@ export class ShiftRostersService {
 
   async findAll(query: ShiftRosterPeriodQueryDto, actor: AuthenticatedUser) {
     const companyId = requireTenantId(actor);
-    const where: Prisma.ShiftRosterPeriodWhereInput = {
-      companyId,
-      deletedAt: null,
-      ...(query.status ? { status: query.status } : {}),
-      ...(query.branchId ? { branchId: query.branchId } : {}),
-      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
-      ...(query.dateFrom || query.dateTo
-        ? {
-            AND: [
-              query.dateFrom ? { dateTo: { gte: dateOnly(query.dateFrom) } } : {},
-              query.dateTo ? { dateFrom: { lte: dateOnly(query.dateTo) } } : {},
-            ],
-          }
-        : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-    const [data, total] = await this.prisma.$transaction([
+    const summaryWhere = this.rosterPeriodWhere(companyId, query, false);
+    const where = this.rosterPeriodWhere(companyId, query, true);
+    const [data, total, groupedSummary] = await this.prisma.$transaction([
       this.prisma.shiftRosterPeriod.findMany({ where, include: rosterInclude, ...paginationArgs(query), orderBy: [{ dateFrom: 'desc' }, { createdAt: 'desc' }] }),
       this.prisma.shiftRosterPeriod.count({ where }),
+      this.prisma.shiftRosterPeriod.groupBy({ by: ['status'], where: summaryWhere, _count: { _all: true }, orderBy: { status: 'asc' } }),
     ]);
-    return paginatedResult(data, total, query);
+    return { ...paginatedResult(data, total, query), summary: this.statusSummary(groupedSummary) };
+  }
+
+  async exportRosters(query: ShiftRosterPeriodQueryDto, actor: AuthenticatedUser) {
+    const companyId = requireTenantId(actor);
+    const where = this.rosterPeriodWhere(companyId, query, true);
+    const total = await this.prisma.shiftRosterPeriod.count({ where });
+    this.assertExportLimit(total, 'roster periods');
+    const rows = await this.prisma.shiftRosterPeriod.findMany({
+      where,
+      include: rosterExportInclude,
+      orderBy: [{ dateFrom: 'desc' }, { createdAt: 'desc' }],
+      take: EXPORT_LIMIT,
+    });
+    return this.csvDownload(`shift-rosters-${this.todayForFilename()}.csv`, [
+      [
+        'Roster Name',
+        'Roster Code',
+        'Scope',
+        'Branch',
+        'Department',
+        'Date From',
+        'Date To',
+        'Duration Days',
+        'Timezone',
+        'Version',
+        'Status',
+        'Coverage',
+        'Published At',
+        'Locked At',
+        'Created At',
+      ],
+      ...rows.map((roster) => this.rosterExportRow(roster)),
+    ]);
   }
 
   async findOne(id: string, actor: AuthenticatedUser) {
@@ -123,21 +156,45 @@ export class ShiftRostersService {
   async days(periodId: string, query: ShiftRosterDayQueryDto, actor: AuthenticatedUser) {
     const companyId = requireTenantId(actor);
     await this.requireRoster(periodId, companyId, false);
-    const where: Prisma.ShiftRosterDayWhereInput = {
-      companyId,
-      rosterPeriodId: periodId,
-      deletedAt: null,
-      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
-      ...(query.dayType ? { dayType: query.dayType } : {}),
-      ...(query.dateFrom || query.dateTo
-        ? { workDate: { ...(query.dateFrom ? { gte: dateOnly(query.dateFrom) } : {}), ...(query.dateTo ? { lte: dateOnly(query.dateTo) } : {}) } }
-        : {}),
-    };
+    const where = this.rosterDayWhere(companyId, periodId, query);
     const [data, total] = await this.prisma.$transaction([
-      this.prisma.shiftRosterDay.findMany({ where, include: { employee: true, shift: true }, ...paginationArgs(query), orderBy: [{ workDate: 'asc' }, { createdAt: 'asc' }] }),
+      this.prisma.shiftRosterDay.findMany({ where, include: rosterDayInclude, ...paginationArgs(query), orderBy: [{ workDate: 'asc' }, { createdAt: 'asc' }] }),
       this.prisma.shiftRosterDay.count({ where }),
     ]);
-    return paginatedResult(data, total, query);
+    return paginatedResult(data.map((day) => this.toRosterDayResponse(day)), total, query);
+  }
+
+  async exportRosterDays(periodId: string, query: ShiftRosterDayQueryDto, actor: AuthenticatedUser) {
+    const companyId = requireTenantId(actor);
+    const roster = await this.requireRoster(periodId, companyId, false);
+    const where = this.rosterDayWhere(companyId, periodId, query);
+    const total = await this.prisma.shiftRosterDay.count({ where });
+    this.assertExportLimit(total, 'roster days');
+    const rows = await this.prisma.shiftRosterDay.findMany({
+      where,
+      include: rosterDayInclude,
+      orderBy: [{ workDate: 'asc' }, { employee: { employeeCode: 'asc' } }, { createdAt: 'asc' }],
+      take: EXPORT_LIMIT,
+    });
+    const safeCode = roster.code.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'roster';
+    return this.csvDownload(`shift-roster-days-${safeCode}-${this.todayForFilename()}.csv`, [
+      [
+        'Employee Name',
+        'Employee Code',
+        'Department',
+        'Designation',
+        'Work Date',
+        'Day Type',
+        'Shift Name',
+        'Shift Code',
+        'Scheduled Start',
+        'Scheduled End',
+        'Timezone',
+        'Source',
+        'Notes',
+      ],
+      ...rows.map((day) => this.rosterDayExportRow(this.toRosterDayResponse(day))),
+    ]);
   }
 
   async upsertDay(periodId: string, dto: UpsertShiftRosterDayDto, actor: AuthenticatedUser) {
@@ -159,10 +216,10 @@ export class ShiftRostersService {
       updatedById: actor.id,
     } satisfies Prisma.ShiftRosterDayUncheckedCreateInput | Prisma.ShiftRosterDayUncheckedUpdateInput;
     const day = existing
-      ? await this.prisma.shiftRosterDay.update({ where: { id: existing.id }, data, include: { employee: true, shift: true } })
-      : await this.prisma.shiftRosterDay.create({ data: { ...data, createdById: actor.id } as Prisma.ShiftRosterDayUncheckedCreateInput, include: { employee: true, shift: true } });
+      ? await this.prisma.shiftRosterDay.update({ where: { id: existing.id }, data, include: rosterDayInclude })
+      : await this.prisma.shiftRosterDay.create({ data: { ...data, createdById: actor.id } as Prisma.ShiftRosterDayUncheckedCreateInput, include: rosterDayInclude });
     await this.audit(companyId, actor.id, existing ? 'SHIFT_ROSTER_DAY_UPDATED' : 'SHIFT_ROSTER_DAY_CREATED', day.id, { periodId });
-    return day;
+    return this.toRosterDayResponse(day);
   }
 
   async bulkUpsertDays(periodId: string, dto: BulkUpsertShiftRosterDaysDto, actor: AuthenticatedUser) {
@@ -213,7 +270,7 @@ export class ShiftRostersService {
       errors.push({ path: 'days', message: 'Published roster conflicts exist for one or more employee dates.' });
     }
     await this.audit(companyId, actor.id, 'SHIFT_ROSTER_PREVIEWED', roster.id, { errors: errors.length, warnings: warnings.length });
-    return { valid: errors.length === 0, errors, warnings };
+    return { valid: errors.length === 0, errors, warnings, info: [] };
   }
 
   async publish(periodId: string, actor: AuthenticatedUser) {
@@ -244,6 +301,178 @@ export class ShiftRostersService {
     });
     await this.audit(companyId, actor.id, 'SHIFT_ROSTER_LOCKED', periodId, {});
     return locked;
+  }
+
+  private rosterPeriodWhere(companyId: string, query: ShiftRosterPeriodQueryDto, includeStatus: boolean): Prisma.ShiftRosterPeriodWhereInput {
+    return {
+      companyId,
+      deletedAt: null,
+      ...(includeStatus && query.status ? { status: query.status } : {}),
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      ...(query.dateFrom || query.dateTo
+        ? {
+            AND: [
+              query.dateFrom ? { dateTo: { gte: dateOnly(query.dateFrom) } } : {},
+              query.dateTo ? { dateFrom: { lte: dateOnly(query.dateTo) } } : {},
+            ],
+          }
+        : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { name: { contains: query.search, mode: 'insensitive' } },
+              { code: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  private rosterDayWhere(companyId: string, periodId: string, query: ShiftRosterDayQueryDto): Prisma.ShiftRosterDayWhereInput {
+    return {
+      companyId,
+      rosterPeriodId: periodId,
+      deletedAt: null,
+      ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+      ...(query.dayType ? { dayType: query.dayType } : {}),
+      ...(query.dateFrom || query.dateTo
+        ? { workDate: { ...(query.dateFrom ? { gte: dateOnly(query.dateFrom) } : {}), ...(query.dateTo ? { lte: dateOnly(query.dateTo) } : {}) } }
+        : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { employee: { employeeCode: { contains: query.search, mode: 'insensitive' } } },
+              { employee: { user: { firstName: { contains: query.search, mode: 'insensitive' } } } },
+              { employee: { user: { lastName: { contains: query.search, mode: 'insensitive' } } } },
+              { employee: { user: { email: { contains: query.search, mode: 'insensitive' } } } },
+              { shift: { name: { contains: query.search, mode: 'insensitive' } } },
+              { shift: { code: { contains: query.search, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  private statusSummary(rows: Array<{ status: ShiftRosterStatus; _count?: { _all?: number } | true }>) {
+    const summary = { total: 0, draft: 0, published: 0, locked: 0, cancelled: 0 };
+    for (const row of rows) {
+      const count = typeof row._count === 'object' ? row._count._all ?? 0 : 0;
+      summary.total += count;
+      if (row.status === ShiftRosterStatus.DRAFT) summary.draft = count;
+      if (row.status === ShiftRosterStatus.PUBLISHED) summary.published = count;
+      if (row.status === ShiftRosterStatus.LOCKED) summary.locked = count;
+      if (row.status === ShiftRosterStatus.CANCELLED) summary.cancelled = count;
+    }
+    return summary;
+  }
+
+  private toRosterDayResponse(day: RosterDayWithRelations) {
+    const firstName = day.employee.user?.firstName ?? null;
+    const lastName = day.employee.user?.lastName ?? null;
+    const displayName = [firstName, lastName].filter(Boolean).join(' ').trim() || day.employee.employeeCode || 'Employee unavailable';
+    return {
+      ...day,
+      employee: {
+        id: day.employee.id,
+        employeeCode: day.employee.employeeCode,
+        displayName,
+        firstName,
+        lastName,
+        user: day.employee.user,
+        department: day.employee.department,
+        designation: day.employee.designation,
+      },
+      shift: day.shift,
+    };
+  }
+
+  private rosterExportRow(roster: RosterPeriodForExport) {
+    const durationDays = this.durationDays(roster.dateFrom, roster.dateTo);
+    return [
+      roster.name,
+      roster.code,
+      this.scopeLabel(roster),
+      roster.branch?.name ?? '',
+      roster.department?.name ?? '',
+      this.formatDate(roster.dateFrom),
+      this.formatDate(roster.dateTo),
+      durationDays ? String(durationDays) : '',
+      roster.timezone,
+      `v${roster.version}`,
+      roster.status,
+      'Not available',
+      this.formatDateTime(roster.publishedAt),
+      this.formatDateTime(roster.lockedAt),
+      this.formatDateTime(roster.createdAt),
+    ];
+  }
+
+  private rosterDayExportRow(day: ReturnType<ShiftRostersService['toRosterDayResponse']>) {
+    const shift = day.shift;
+    return [
+      day.employee.displayName,
+      day.employee.employeeCode,
+      day.employee.department?.name ?? '',
+      day.employee.designation?.name ?? '',
+      this.formatDate(day.workDate),
+      day.dayType,
+      shift?.name ?? day.shiftName ?? '',
+      shift?.code ?? day.shiftCode ?? '',
+      this.formatDateTime(day.scheduledStartAt),
+      this.formatDateTime(day.scheduledEndAt),
+      shift?.timezone ?? day.shiftTimezone ?? '',
+      day.source,
+      day.notes ?? '',
+    ];
+  }
+
+  private csvDownload(filename: string, rows: Array<Array<string | number | null | undefined>>) {
+    const csv = rows.map((row) => row.map((value) => this.csvCell(value)).join(',')).join('\r\n');
+    return { filename, contentType: 'text/csv; charset=utf-8', buffer: Buffer.from(`\uFEFF${csv}\r\n`, 'utf8') };
+  }
+
+  private csvCell(value: string | number | null | undefined) {
+    const raw = String(value ?? '');
+    const protectedValue = /^[=+\-@]/.test(raw.trimStart()) ? `'${raw}` : raw;
+    return `"${protectedValue.replace(/"/g, '""')}"`;
+  }
+
+  private assertExportLimit(total: number, label: string) {
+    if (total > EXPORT_LIMIT) {
+      throw new BadRequestException(`Export is limited to ${EXPORT_LIMIT.toLocaleString()} ${label}. Narrow filters and try again.`);
+    }
+  }
+
+  private scopeLabel(roster: Pick<RosterPeriodForExport, 'branch' | 'department'>) {
+    if (roster.branch?.name && roster.department?.name) return `${roster.branch.name} / ${roster.department.name}`;
+    if (roster.department?.name) return roster.department.name;
+    if (roster.branch?.name) return roster.branch.name;
+    return 'Company-wide';
+  }
+
+  private durationDays(from: Date, to: Date) {
+    const start = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+    const end = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+    return Math.max(0, Math.round((end - start) / 86400000) + 1);
+  }
+
+  private formatDate(value?: Date | string | null) {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    return date.toISOString().slice(0, 10);
+  }
+
+  private formatDateTime(value?: Date | string | null) {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toISOString();
+  }
+
+  private todayForFilename() {
+    return new Date().toISOString().slice(0, 10);
   }
 
   private async requireRoster(id: string, companyId: string, include = true) {
@@ -286,4 +515,3 @@ export class ShiftRostersService {
     await this.prisma.auditLog.create({ data: { companyId, actorUserId, action, entityType: 'ShiftRoster', entityId, metadata } });
   }
 }
-

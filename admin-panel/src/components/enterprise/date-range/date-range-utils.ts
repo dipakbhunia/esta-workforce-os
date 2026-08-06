@@ -16,6 +16,11 @@ export interface DateRangeValue {
   dateTo: string;
 }
 
+export interface EnterpriseDateRangeValue {
+  startDate: string | null;
+  endDate: string | null;
+}
+
 export const dateRangePresetLabels: Record<DateRangePreset, string> = {
   today: 'Today',
   yesterday: 'Yesterday',
@@ -43,59 +48,52 @@ export const dateRangePresets: DateRangePreset[] = [
 ];
 
 export function createDateRangeValue(preset: DateRangePreset, today = new Date()): DateRangeValue {
-  if (preset === 'customRange') {
-    return { preset, dateFrom: '', dateTo: '' };
-  }
+  if (preset === 'customRange') return { preset, dateFrom: '', dateTo: '' };
+  return { preset, ...resolvePresetRange(preset, today) };
+}
 
-  const { dateFrom, dateTo } = resolvePresetRange(preset, today);
-  return { preset, dateFrom, dateTo };
+export function createCustomDateRangeValue(dateFrom?: string | null, dateTo?: string | null): DateRangeValue {
+  return { preset: 'customRange', dateFrom: dateFrom ?? '', dateTo: dateTo ?? '' };
 }
 
 export function resolvePresetRange(preset: Exclude<DateRangePreset, 'customRange'>, today = new Date()) {
   const current = startOfDay(today);
 
   switch (preset) {
-    case 'today':
-      return toRange(current, current);
+    case 'today': return toRange(current, current);
     case 'yesterday': {
       const yesterday = addDays(current, -1);
       return toRange(yesterday, yesterday);
     }
-    case 'currentWeek':
-      return toRange(startOfWeek(current), addDays(startOfWeek(current), 6));
+    case 'currentWeek': return toRange(startOfWeek(current), addDays(startOfWeek(current), 6));
     case 'previousWeek': {
       const start = addDays(startOfWeek(current), -7);
       return toRange(start, addDays(start, 6));
     }
-    case 'currentMonth':
-      return toRange(startOfMonth(current), endOfMonth(current));
+    case 'currentMonth': return toRange(startOfMonth(current), endOfMonth(current));
     case 'previousMonth': {
       const previousMonth = addMonths(current, -1);
       return toRange(startOfMonth(previousMonth), endOfMonth(previousMonth));
     }
-    case 'last7Days':
-      return toRange(addDays(current, -6), current);
-    case 'last30Days':
-      return toRange(addDays(current, -29), current);
-    case 'last90Days':
-      return toRange(addDays(current, -89), current);
+    case 'last7Days': return toRange(addDays(current, -6), current);
+    case 'last30Days': return toRange(addDays(current, -29), current);
+    case 'last90Days': return toRange(addDays(current, -89), current);
   }
 }
 
 export function formatDateRangeDisplay(value: DateRangeValue) {
-  if (value.preset !== 'customRange' && value.dateFrom && value.dateTo) {
-    return dateRangePresetLabels[value.preset];
-  }
-
-  if (value.dateFrom && value.dateTo) {
-    return `${value.dateFrom} → ${value.dateTo}`;
-  }
-
-  if (value.dateFrom) {
-    return `${value.dateFrom} → Select end date`;
-  }
-
+  if (value.preset !== 'customRange' && value.dateFrom && value.dateTo) return dateRangePresetLabels[value.preset];
+  if (value.dateFrom && value.dateTo) return `${value.dateFrom} → ${value.dateTo}`;
+  if (value.dateFrom) return `${value.dateFrom} → Select end date`;
   return 'Select date range';
+}
+
+export function formatDateRangeChip(value: EnterpriseDateRangeValue | DateRangeValue) {
+  const dateFrom = 'dateFrom' in value ? value.dateFrom : value.startDate ?? '';
+  const dateTo = 'dateTo' in value ? value.dateTo : value.endDate ?? '';
+  if (!dateFrom || !dateTo) return 'Date range';
+  const start = formatShortDate(dateFrom, dateFrom.slice(0, 4) === dateTo.slice(0, 4));
+  return `${start} – ${formatShortDate(dateTo, false)}`;
 }
 
 export function parseDateOnly(value: string) {
@@ -122,6 +120,11 @@ export function isWithinRange(date: Date, dateFrom: string, dateTo: string) {
   if (!from || !to) return false;
   const value = startOfDay(date).getTime();
   return value >= from.getTime() && value <= to.getTime();
+}
+
+export function isValidDateRange(value: DateRangeValue) {
+  if (!value.dateFrom || !value.dateTo) return false;
+  return value.dateTo >= value.dateFrom;
 }
 
 export function addDays(date: Date, days: number) {
@@ -156,8 +159,11 @@ export function startOfWeek(date: Date) {
 }
 
 function toRange(dateFrom: Date, dateTo: Date) {
-  return {
-    dateFrom: formatDateOnly(dateFrom),
-    dateTo: formatDateOnly(dateTo),
-  };
+  return { dateFrom: formatDateOnly(dateFrom), dateTo: formatDateOnly(dateTo) };
+}
+
+function formatShortDate(value: string, omitYear: boolean) {
+  const date = parseDateOnly(value);
+  if (!date) return value;
+  return new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', ...(omitYear ? {} : { year: 'numeric' }) }).format(date);
 }

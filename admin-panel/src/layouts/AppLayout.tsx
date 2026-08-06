@@ -16,9 +16,16 @@ export function AppLayout() {
       <Drawer open={mobileOpen} onClose={() => setMobileOpen(false)} sx={{ display: { lg: 'none' } }}>
         <Sidebar collapsed={false} onToggle={() => setMobileOpen(false)} onNavigate={() => setMobileOpen(false)} />
       </Drawer>
-      <Box sx={{ ml: { xs: 0, lg: `${sidebarWidth}px` }, transition: 'margin-left 180ms ease' }}>
+      <Box
+        sx={{
+          ml: { xs: 0, lg: `${sidebarWidth}px` },
+          width: { xs: '100%', lg: `calc(100% - ${sidebarWidth}px)` },
+          minWidth: 0,
+          transition: 'margin-left 180ms ease, width 180ms ease',
+        }}
+      >
         <Header onOpenMobileSidebar={() => setMobileOpen(true)} />
-        <Box component="main" sx={{ p: { xs: 2, md: 3 }, maxWidth: 1680, mx: 'auto' }}>
+        <Box component="main" sx={{ p: { xs: 2, md: 3 }, width: '100%', maxWidth: 1680, minWidth: 0, mx: 'auto' }}>
           <Outlet />
         </Box>
       </Box>

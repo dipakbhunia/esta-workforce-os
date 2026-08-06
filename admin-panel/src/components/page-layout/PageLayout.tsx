@@ -8,6 +8,7 @@ export function PageLayout({ children }: { children: ReactNode }) {
       sx={{
         width: '100%',
         maxWidth: '1680px',
+        minWidth: 0,
         mx: 'auto',
       }}
     >

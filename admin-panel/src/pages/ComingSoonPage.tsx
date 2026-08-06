@@ -15,7 +15,6 @@ const pageTitles: Record<string, ComingSoonPageProps> = {
   '/organization/teams': { moduleName: 'Organization', title: 'Teams', description: 'Team grouping will be introduced after department and reporting-line workflows are finalized.', plannedPhase: 'Organization Expansion' },
   '/organization/work-locations': { moduleName: 'Organization', title: 'Work Locations', description: 'Office and field work locations will be connected in a future organization phase.', plannedPhase: 'Organization Expansion' },
   '/scheduling/shift-assignments': { moduleName: 'Scheduling', title: 'Shift Assignments', description: 'Employee-to-shift assignment workflows are reserved for the scheduling expansion phase.', plannedPhase: 'Scheduling' },
-  '/scheduling/shift-roster': { moduleName: 'Scheduling', title: 'Shift Roster', description: 'Roster planning will be added after shift assignment APIs are ready.', plannedPhase: 'Scheduling' },
   '/scheduling/weekly-off-rules': { moduleName: 'Scheduling', title: 'Weekly Off Rules', description: 'Weekly off rules will be configured after the scheduling policy layer is introduced.', plannedPhase: 'Scheduling' },
   '/scheduling/holiday-calendar': { moduleName: 'Scheduling', title: 'Holiday Calendar', description: 'Holiday calendar management will be added after scheduling policy workflows.', plannedPhase: 'Scheduling' },
   '/employees/documents': { moduleName: 'Employees', title: 'Employee Documents', description: 'Document tracking is reserved for the employee records expansion phase.', plannedPhase: 'Employee Lifecycle' },
