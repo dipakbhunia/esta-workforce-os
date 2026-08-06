@@ -9,16 +9,17 @@ interface DataTableProps {
   columns: GridColDef[];
   searchPlaceholder?: string;
   toolbar?: ReactNode;
+  showSearch?: boolean;
   gridProps?: Partial<DataGridProps>;
 }
 
-export function DataTable({ title, rows, columns, searchPlaceholder = 'Search records', toolbar, gridProps }: DataTableProps) {
+export function DataTable({ title, rows, columns, searchPlaceholder = 'Search records', toolbar, showSearch = true, gridProps }: DataTableProps) {
   return (
     <Card sx={{ overflow: 'hidden' }}>
       <CardContent sx={{ pb: 1.5 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
           <Typography variant="h4">{title}</Typography>
-          {toolbar ?? <SearchBox placeholder={searchPlaceholder} />}
+          {toolbar ?? (showSearch ? <SearchBox placeholder={searchPlaceholder} /> : null)}
         </Stack>
       </CardContent>
       <DataGrid
