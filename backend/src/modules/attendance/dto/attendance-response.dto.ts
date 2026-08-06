@@ -4,6 +4,8 @@ import {
   AttendanceCloseSource,
   AttendanceLogType,
   AttendanceStatus,
+  RosterDaySource,
+  RosterDayType,
 } from '@prisma/client';
 
 export class AttendanceUserDto {
@@ -156,6 +158,33 @@ export class AttendanceResponseDto {
 
   @ApiPropertyOptional({ format: 'uuid', nullable: true })
   shiftAssignmentId!: string | null;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  rosterPeriodId!: string | null;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  rosterDayId!: string | null;
+
+  @ApiPropertyOptional({ enum: RosterDaySource, nullable: true })
+  rosterSource!: RosterDaySource | null;
+
+  @ApiPropertyOptional({ enum: RosterDayType, nullable: true })
+  dayType!: RosterDayType | null;
+
+  @ApiProperty()
+  isWeeklyOff!: boolean;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  weeklyOffRuleId!: string | null;
+
+  @ApiProperty()
+  isHoliday!: boolean;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  holidayId!: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  holidayName!: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   shiftName!: string | null;

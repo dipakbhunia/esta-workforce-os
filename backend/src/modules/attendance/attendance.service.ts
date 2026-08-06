@@ -119,18 +119,18 @@ export class AttendanceService {
     const employee = await this.ownActiveEmployee(actor);
     const policy = await this.activeAttendancePolicy(employee.companyId);
     const now = new Date();
-    const effectiveShift = await this.shiftResolution.resolveForTimestamp({
+    const plannedDay = await this.shiftResolution.resolvePlannedDayForTimestamp({
       companyId: employee.companyId,
       employeeId: employee.id,
       timestamp: now,
     });
-    if (!effectiveShift) {
+    if (!plannedDay.shift) {
       throw new BadRequestException(
-        'No active shift assignment or default shift is configured for this employee.',
+        'No active shift, roster, assignment, or default shift is configured for this employee.',
       );
     }
-    const shift = effectiveShift.shift;
-    const key = dateKey(
+    const shift = plannedDay.shift;
+    const key = plannedDay.workDate || dateKey(
       now,
       shift.timezone,
       policy.attendanceDayStartTime,
@@ -164,17 +164,19 @@ export class AttendanceService {
       }
     }
 
-    const shiftStart = zonedDateTimeToUtc(
+    const shiftStart = plannedDay.scheduledStartAt ?? zonedDateTimeToUtc(
       key,
       shift.startTime,
       shift.timezone,
     );
-    const shiftWindow = this.timeBoundary.resolveShiftWindow({
+    const fallbackShiftWindow = this.timeBoundary.resolveShiftWindow({
       workDate: key,
       startTime: shift.startTime,
       endTime: shift.endTime,
       timezone: shift.timezone,
     });
+    const scheduledStartAt = plannedDay.scheduledStartAt ?? fallbackShiftWindow.scheduledStartAt;
+    const scheduledEndAt = plannedDay.scheduledEndAt ?? fallbackShiftWindow.scheduledEndAt;
     const lateMinutes = Math.max(
       0,
       Math.floor((now.getTime() - shiftStart.getTime()) / 60000) - 15,
@@ -195,14 +197,23 @@ export class AttendanceService {
           shift.endTime,
         ),
         shiftId: shift.id,
-        shiftAssignmentId: effectiveShift.assignmentId,
+        shiftAssignmentId: plannedDay.assignmentId,
         shiftName: shift.name,
         shiftCode: shift.code,
         shiftStartTime: shift.startTime,
         shiftEndTime: shift.endTime,
         shiftTimezone: shift.timezone,
-        scheduledStartAt: shiftWindow.scheduledStartAt,
-        scheduledEndAt: shiftWindow.scheduledEndAt,
+        rosterPeriodId: plannedDay.rosterPeriodId,
+        rosterDayId: plannedDay.rosterDayId,
+        rosterSource: plannedDay.rosterSource,
+        dayType: plannedDay.dayType,
+        isWeeklyOff: plannedDay.isWeeklyOff,
+        weeklyOffRuleId: plannedDay.weeklyOffRuleId,
+        isHoliday: plannedDay.isHoliday,
+        holidayId: plannedDay.holidayId,
+        holidayName: plannedDay.holidayName,
+        scheduledStartAt,
+        scheduledEndAt,
         notes: dto.note?.trim(),
         logs: {
           create: {
@@ -890,6 +901,15 @@ export class AttendanceService {
       expectedMinutes: attendance.expectedMinutes,
       shiftId: attendance.shiftId,
       shiftAssignmentId: attendance.shiftAssignmentId,
+      rosterPeriodId: attendance.rosterPeriodId,
+      rosterDayId: attendance.rosterDayId,
+      rosterSource: attendance.rosterSource,
+      dayType: attendance.dayType,
+      isWeeklyOff: attendance.isWeeklyOff,
+      weeklyOffRuleId: attendance.weeklyOffRuleId,
+      isHoliday: attendance.isHoliday,
+      holidayId: attendance.holidayId,
+      holidayName: attendance.holidayName,
       shiftName: attendance.shiftName,
       shiftCode: attendance.shiftCode,
       breakMinutes: attendance.breakMinutes,

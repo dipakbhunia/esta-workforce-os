@@ -204,6 +204,45 @@ enum AssignmentSource {
   IMPORT
 }
 
+enum ShiftRosterStatus {
+  DRAFT
+  PUBLISHED
+  LOCKED
+  CANCELLED
+}
+
+enum RosterDayType {
+  WORKING
+  WEEKLY_OFF
+  HOLIDAY
+  LEAVE
+  NO_SHIFT
+}
+
+enum RosterDaySource {
+  MANUAL
+  SHIFT_ASSIGNMENT
+  TEMPLATE
+  ROTATION
+  WEEKLY_OFF_RULE
+  HOLIDAY_CALENDAR
+  SYSTEM
+  IMPORT
+  MANUAL_OVERRIDE
+}
+
+enum WeeklyOffRuleType {
+  FIXED_WEEKDAYS
+}
+
+enum HolidayType {
+  NATIONAL
+  REGIONAL
+  COMPANY
+  OPTIONAL
+  CUSTOM
+}
+
 model Company {
   id                 String             @id @default(uuid()) @db.Uuid
   name               String
@@ -219,6 +258,11 @@ model Company {
   users              User[]
   employees          Employee[]
   shiftAssignments   EmployeeShiftAssignment[]
+  shiftRosterPeriods ShiftRosterPeriod[]
+  shiftRosterDays    ShiftRosterDay[]
+  weeklyOffRules     WeeklyOffRule[]
+  holidayCalendars   HolidayCalendar[]
+  holidays           Holiday[]
   attendances        Attendance[]
   attendanceCorrectionRequests AttendanceCorrectionRequest[]
   leaveTypes         LeaveType[]
@@ -261,6 +305,9 @@ model Branch {
   departments Department[]
   users       User[]
   employees   Employee[]
+  shiftRosterPeriods ShiftRosterPeriod[]
+  weeklyOffRules WeeklyOffRule[]
+  holidayCalendars HolidayCalendar[]
 
     monitoringAlertPolicies MonitoringAlertPolicy[]
 
@@ -283,6 +330,8 @@ model Department {
   designations Designation[]
   users        User[]
   employees    Employee[]
+  shiftRosterPeriods ShiftRosterPeriod[]
+  weeklyOffRules WeeklyOffRule[]
 
     monitoringAlertPolicies MonitoringAlertPolicy[]
 
@@ -328,6 +377,7 @@ model Shift {
   employees Employee[]
   shiftAssignments EmployeeShiftAssignment[]
   attendanceSnapshots Attendance[] @relation("AttendanceShiftSnapshot")
+  rosterDays ShiftRosterDay[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -360,6 +410,18 @@ model User {
   auditLogs     AuditLog[]     @relation("AuditLogActor")
   createdShiftAssignments EmployeeShiftAssignment[] @relation("ShiftAssignmentCreator")
   updatedShiftAssignments EmployeeShiftAssignment[] @relation("ShiftAssignmentUpdater")
+  publishedShiftRosterPeriods ShiftRosterPeriod[] @relation("ShiftRosterPublishedBy")
+  lockedShiftRosterPeriods ShiftRosterPeriod[] @relation("ShiftRosterLockedBy")
+  createdShiftRosterPeriods ShiftRosterPeriod[] @relation("ShiftRosterCreatedBy")
+  updatedShiftRosterPeriods ShiftRosterPeriod[] @relation("ShiftRosterUpdatedBy")
+  createdShiftRosterDays ShiftRosterDay[] @relation("ShiftRosterDayCreatedBy")
+  updatedShiftRosterDays ShiftRosterDay[] @relation("ShiftRosterDayUpdatedBy")
+  createdWeeklyOffRules WeeklyOffRule[] @relation("WeeklyOffRuleCreatedBy")
+  updatedWeeklyOffRules WeeklyOffRule[] @relation("WeeklyOffRuleUpdatedBy")
+  createdHolidayCalendars HolidayCalendar[] @relation("HolidayCalendarCreatedBy")
+  updatedHolidayCalendars HolidayCalendar[] @relation("HolidayCalendarUpdatedBy")
+  createdHolidays Holiday[] @relation("HolidayCreatedBy")
+  updatedHolidays Holiday[] @relation("HolidayUpdatedBy")
   employee      Employee?
   requestedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequester")
   reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
@@ -417,6 +479,8 @@ model Employee {
   reportingManager             Employee?          @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
   directReports                Employee[]         @relation("EmployeeReporting")
   shiftAssignments             EmployeeShiftAssignment[]
+  rosterDays                   ShiftRosterDay[]
+  weeklyOffRules               WeeklyOffRule[]
   attendances                  Attendance[]
   attendanceCorrectionRequests AttendanceCorrectionRequest[]
   leaveRequests                LeaveRequest[]     @relation("LeaveRequestEmployee")
@@ -444,6 +508,169 @@ model Employee {
   @@index([deletedAt])
 }
 
+model ShiftRosterPeriod {
+  id            String            @id @default(uuid()) @db.Uuid
+  companyId     String            @db.Uuid
+  branchId      String?           @db.Uuid
+  departmentId  String?           @db.Uuid
+  name          String
+  code          String
+  dateFrom      DateTime          @db.Date
+  dateTo        DateTime          @db.Date
+  timezone      String            @default("UTC")
+  status        ShiftRosterStatus @default(DRAFT)
+  version       Int               @default(1)
+  publishedAt   DateTime?
+  publishedById String?           @db.Uuid
+  lockedAt      DateTime?
+  lockedById    String?           @db.Uuid
+  notes         String?
+  createdById   String?           @db.Uuid
+  updatedById   String?           @db.Uuid
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch        Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department    Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  publishedBy   User?             @relation("ShiftRosterPublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+  lockedBy      User?             @relation("ShiftRosterLockedBy", fields: [lockedById], references: [id], onDelete: SetNull)
+  createdBy     User?             @relation("ShiftRosterCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy     User?             @relation("ShiftRosterUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  days          ShiftRosterDay[]
+  attendances   Attendance[]      @relation("AttendanceRosterPeriodSnapshot")
+
+  @@index([companyId, dateFrom, dateTo])
+  @@index([companyId, status])
+  @@index([branchId, dateFrom, dateTo])
+  @@index([departmentId, dateFrom, dateTo])
+  @@index([deletedAt])
+}
+
+model ShiftRosterDay {
+  id                String          @id @default(uuid()) @db.Uuid
+  companyId         String          @db.Uuid
+  rosterPeriodId    String          @db.Uuid
+  employeeId        String          @db.Uuid
+  workDate          DateTime        @db.Date
+  dayType           RosterDayType
+  shiftId           String?         @db.Uuid
+  source            RosterDaySource @default(MANUAL)
+  shiftName         String?
+  shiftCode         String?
+  shiftStartTime    String?
+  shiftEndTime      String?
+  shiftTimezone     String?
+  scheduledStartAt  DateTime?
+  scheduledEndAt    DateTime?
+  notes             String?
+  createdById       String?         @db.Uuid
+  updatedById       String?         @db.Uuid
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rosterPeriod      ShiftRosterPeriod @relation(fields: [rosterPeriodId], references: [id], onDelete: Cascade)
+  employee          Employee        @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shift             Shift?          @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  createdBy         User?           @relation("ShiftRosterDayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy         User?           @relation("ShiftRosterDayUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  attendances       Attendance[]    @relation("AttendanceRosterDaySnapshot")
+
+  @@unique([companyId, employeeId, workDate, rosterPeriodId])
+  @@index([companyId, workDate])
+  @@index([employeeId, workDate])
+  @@index([rosterPeriodId])
+  @@index([shiftId])
+  @@index([dayType])
+  @@index([source])
+  @@index([deletedAt])
+}
+
+model WeeklyOffRule {
+  id                   String            @id @default(uuid()) @db.Uuid
+  companyId            String            @db.Uuid
+  branchId             String?           @db.Uuid
+  departmentId         String?           @db.Uuid
+  employeeId           String?           @db.Uuid
+  name                 String
+  timezone             String            @default("UTC")
+  ruleType             WeeklyOffRuleType @default(FIXED_WEEKDAYS)
+  weekdays             Json
+  alternateWeekPattern Json?
+  effectiveFrom        DateTime          @db.Date
+  effectiveTo          DateTime?         @db.Date
+  priority             Int               @default(100)
+  enabled              Boolean           @default(true)
+  createdById          String?           @db.Uuid
+  updatedById          String?           @db.Uuid
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  deletedAt            DateTime?
+  company              Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch               Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department           Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  employee             Employee?         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdBy            User?             @relation("WeeklyOffRuleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy            User?             @relation("WeeklyOffRuleUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  attendances          Attendance[]      @relation("AttendanceWeeklyOffSnapshot")
+
+  @@index([companyId, enabled, priority])
+  @@index([employeeId, effectiveFrom, effectiveTo])
+  @@index([departmentId, effectiveFrom, effectiveTo])
+  @@index([branchId, effectiveFrom, effectiveTo])
+  @@index([deletedAt])
+}
+
+model HolidayCalendar {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @db.Uuid
+  branchId    String?   @db.Uuid
+  name        String
+  timezone    String    @default("UTC")
+  enabled     Boolean   @default(true)
+  createdById String?   @db.Uuid
+  updatedById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch      Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdBy   User?     @relation("HolidayCalendarCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   User?     @relation("HolidayCalendarUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  holidays    Holiday[]
+
+  @@index([companyId, enabled])
+  @@index([branchId, enabled])
+  @@index([deletedAt])
+}
+
+model Holiday {
+  id          String       @id @default(uuid()) @db.Uuid
+  calendarId  String       @db.Uuid
+  companyId   String       @db.Uuid
+  date        DateTime     @db.Date
+  name        String
+  type        HolidayType  @default(COMPANY)
+  optional    Boolean      @default(false)
+  recurring   Boolean      @default(false)
+  notes       String?
+  createdById String?      @db.Uuid
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+  calendar    HolidayCalendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy   User?        @relation("HolidayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy   User?        @relation("HolidayUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  attendances Attendance[] @relation("AttendanceHolidaySnapshot")
+
+  @@unique([calendarId, date, name])
+  @@index([companyId, date])
+  @@index([calendarId, date])
+  @@index([deletedAt])
+}
 model EmployeeShiftAssignment {
   id             String                @id @default(uuid()) @db.Uuid
   companyId      String                @db.Uuid
@@ -513,6 +740,19 @@ model Attendance {
   employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   shift              Shift?           @relation("AttendanceShiftSnapshot", fields: [shiftId], references: [id], onDelete: SetNull)
   shiftAssignment    EmployeeShiftAssignment? @relation("AttendanceShiftAssignmentSnapshot", fields: [shiftAssignmentId], references: [id], onDelete: SetNull)
+  rosterPeriodId     String?          @db.Uuid
+  rosterDayId        String?          @db.Uuid
+  rosterSource       RosterDaySource?
+  dayType            RosterDayType?
+  isWeeklyOff        Boolean          @default(false)
+  weeklyOffRuleId    String?          @db.Uuid
+  isHoliday          Boolean          @default(false)
+  holidayId          String?          @db.Uuid
+  holidayName        String?
+  rosterPeriod       ShiftRosterPeriod? @relation("AttendanceRosterPeriodSnapshot", fields: [rosterPeriodId], references: [id], onDelete: SetNull)
+  rosterDay          ShiftRosterDay?    @relation("AttendanceRosterDaySnapshot", fields: [rosterDayId], references: [id], onDelete: SetNull)
+  weeklyOffRule      WeeklyOffRule?     @relation("AttendanceWeeklyOffSnapshot", fields: [weeklyOffRuleId], references: [id], onDelete: SetNull)
+  holiday            Holiday?           @relation("AttendanceHolidaySnapshot", fields: [holidayId], references: [id], onDelete: SetNull)
   logs               AttendanceLog[]
   breaks             BreakLog[]
   correctionRequests AttendanceCorrectionRequest[]
@@ -523,6 +763,11 @@ model Attendance {
   @@index([employeeId, workDate])
   @@index([shiftId])
   @@index([shiftAssignmentId])
+  @@index([rosterPeriodId])
+  @@index([rosterDayId])
+  @@index([weeklyOffRuleId])
+  @@index([holidayId])
+  @@index([dayType])
   @@index([status])
   @@index([punchOutAt])
   @@index([requiresReview])
