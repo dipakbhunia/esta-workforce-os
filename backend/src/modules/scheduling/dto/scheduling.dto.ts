@@ -378,11 +378,93 @@ export class CreateWeeklyOffRuleDto {
 
 export class UpdateWeeklyOffRuleDto extends PartialType(CreateWeeklyOffRuleDto) {}
 
+export class WeeklyOffRuleSummaryDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  active!: number;
+
+  @ApiProperty()
+  inactive!: number;
+
+  @ApiProperty()
+  companyScope!: number;
+
+  @ApiProperty()
+  branchScope!: number;
+
+  @ApiProperty()
+  departmentScope!: number;
+
+  @ApiProperty()
+  employeeScope!: number;
+}
+
+export class WeeklyOffRuleListResponseDto {
+  @ApiProperty({ isArray: true, type: Object })
+  data!: unknown[];
+
+  @ApiProperty({ type: Object })
+  meta!: unknown;
+
+  @ApiProperty({ type: WeeklyOffRuleSummaryDto })
+  summary!: WeeklyOffRuleSummaryDto;
+}
+
 export class WeeklyOffRuleQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional()
   @IsBoolean()
   @IsOptional()
   enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ['COMPANY', 'BRANCH', 'DEPARTMENT', 'EMPLOYEE'] })
+  @IsIn(['COMPANY', 'BRANCH', 'DEPARTMENT', 'EMPLOYEE'])
+  @IsOptional()
+  scope?: 'COMPANY' | 'BRANCH' | 'DEPARTMENT' | 'EMPLOYEE';
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  branchId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  employeeId?: string;
+
+  @ApiPropertyOptional({ enum: WeeklyOffRuleType })
+  @IsEnum(WeeklyOffRuleType)
+  @IsOptional()
+  ruleType?: WeeklyOffRuleType;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 6, description: 'Weekday as 0=Sunday through 6=Saturday.' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  @IsOptional()
+  day?: number;
+
+  @ApiPropertyOptional({ format: 'date' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  dateFrom?: string;
+
+  @ApiPropertyOptional({ format: 'date' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  dateTo?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
 }
 
 export class CreateHolidayCalendarDto {
