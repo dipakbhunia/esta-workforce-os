@@ -49,6 +49,8 @@ const explicitRoutePatterns: RoutePatternMeta[] = [
   { pattern: '/scheduling/holiday-calendar/:id/holidays/:holidayId/edit', title: 'Edit Holiday', breadcrumbs: ['Scheduling', 'Holiday Calendar', 'Edit Holiday'], moduleName: 'Scheduling', canonicalPath: '/scheduling/holiday-calendar/:id/holidays/:holidayId/edit' },
   { pattern: '/scheduling/holiday-calendar/:id/holidays/:holidayId', title: 'Holiday Details', breadcrumbs: ['Scheduling', 'Holiday Calendar', 'Holiday Details'], moduleName: 'Scheduling', canonicalPath: '/scheduling/holiday-calendar/:id/holidays/:holidayId' },
   { pattern: '/scheduling/holiday-calendar/:id', title: 'Holiday Calendar Details', breadcrumbs: ['Scheduling', 'Holiday Calendar', 'Details'], moduleName: 'Scheduling', canonicalPath: '/scheduling/holiday-calendar/:id' },
+  { pattern: '/scheduling/roster-templates', title: 'Roster Templates', breadcrumbs: ['Scheduling', 'Roster Templates'], moduleName: 'Scheduling', canonicalPath: '/scheduling/roster-templates' },
+  { pattern: '/scheduling/rotation-patterns', title: 'Rotation Patterns', breadcrumbs: ['Scheduling', 'Rotation Patterns'], moduleName: 'Scheduling', canonicalPath: '/scheduling/rotation-patterns' },
   { pattern: '/people/employees/create', title: 'Create Employee', breadcrumbs: ['Employees', 'Employee Directory', 'Create'], moduleName: 'Employees', canonicalPath: '/people/employees/create' },
   { pattern: '/people/employees/:id/edit', title: 'Edit Employee', breadcrumbs: ['Employees', 'Employee Directory', 'Edit'], moduleName: 'Employees', canonicalPath: '/people/employees/:id/edit' },
   { pattern: '/people/employees/:id', title: 'Employee Details', breadcrumbs: ['Employees', 'Employee Directory', 'Details'], moduleName: 'Employees', canonicalPath: '/people/employees/:id' },
@@ -65,6 +67,7 @@ const explicitRoutePatterns: RoutePatternMeta[] = [
   { pattern: '/monitoring/alert-policies/create', title: 'Create Alert Policy', breadcrumbs: ['Alerts & Notifications', 'Alert Policies', 'Create'], moduleName: 'Alerts & Notifications', canonicalPath: '/monitoring/alert-policies/create' },
   { pattern: '/monitoring/alert-policies/:id/edit', title: 'Edit Alert Policy', breadcrumbs: ['Alerts & Notifications', 'Alert Policies', 'Edit'], moduleName: 'Alerts & Notifications', canonicalPath: '/monitoring/alert-policies/:id/edit' },
   { pattern: '/monitoring/productivity/employees/:employeeId', title: 'Employee Productivity', breadcrumbs: ['Productivity', 'Employee Productivity', 'Details'], moduleName: 'Productivity', canonicalPath: '/monitoring/productivity/employees/:employeeId' },
+  { pattern: '/reports/scheduling', title: 'Scheduling Reports', breadcrumbs: ['Reports', 'Scheduling Reports'], moduleName: 'Reports', canonicalPath: '/reports/scheduling' },
 ];
 
 const navigationRouteMetas = flattenNavigation(navigation);

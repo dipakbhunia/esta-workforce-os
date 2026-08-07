@@ -65,6 +65,8 @@ export const navigation: NavGroup[] = [
       { label: 'Shift Roster', path: '/scheduling/shift-roster', icon: CalendarCheck, permission: 'shifts:manage', roles: hrRoles },
       { label: 'Weekly Off Rules', path: '/scheduling/weekly-off-rules', icon: CalendarDays, permission: 'shifts:manage', roles: hrRoles },
       { label: 'Holiday Calendar', path: '/scheduling/holiday-calendar', icon: CalendarDays, permission: 'shifts:manage', roles: hrRoles },
+      { label: 'Roster Templates', path: '/scheduling/roster-templates', icon: ClipboardList, permission: 'shifts:manage', roles: hrRoles },
+      { label: 'Rotation Patterns', path: '/scheduling/rotation-patterns', icon: TimerReset, permission: 'shifts:manage', roles: hrRoles },
     ],
   },
   {
@@ -150,7 +152,7 @@ export const navigation: NavGroup[] = [
     permission: 'settings:view',
     roles: managerRoles,
     children: [
-      { label: 'Lead Management', path: '/crm/leads', icon: Activity, permission: 'settings:view', roles: managerRoles },
+      { label: 'Leads', path: '/crm/leads', icon: Activity, permission: 'settings:view', roles: managerRoles },
       { label: 'Contacts', path: '/crm/contacts', icon: Users, permission: 'settings:view', roles: managerRoles },
       { label: 'Companies', path: '/crm/companies', icon: Building2, permission: 'settings:view', roles: managerRoles },
       { label: 'Sales Pipeline', path: '/crm/sales-pipeline', icon: TrendingUp, permission: 'settings:view', roles: managerRoles },
@@ -166,8 +168,8 @@ export const navigation: NavGroup[] = [
     children: [
       { label: 'Projects', path: '/projects/projects', icon: ClipboardList, permission: 'dashboard:view', roles: workforceRoles },
       { label: 'Tasks', path: '/projects/tasks', icon: Activity, permission: 'dashboard:view', roles: workforceRoles },
-      { label: 'Kanban Board', path: '/projects/kanban', icon: Split, permission: 'dashboard:view', roles: workforceRoles },
-      { label: 'Calendar', path: '/projects/calendar', icon: CalendarDays, permission: 'dashboard:view', roles: workforceRoles },
+      { label: 'Boards', path: '/projects/kanban', icon: Split, permission: 'dashboard:view', roles: workforceRoles },
+      { label: 'Project Calendar', path: '/projects/calendar', icon: CalendarDays, permission: 'dashboard:view', roles: workforceRoles },
     ],
   },
   {
@@ -229,6 +231,7 @@ export const navigation: NavGroup[] = [
       { label: 'Leave Reports', path: '/reports/leave', icon: FileText, permission: 'reports:view' },
       { label: 'Monitoring Reports', path: '/reports/monitoring', icon: MonitorDot, permission: 'reports:view' },
       { label: 'Productivity Reports', path: '/reports/productivity', icon: TrendingUp, permission: 'reports:view' },
+      { label: 'Scheduling Reports', path: '/reports/scheduling', icon: CalendarDays, permission: 'reports:view' },
       { label: 'CEO Dashboard', path: '/reports/ceo-dashboard', icon: Gauge, permission: 'reports:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN'] },
       { label: 'HR Dashboard', path: '/reports/hr-dashboard', icon: UserCog, permission: 'reports:view', roles: hrRoles },
       { label: 'Sales Dashboard', path: '/reports/sales-dashboard', icon: BriefcaseBusiness, permission: 'reports:view', roles: managerRoles },
