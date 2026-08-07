@@ -6,6 +6,7 @@ import { paginatedResult, paginationArgs } from '../../common/utils/pagination.u
 import { PrismaService } from '../../database/prisma.service';
 import { dateOnly } from '../attendance/attendance-time.util';
 import {
+  ApplyRosterTemplateDto,
   BulkUpsertShiftRosterDaysDto,
   CreateShiftRosterPeriodDto,
   ShiftRosterDayQueryDto,
@@ -303,6 +304,81 @@ export class ShiftRostersService {
     return locked;
   }
 
+
+  async applyTemplate(periodId: string, dto: ApplyRosterTemplateDto, actor: AuthenticatedUser) {
+    const companyId = requireTenantId(actor);
+    const roster = await this.requireRoster(periodId, companyId, false);
+    this.assertEditable(roster.status);
+    if (roster.status !== ShiftRosterStatus.DRAFT) throw new BadRequestException('Templates can only be applied to draft rosters');
+    if (!dto.employeeIds.length) throw new BadRequestException('At least one employee is required');
+    if (dto.employeeIds.length > 250) throw new BadRequestException('Template application is limited to 250 employees at once');
+    const dateFrom = dateOnly(dto.dateFrom);
+    const dateTo = dateOnly(dto.dateTo);
+    if (dateFrom > dateTo) throw new BadRequestException('dateFrom must not be after dateTo');
+    if (dateFrom < roster.dateFrom || dateTo > roster.dateTo) throw new BadRequestException('Template date range must stay within the roster period');
+    const mode = dto.overwriteMode ?? 'EMPTY_ONLY';
+    const template = await this.prisma.rosterTemplate.findFirst({
+      where: { id: dto.templateId, companyId, deletedAt: null },
+      include: { days: { where: { deletedAt: null }, orderBy: [{ sequence: 'asc' }] } },
+    });
+    if (!template) throw new BadRequestException('Roster template not found in this company');
+    if (!template.enabled) throw new BadRequestException('Inactive templates cannot be applied');
+    this.assertTemplateScopeCompatible(roster, template);
+    const employees = await this.prisma.employee.findMany({
+      where: { id: { in: [...new Set(dto.employeeIds)] }, companyId, deletedAt: null },
+      select: { id: true, branchId: true, departmentId: true },
+    });
+    if (employees.length !== new Set(dto.employeeIds).size) throw new BadRequestException('One or more employees were not found in this company');
+    for (const employee of employees) {
+      if (roster.branchId && employee.branchId !== roster.branchId) throw new BadRequestException('One or more employees do not belong to the roster branch');
+      if (roster.departmentId && employee.departmentId !== roster.departmentId) throw new BadRequestException('One or more employees do not belong to the roster department');
+    }
+    const templateDays = new Map(template.days.map((day) => [day.dayOfWeek, day]));
+    let appliedCount = 0;
+    let skippedCount = 0;
+    const dates = this.eachDate(dateFrom, dateTo);
+    await this.prisma.$transaction(async (tx) => {
+      for (const employee of employees) {
+        for (const workDate of dates) {
+          const templateDay = templateDays.get(workDate.getUTCDay());
+          if (!templateDay) {
+            skippedCount += 1;
+            continue;
+          }
+          const existing = await tx.shiftRosterDay.findUnique({ where: { companyId_employeeId_workDate_rosterPeriodId: { companyId, employeeId: employee.id, workDate, rosterPeriodId: periodId } } });
+          if (existing && mode === 'EMPTY_ONLY' && !existing.deletedAt) {
+            skippedCount += 1;
+            continue;
+          }
+          const data = {
+            companyId,
+            rosterPeriodId: periodId,
+            employeeId: employee.id,
+            workDate,
+            dayType: templateDay.dayType,
+            shiftId: templateDay.shiftId,
+            source: 'TEMPLATE' as const,
+            shiftName: templateDay.shiftName,
+            shiftCode: templateDay.shiftCode,
+            shiftStartTime: templateDay.shiftStartTime,
+            shiftEndTime: templateDay.shiftEndTime,
+            shiftTimezone: templateDay.shiftTimezone,
+            notes: templateDay.notes ?? `Applied from template ${template.code}`,
+            deletedAt: null,
+            updatedById: actor.id,
+          };
+          if (existing) {
+            await tx.shiftRosterDay.update({ where: { id: existing.id }, data });
+          } else {
+            await tx.shiftRosterDay.create({ data: { ...data, createdById: actor.id } });
+          }
+          appliedCount += 1;
+        }
+      }
+      await tx.auditLog.create({ data: { companyId, actorUserId: actor.id, action: 'ROSTER_TEMPLATE_APPLIED', entityType: 'ShiftRoster', entityId: periodId, metadata: { templateId: template.id, templateCode: template.code, employeeCount: employees.length, dateCount: dates.length, overwriteMode: mode, appliedCount, skippedCount } } });
+    });
+    return { appliedCount, skippedCount, employeeCount: employees.length, dateCount: dates.length };
+  }
   private rosterPeriodWhere(companyId: string, query: ShiftRosterPeriodQueryDto, includeStatus: boolean): Prisma.ShiftRosterPeriodWhereInput {
     return {
       companyId,
@@ -475,6 +551,28 @@ export class ShiftRostersService {
     return new Date().toISOString().slice(0, 10);
   }
 
+
+  private assertTemplateScopeCompatible(roster: { branchId?: string | null; departmentId?: string | null }, template: { branchId?: string | null; departmentId?: string | null }) {
+    if (template.branchId && roster.branchId && template.branchId !== roster.branchId) throw new BadRequestException('Template branch does not match this roster');
+    if (template.departmentId && roster.departmentId && template.departmentId !== roster.departmentId) throw new BadRequestException('Template department does not match this roster');
+    if (template.departmentId && !roster.departmentId) throw new BadRequestException('Department-scoped templates require a department-scoped roster');
+    if (template.branchId && !roster.branchId && !roster.departmentId) throw new BadRequestException('Branch-scoped templates require a branch or department roster');
+  }
+
+  private eachDate(from: Date, to: Date) {
+    const dates: Date[] = [];
+    for (let cursor = new Date(from); cursor <= to; cursor = this.addUtcDays(cursor, 1)) {
+      dates.push(new Date(cursor));
+      if (dates.length > 370) throw new BadRequestException('Template application is limited to 370 days');
+    }
+    return dates;
+  }
+
+  private addUtcDays(date: Date, days: number) {
+    const next = new Date(date);
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+  }
   private async requireRoster(id: string, companyId: string, include = true) {
     const roster = await this.prisma.shiftRosterPeriod.findFirst({ where: { id, companyId, deletedAt: null }, ...(include ? { include: rosterInclude } : {}) });
     if (!roster) throw new NotFoundException('Shift roster not found');

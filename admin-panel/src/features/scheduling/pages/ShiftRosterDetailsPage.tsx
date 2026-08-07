@@ -22,6 +22,7 @@ import { RosterDayDialog } from '../components/RosterDayDialog';
 import { RosterLifecycleDialog } from '../components/RosterLifecycleDialog';
 import { RosterPreviewPanel } from '../components/RosterPreviewPanel';
 import { RosterStatusBadge } from '../components/RosterStatusBadge';
+import { RosterTemplateApplyDialog } from '../components/RosterTemplateApplyDialog';
 import { bulkUpsertShiftRosterDays, deleteShiftRosterDay, exportShiftRosterDays, getShiftRoster, getShiftRosterDays, lockShiftRoster, previewShiftRoster, publishShiftRoster, upsertShiftRosterDay } from '../services/shift-rosters-api';
 import type { RosterDayType, RosterPreviewResponse, ShiftRosterDay } from '../types/shift-roster.types';
 import { addDays, dateInputFromDate, dayTypeLabel, dayTypeTone, downloadBlob, employeeName, formatDateOnly, formatDateRange, formatDateTime, formatDurationDays, localDateForFilename, responseBlob, rosterDayShiftLabel, rosterDayTypeOptions, scopeLabel, weekStart } from '../utils/shift-roster-utils';
@@ -41,6 +42,7 @@ export default function ShiftRosterDetailsPage() {
   const [pagination, setPagination] = useState<GridPaginationModel>({ page: 0, pageSize: 25 });
   const [dayDialog, setDayDialog] = useState<{ employeeId?: string; workDate?: string; day?: ShiftRosterDay | null } | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [templateApplyOpen, setTemplateApplyOpen] = useState(false);
   const [clearTarget, setClearTarget] = useState<ShiftRosterDay | null>(null);
   const [lifecycle, setLifecycle] = useState<'publish' | 'lock' | null>(null);
   const [preview, setPreview] = useState<RosterPreviewResponse | null>(null);
@@ -144,6 +146,7 @@ export default function ShiftRosterDetailsPage() {
         </Stack>
         <Stack direction="row" gap={1} flexWrap="wrap">
           <Button variant="outlined" startIcon={<ShieldCheck size={17} />} onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending}>Preview</Button>
+          <Button variant="outlined" startIcon={<Layers size={17} />} onClick={() => setTemplateApplyOpen(true)} disabled={readonly || roster.status !== 'DRAFT'}>Apply Template</Button>
           <Button component={RouterLink} to={`/scheduling/shift-roster/${id}/edit`} variant="outlined" startIcon={<Edit3 size={17} />} disabled={roster.status !== 'DRAFT'}>Edit Draft</Button>
           <Button variant="contained" startIcon={<CalendarDays size={17} />} disabled={roster.status !== 'DRAFT'} onClick={() => setLifecycle('publish')}>Publish</Button>
           <Button variant="outlined" color="warning" startIcon={<LockKeyhole size={17} />} disabled={roster.status !== 'PUBLISHED'} onClick={() => setLifecycle('lock')}>Lock</Button>
@@ -196,6 +199,7 @@ export default function ShiftRosterDetailsPage() {
 
       <RosterDayDialog open={Boolean(dayDialog)} day={dayDialog?.day ?? null} defaultEmployeeId={dayDialog?.employeeId} defaultWorkDate={dayDialog?.workDate} employees={employees} shifts={shifts} readonly={readonly} loading={upsertMutation.isPending || clearMutation.isPending} onClose={() => setDayDialog(null)} onSubmit={(payload) => upsertMutation.mutate(payload)} onClear={(day) => setClearTarget(day)} />
       <RosterBulkActionDialog open={bulkOpen} employees={employees} shifts={shifts} readonly={readonly} loading={bulkMutation.isPending} onClose={() => setBulkOpen(false)} onSubmit={(days) => bulkMutation.mutate({ days })} />
+      <RosterTemplateApplyDialog open={templateApplyOpen} roster={roster} onClose={() => setTemplateApplyOpen(false)} onApplied={() => setToast({ severity: 'success', message: 'Template applied to this draft roster.' })} />
       <RosterLifecycleDialog open={Boolean(lifecycle)} action={lifecycle ?? 'publish'} loading={publishMutation.isPending || lockMutation.isPending} blocked={lifecycle === 'publish' && preview?.valid === false} onClose={() => setLifecycle(null)} onConfirm={() => lifecycle === 'publish' ? publishMutation.mutate() : lockMutation.mutate()} />
       <ConfirmDialog open={Boolean(clearTarget)} title="Clear Roster Day" description="This draft roster day will be removed from the period." confirmLabel="Clear Day" loading={clearMutation.isPending} onClose={() => setClearTarget(null)} onConfirm={() => clearTarget && clearMutation.mutate(clearTarget)} />
       <Snackbar open={Boolean(toast)} autoHideDuration={5000} onClose={() => setToast(null)}>{toast ? <Alert severity={toast.severity} onClose={() => setToast(null)}>{toast.message}</Alert> : undefined}</Snackbar>

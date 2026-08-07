@@ -8,6 +8,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import {
+  ApplyRosterTemplateDto,
+  ApplyRosterTemplateResponseDto,
   BulkUpsertShiftRosterDaysDto,
   CreateShiftRosterPeriodDto,
   RosterPreviewResponseDto,
@@ -76,6 +78,12 @@ export class ShiftRostersController {
     response.setHeader('Content-Type', report.contentType);
     response.setHeader('Content-Disposition', `attachment; filename="${report.filename}"`);
     response.send(report.buffer);
+  }
+  @Post(':id/apply-template')
+  @ApiOperation({ summary: 'Apply a roster template to a draft roster period' })
+  @ApiOkResponse({ type: ApplyRosterTemplateResponseDto })
+  applyTemplate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ApplyRosterTemplateDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.applyTemplate(id, dto, user);
   }
 
   @Get(':id')

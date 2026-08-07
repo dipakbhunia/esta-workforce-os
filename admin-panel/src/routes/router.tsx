@@ -31,6 +31,10 @@ const ShiftRostersPage = lazy(() => import('@/features/scheduling/pages/ShiftRos
 const ShiftRosterCreatePage = lazy(() => import('@/features/scheduling/pages/ShiftRosterCreatePage'));
 const ShiftRosterDetailsPage = lazy(() => import('@/features/scheduling/pages/ShiftRosterDetailsPage'));
 const ShiftRosterEditPage = lazy(() => import('@/features/scheduling/pages/ShiftRosterEditPage'));
+const RosterTemplatesPage = lazy(() => import('@/features/scheduling/pages/RosterTemplatesPage'));
+const RosterTemplateCreatePage = lazy(() => import('@/features/scheduling/pages/RosterTemplateCreatePage'));
+const RosterTemplateDetailsPage = lazy(() => import('@/features/scheduling/pages/RosterTemplateDetailsPage'));
+const RosterTemplateEditPage = lazy(() => import('@/features/scheduling/pages/RosterTemplateEditPage'));
 const WeeklyOffRulesPage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRulesPage'));
 const WeeklyOffRuleCreatePage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRuleCreatePage'));
 const WeeklyOffRuleDetailsPage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRuleDetailsPage'));
@@ -148,7 +152,6 @@ function LegacyShiftEditRedirect() {
 const comingSoonRoutes: ComingSoonRoute[] = [
   { path: 'organization/teams', title: 'Teams', moduleName: 'Organization', description: 'Team grouping will be introduced after department and reporting-line workflows are finalized.', plannedPhase: 'Organization Expansion', permission: 'organization:manage', roles: hrRoles },
   { path: 'organization/work-locations', title: 'Work Locations', moduleName: 'Organization', description: 'Office and field work locations will be connected in a future organization phase.', plannedPhase: 'Organization Expansion', permission: 'organization:manage', roles: hrRoles },
-  { path: 'scheduling/roster-templates', title: 'Roster Templates', moduleName: 'Scheduling', description: 'Create reusable roster structures for recurring workforce schedules.', plannedPhase: 'Scheduling', permission: 'shifts:manage', roles: hrRoles },
   { path: 'scheduling/rotation-patterns', title: 'Rotation Patterns', moduleName: 'Scheduling', description: 'Define recurring shift rotation patterns for workforce scheduling.', plannedPhase: 'Scheduling', permission: 'shifts:manage', roles: hrRoles },
   { path: 'employees/documents', title: 'Employee Documents', moduleName: 'Employees', description: 'Document tracking is reserved for the employee records expansion phase.', plannedPhase: 'Employee Lifecycle', permission: 'employees:view', roles: workforceRoles },
   { path: 'employees/onboarding', title: 'Onboarding', moduleName: 'Employees', description: 'Onboarding workflows will be connected after employee lifecycle setup.', plannedPhase: 'Employee Lifecycle', permission: 'employees:view', roles: hrRoles },
@@ -248,7 +251,10 @@ export const router = createBrowserRouter([
           { path: 'scheduling/shift-roster/:id/edit', element: protectedElement(<ShiftRosterEditPage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/shift-roster/:id/calendar', element: protectedElement(<ShiftRosterDetailsPage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/shift-roster/:id', element: protectedElement(<ShiftRosterDetailsPage />, 'shifts:manage', hrRoles) },
-          { path: 'scheduling/weekly-off-rules', element: protectedElement(<WeeklyOffRulesPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/roster-templates', element: protectedElement(<RosterTemplatesPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/roster-templates/create', element: protectedElement(<RosterTemplateCreatePage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/roster-templates/:id/edit', element: protectedElement(<RosterTemplateEditPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/roster-templates/:id', element: protectedElement(<RosterTemplateDetailsPage />, 'shifts:manage', hrRoles) },          { path: 'scheduling/weekly-off-rules', element: protectedElement(<WeeklyOffRulesPage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/weekly-off-rules/create', element: protectedElement(<WeeklyOffRuleCreatePage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/weekly-off-rules/:id/edit', element: protectedElement(<WeeklyOffRuleEditPage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/weekly-off-rules/:id', element: protectedElement(<WeeklyOffRuleDetailsPage />, 'shifts:manage', hrRoles) },

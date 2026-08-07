@@ -670,3 +670,199 @@ export class RosterPreviewResponseDto {
   @ApiPropertyOptional({ type: SchedulingValidationIssueDto, isArray: true })
   info?: SchedulingValidationIssueDto[];
 }
+
+export class RosterTemplateDayInputDto {
+  @ApiProperty({ minimum: 1, maximum: 7, description: 'Display sequence, Monday through Sunday.' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  sequence!: number;
+
+  @ApiProperty({ minimum: 0, maximum: 6, description: 'Weekday as 0=Sunday through 6=Saturday.' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  dayOfWeek!: number;
+
+  @ApiProperty({ enum: ['WORKING', 'WEEKLY_OFF', 'NO_SHIFT'] })
+  @IsIn(['WORKING', 'WEEKLY_OFF', 'NO_SHIFT'])
+  dayType!: 'WORKING' | 'WEEKLY_OFF' | 'NO_SHIFT';
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsUUID()
+  @IsOptional()
+  shiftId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  notes?: string | null;
+}
+
+export class CreateRosterTemplateDto {
+  @ApiProperty()
+  @IsString()
+  @MaxLength(120)
+  name!: string;
+
+  @ApiProperty({ example: 'GENERAL_WEEKLY' })
+  @IsString()
+  @MaxLength(40)
+  code!: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({ example: 'Asia/Kolkata' })
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  timezone?: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  branchId?: string | null;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string | null;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(1000)
+  @IsOptional()
+  notes?: string;
+
+  @ApiProperty({ type: RosterTemplateDayInputDto, isArray: true })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RosterTemplateDayInputDto)
+  days!: RosterTemplateDayInputDto[];
+}
+
+export class UpdateRosterTemplateDto extends PartialType(CreateRosterTemplateDto) {}
+
+export class RosterTemplateSummaryDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  active!: number;
+
+  @ApiProperty()
+  inactive!: number;
+
+  @ApiProperty()
+  companyScope!: number;
+
+  @ApiProperty()
+  branchScope!: number;
+
+  @ApiProperty()
+  departmentScope!: number;
+}
+
+export class RosterTemplateListResponseDto {
+  @ApiProperty({ isArray: true, type: Object })
+  data!: unknown[];
+
+  @ApiProperty({ type: Object })
+  meta!: unknown;
+
+  @ApiProperty({ type: RosterTemplateSummaryDto })
+  summary!: RosterTemplateSummaryDto;
+}
+
+export class RosterTemplateQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ['COMPANY', 'BRANCH', 'DEPARTMENT'] })
+  @IsIn(['COMPANY', 'BRANCH', 'DEPARTMENT'])
+  @IsOptional()
+  scope?: 'COMPANY' | 'BRANCH' | 'DEPARTMENT';
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  branchId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  timezone?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
+}
+
+export class PreviewRosterTemplateDto {
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateFrom!: string;
+
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateTo!: string;
+}
+
+export class ApplyRosterTemplateDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  templateId!: string;
+
+  @ApiProperty({ type: String, isArray: true, format: 'uuid' })
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  employeeIds!: string[];
+
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateFrom!: string;
+
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateTo!: string;
+
+  @ApiPropertyOptional({ enum: ['EMPTY_ONLY', 'REPLACE_SELECTED'], default: 'EMPTY_ONLY' })
+  @IsIn(['EMPTY_ONLY', 'REPLACE_SELECTED'])
+  @IsOptional()
+  overwriteMode?: 'EMPTY_ONLY' | 'REPLACE_SELECTED';
+}
+
+export class ApplyRosterTemplateResponseDto {
+  @ApiProperty()
+  appliedCount!: number;
+
+  @ApiProperty()
+  skippedCount!: number;
+
+  @ApiProperty()
+  employeeCount!: number;
+
+  @ApiProperty()
+  dateCount!: number;
+}

@@ -260,6 +260,8 @@ model Company {
   shiftAssignments   EmployeeShiftAssignment[]
   shiftRosterPeriods ShiftRosterPeriod[]
   shiftRosterDays    ShiftRosterDay[]
+  rosterTemplates    RosterTemplate[]
+  rosterTemplateDays RosterTemplateDay[]
   weeklyOffRules     WeeklyOffRule[]
   holidayCalendars   HolidayCalendar[]
   holidays           Holiday[]
@@ -306,6 +308,7 @@ model Branch {
   users       User[]
   employees   Employee[]
   shiftRosterPeriods ShiftRosterPeriod[]
+  rosterTemplates RosterTemplate[]
   weeklyOffRules WeeklyOffRule[]
   holidayCalendars HolidayCalendar[]
 
@@ -331,6 +334,7 @@ model Department {
   users        User[]
   employees    Employee[]
   shiftRosterPeriods ShiftRosterPeriod[]
+  rosterTemplates RosterTemplate[]
   weeklyOffRules WeeklyOffRule[]
 
     monitoringAlertPolicies MonitoringAlertPolicy[]
@@ -378,6 +382,7 @@ model Shift {
   shiftAssignments EmployeeShiftAssignment[]
   attendanceSnapshots Attendance[] @relation("AttendanceShiftSnapshot")
   rosterDays ShiftRosterDay[]
+  rosterTemplateDays RosterTemplateDay[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -416,6 +421,10 @@ model User {
   updatedShiftRosterPeriods ShiftRosterPeriod[] @relation("ShiftRosterUpdatedBy")
   createdShiftRosterDays ShiftRosterDay[] @relation("ShiftRosterDayCreatedBy")
   updatedShiftRosterDays ShiftRosterDay[] @relation("ShiftRosterDayUpdatedBy")
+  createdRosterTemplates RosterTemplate[] @relation("RosterTemplateCreatedBy")
+  updatedRosterTemplates RosterTemplate[] @relation("RosterTemplateUpdatedBy")
+  createdRosterTemplateDays RosterTemplateDay[] @relation("RosterTemplateDayCreatedBy")
+  updatedRosterTemplateDays RosterTemplateDay[] @relation("RosterTemplateDayUpdatedBy")
   createdWeeklyOffRules WeeklyOffRule[] @relation("WeeklyOffRuleCreatedBy")
   updatedWeeklyOffRules WeeklyOffRule[] @relation("WeeklyOffRuleUpdatedBy")
   createdHolidayCalendars HolidayCalendar[] @relation("HolidayCalendarCreatedBy")
@@ -674,6 +683,67 @@ model Holiday {
   @@unique([calendarId, date, name])
   @@index([companyId, date])
   @@index([calendarId, date])
+  @@index([deletedAt])
+}
+model RosterTemplate {
+  id           String              @id @default(uuid()) @db.Uuid
+  companyId    String              @db.Uuid
+  branchId     String?             @db.Uuid
+  departmentId String?             @db.Uuid
+  name         String
+  code         String
+  description  String?
+  timezone     String              @default("UTC")
+  enabled      Boolean             @default(true)
+  version      Int                 @default(1)
+  notes        String?
+  createdById  String?             @db.Uuid
+  updatedById  String?             @db.Uuid
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  deletedAt    DateTime?
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch       Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department   Department?         @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy    User?               @relation("RosterTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy    User?               @relation("RosterTemplateUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  days         RosterTemplateDay[]
+
+  @@index([companyId, enabled])
+  @@index([branchId, enabled])
+  @@index([departmentId, enabled])
+  @@index([deletedAt])
+}
+
+model RosterTemplateDay {
+  id             String        @id @default(uuid()) @db.Uuid
+  templateId     String        @db.Uuid
+  companyId      String        @db.Uuid
+  sequence       Int
+  dayOfWeek      Int
+  dayType        RosterDayType
+  shiftId        String?       @db.Uuid
+  shiftName      String?
+  shiftCode      String?
+  shiftStartTime String?
+  shiftEndTime   String?
+  shiftTimezone  String?
+  notes          String?
+  createdById    String?       @db.Uuid
+  updatedById    String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime?
+  template       RosterTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  shift          Shift?        @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  createdBy      User?         @relation("RosterTemplateDayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      User?         @relation("RosterTemplateDayUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, dayOfWeek])
+  @@index([templateId, sequence])
+  @@index([shiftId])
+  @@index([dayType])
   @@index([deletedAt])
 }
 model EmployeeShiftAssignment {
