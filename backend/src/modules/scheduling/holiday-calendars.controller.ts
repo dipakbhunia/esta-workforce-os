@@ -1,12 +1,13 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
+import { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
-import { CreateHolidayCalendarDto, CreateHolidayDto, HolidayCalendarQueryDto, UpdateHolidayCalendarDto, UpdateHolidayDto } from './dto/scheduling.dto';
+import { CreateHolidayCalendarDto, CreateHolidayDto, HolidayCalendarListResponseDto, HolidayCalendarQueryDto, HolidayQueryDto, UpdateHolidayCalendarDto, UpdateHolidayDto } from './dto/scheduling.dto';
 import { HolidayCalendarsService } from './holiday-calendars.service';
 
 const schedulingRoles = [RoleName.COMPANY_ADMIN, RoleName.HR];
@@ -27,8 +28,19 @@ export class HolidayCalendarsController {
 
   @Get()
   @ApiOperation({ summary: 'List holiday calendars' })
+  @ApiOkResponse({ type: HolidayCalendarListResponseDto })
   findCalendars(@Query() query: HolidayCalendarQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.service.findCalendars(query, user);
+  }
+
+  @Get('export')
+  @ApiOperation({ summary: 'Export holiday calendars as CSV' })
+  @ApiProduces('text/csv')
+  async exportCalendars(@Query() query: HolidayCalendarQueryDto, @CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
+    const file = await this.service.exportCalendars(query, user);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   }
 
   @Get(':id')
@@ -57,8 +69,24 @@ export class HolidayCalendarsController {
 
   @Get(':calendarId/holidays')
   @ApiOperation({ summary: 'List holidays in a calendar' })
-  listHolidays(@Param('calendarId', ParseUUIDPipe) calendarId: string, @Query() query: HolidayCalendarQueryDto, @CurrentUser() user: AuthenticatedUser) {
+  listHolidays(@Param('calendarId', ParseUUIDPipe) calendarId: string, @Query() query: HolidayQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.service.listHolidays(calendarId, query, user);
+  }
+
+  @Get(':calendarId/holidays/export')
+  @ApiOperation({ summary: 'Export holidays in a calendar as CSV' })
+  @ApiProduces('text/csv')
+  async exportHolidays(@Param('calendarId', ParseUUIDPipe) calendarId: string, @Query() query: HolidayQueryDto, @CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
+    const file = await this.service.exportHolidays(calendarId, query, user);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
+  }
+
+  @Get(':calendarId/holidays/:holidayId')
+  @ApiOperation({ summary: 'Get holiday details' })
+  findHoliday(@Param('calendarId', ParseUUIDPipe) calendarId: string, @Param('holidayId', ParseUUIDPipe) holidayId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.findHoliday(calendarId, holidayId, user);
   }
 
   @Patch(':calendarId/holidays/:holidayId')

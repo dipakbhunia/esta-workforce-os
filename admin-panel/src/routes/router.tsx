@@ -34,6 +34,13 @@ const ShiftRosterEditPage = lazy(() => import('@/features/scheduling/pages/Shift
 const WeeklyOffRulesPage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRulesPage'));
 const WeeklyOffRuleCreatePage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRuleCreatePage'));
 const WeeklyOffRuleDetailsPage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRuleDetailsPage'));
+const HolidayCalendarsPage = lazy(() => import('@/features/scheduling/pages/HolidayCalendarsPage'));
+const HolidayCalendarCreatePage = lazy(() => import('@/features/scheduling/pages/HolidayCalendarCreatePage'));
+const HolidayCalendarDetailsPage = lazy(() => import('@/features/scheduling/pages/HolidayCalendarDetailsPage'));
+const HolidayCalendarEditPage = lazy(() => import('@/features/scheduling/pages/HolidayCalendarEditPage'));
+const HolidayCreatePage = lazy(() => import('@/features/scheduling/pages/HolidayCreatePage'));
+const HolidayDetailsPage = lazy(() => import('@/features/scheduling/pages/HolidayDetailsPage'));
+const HolidayEditPage = lazy(() => import('@/features/scheduling/pages/HolidayEditPage'));
 const WeeklyOffRuleEditPage = lazy(() => import('@/features/scheduling/pages/WeeklyOffRuleEditPage'));
 const ShiftAssignmentsPage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentsPage'));
 const ShiftAssignmentCreatePage = lazy(() => import('@/features/scheduling/pages/ShiftAssignmentCreatePage'));
@@ -141,7 +148,6 @@ function LegacyShiftEditRedirect() {
 const comingSoonRoutes: ComingSoonRoute[] = [
   { path: 'organization/teams', title: 'Teams', moduleName: 'Organization', description: 'Team grouping will be introduced after department and reporting-line workflows are finalized.', plannedPhase: 'Organization Expansion', permission: 'organization:manage', roles: hrRoles },
   { path: 'organization/work-locations', title: 'Work Locations', moduleName: 'Organization', description: 'Office and field work locations will be connected in a future organization phase.', plannedPhase: 'Organization Expansion', permission: 'organization:manage', roles: hrRoles },
-  { path: 'scheduling/holiday-calendar', title: 'Holiday Calendar', moduleName: 'Scheduling', description: 'Holiday calendar management will be added after scheduling policy workflows.', plannedPhase: 'Scheduling', permission: 'attendance:manage', roles: hrRoles },
   { path: 'employees/documents', title: 'Employee Documents', moduleName: 'Employees', description: 'Document tracking is reserved for the employee records expansion phase.', plannedPhase: 'Employee Lifecycle', permission: 'employees:view', roles: workforceRoles },
   { path: 'employees/onboarding', title: 'Onboarding', moduleName: 'Employees', description: 'Onboarding workflows will be connected after employee lifecycle setup.', plannedPhase: 'Employee Lifecycle', permission: 'employees:view', roles: hrRoles },
   { path: 'employees/exit-management', title: 'Exit Management', moduleName: 'Employees', description: 'Exit workflows will be added when offboarding rules are introduced.', plannedPhase: 'Employee Lifecycle', permission: 'employees:view', roles: hrRoles },
@@ -243,6 +249,13 @@ export const router = createBrowserRouter([
           { path: 'scheduling/weekly-off-rules/create', element: protectedElement(<WeeklyOffRuleCreatePage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/weekly-off-rules/:id/edit', element: protectedElement(<WeeklyOffRuleEditPage />, 'shifts:manage', hrRoles) },
           { path: 'scheduling/weekly-off-rules/:id', element: protectedElement(<WeeklyOffRuleDetailsPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar', element: protectedElement(<HolidayCalendarsPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar/create', element: protectedElement(<HolidayCalendarCreatePage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar/:id/edit', element: protectedElement(<HolidayCalendarEditPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar/:id/holidays/create', element: protectedElement(<HolidayCreatePage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar/:id/holidays/:holidayId/edit', element: protectedElement(<HolidayEditPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar/:id/holidays/:holidayId', element: protectedElement(<HolidayDetailsPage />, 'shifts:manage', hrRoles) },
+          { path: 'scheduling/holiday-calendar/:id', element: protectedElement(<HolidayCalendarDetailsPage />, 'shifts:manage', hrRoles) },
           { path: 'people/employees', element: protectedElement(<EmployeesPage />, 'employees:view', workforceRoles) },
           { path: 'people/employees/create', element: protectedElement(<EmployeeCreatePage />, 'employees:manage', hrRoles) },
           { path: 'people/employees/:id', element: protectedElement(<EmployeeDetailsPage />, 'employees:view', workforceRoles) },
@@ -264,7 +277,7 @@ export const router = createBrowserRouter([
           { path: 'attendance/corrections/:id', element: protectedElement(<AttendanceCorrectionDetailsPage />, 'attendance:view', attendanceRoles) },
           { path: 'attendance/policies', element: protectedElement(<AttendancePoliciesPage />, 'attendance:manage', hrRoles) },
           { path: 'attendance/break-policies', element: protectedElement(<BreakPoliciesPage />, 'attendance:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
-          { path: 'attendance/holiday-calendar', element: protectedElement(<Navigate to="/scheduling/holiday-calendar" replace />, 'attendance:manage', hrRoles) },
+          { path: 'attendance/holiday-calendar', element: protectedElement(<Navigate to="/scheduling/holiday-calendar" replace />, 'shifts:manage', hrRoles) },
           { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', attendanceRoles) },
           { path: 'leave/types', element: protectedElement(<LeaveTypesPage />, 'leave:manage', hrRoles) },
           { path: 'leave/types/create', element: protectedElement(<LeaveTypeCreatePage />, 'leave:manage', hrRoles) },

@@ -64,7 +64,7 @@ export const navigation: NavGroup[] = [
       { label: 'Shift Assignments', path: '/scheduling/shift-assignments', icon: ClipboardList, permission: 'shifts:manage', roles: hrRoles },
       { label: 'Shift Roster', path: '/scheduling/shift-roster', icon: CalendarCheck, permission: 'shifts:manage', roles: hrRoles },
       { label: 'Weekly Off Rules', path: '/scheduling/weekly-off-rules', icon: CalendarDays, permission: 'shifts:manage', roles: hrRoles },
-      { label: 'Holiday Calendar', path: '/scheduling/holiday-calendar', icon: CalendarDays, permission: 'attendance:manage', roles: hrRoles },
+      { label: 'Holiday Calendar', path: '/scheduling/holiday-calendar', icon: CalendarDays, permission: 'shifts:manage', roles: hrRoles },
     ],
   },
   {

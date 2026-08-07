@@ -473,6 +473,25 @@ export class CreateHolidayCalendarDto {
   @MaxLength(120)
   name!: string;
 
+  @ApiProperty({ example: 2026 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1900)
+  @Max(2200)
+  year!: number;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(1000)
+  @IsOptional()
+  notes?: string;
+
   @ApiPropertyOptional()
   @IsString()
   @MaxLength(80)
@@ -482,7 +501,7 @@ export class CreateHolidayCalendarDto {
   @ApiPropertyOptional({ format: 'uuid' })
   @IsUUID()
   @IsOptional()
-  branchId?: string;
+  branchId?: string | null;
 
   @ApiPropertyOptional({ default: true })
   @IsBoolean()
@@ -492,11 +511,77 @@ export class CreateHolidayCalendarDto {
 
 export class UpdateHolidayCalendarDto extends PartialType(CreateHolidayCalendarDto) {}
 
+export class HolidayCalendarSummaryDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  active!: number;
+
+  @ApiProperty()
+  inactive!: number;
+
+  @ApiProperty()
+  companyScope!: number;
+
+  @ApiProperty()
+  branchScope!: number;
+
+  @ApiProperty()
+  totalHolidays!: number;
+
+  @ApiProperty()
+  mandatoryHolidays!: number;
+
+  @ApiProperty()
+  optionalHolidays!: number;
+}
+
+export class HolidayCalendarListResponseDto {
+  @ApiProperty({ isArray: true, type: Object })
+  data!: unknown[];
+
+  @ApiProperty({ type: Object })
+  meta!: unknown;
+
+  @ApiProperty({ type: HolidayCalendarSummaryDto })
+  summary!: HolidayCalendarSummaryDto;
+}
+
 export class HolidayCalendarQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional()
   @IsBoolean()
   @IsOptional()
   enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ['COMPANY', 'BRANCH'] })
+  @IsIn(['COMPANY', 'BRANCH'])
+  @IsOptional()
+  scope?: 'COMPANY' | 'BRANCH';
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  branchId?: string;
+
+  @ApiPropertyOptional({ example: 2026 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1900)
+  @Max(2200)
+  @IsOptional()
+  year?: number;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  timezone?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
 }
 
 export class CreateHolidayDto {
@@ -533,6 +618,37 @@ export class CreateHolidayDto {
 
 export class UpdateHolidayDto extends PartialType(CreateHolidayDto) {}
 
+export class HolidayQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: HolidayType })
+  @IsEnum(HolidayType)
+  @IsOptional()
+  type?: HolidayType;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  optional?: boolean;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  recurring?: boolean;
+
+  @ApiPropertyOptional({ format: 'date' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  dateFrom?: string;
+
+  @ApiPropertyOptional({ format: 'date' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  dateTo?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
+}
 export class SchedulingValidationIssueDto {
   @ApiProperty()
   path!: string;

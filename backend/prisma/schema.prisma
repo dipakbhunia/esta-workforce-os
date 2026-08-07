@@ -627,6 +627,9 @@ model HolidayCalendar {
   companyId   String    @db.Uuid
   branchId    String?   @db.Uuid
   name        String
+  year        Int?
+  description String?
+  notes       String?
   timezone    String    @default("UTC")
   enabled     Boolean   @default(true)
   createdById String?   @db.Uuid
@@ -642,6 +645,8 @@ model HolidayCalendar {
 
   @@index([companyId, enabled])
   @@index([branchId, enabled])
+  @@index([companyId, year])
+  @@index([branchId, year])
   @@index([deletedAt])
 }
 
