@@ -4,7 +4,9 @@ import { TimeBoundaryService } from '../attendance/time-boundary.service';
 import { HolidayCalendarsController } from './holiday-calendars.controller';
 import { HolidayCalendarsService } from './holiday-calendars.service';
 import { RosterTemplatesController } from './roster-templates.controller';
+import { RotationPatternsController } from './rotation-patterns.controller';
 import { RosterTemplatesService } from './roster-templates.service';
+import { RotationPatternsService } from './rotation-patterns.service';
 import { SchedulingController } from './scheduling.controller';
 import { ShiftRostersController } from './shift-rosters.controller';
 import { ShiftRostersService } from './shift-rosters.service';
@@ -20,6 +22,7 @@ import { WorkCalendarService } from './work-calendar.service';
     WeeklyOffRulesController,
     HolidayCalendarsController,
     RosterTemplatesController,
+    RotationPatternsController,
   ],
   providers: [
     WorkCalendarService,
@@ -27,6 +30,7 @@ import { WorkCalendarService } from './work-calendar.service';
     WeeklyOffRulesService,
     HolidayCalendarsService,
     RosterTemplatesService,
+    RotationPatternsService,
     TimeBoundaryService,
   ],
   exports: [WorkCalendarService],

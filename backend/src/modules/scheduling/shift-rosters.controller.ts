@@ -9,7 +9,9 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import {
   ApplyRosterTemplateDto,
+  ApplyRotationPatternDto,
   ApplyRosterTemplateResponseDto,
+  ApplyRotationPatternResponseDto,
   BulkUpsertShiftRosterDaysDto,
   CreateShiftRosterPeriodDto,
   RosterPreviewResponseDto,
@@ -86,6 +88,13 @@ export class ShiftRostersController {
     return this.service.applyTemplate(id, dto, user);
   }
 
+
+  @Post(':id/apply-rotation')
+  @ApiOperation({ summary: 'Apply a rotation pattern to a draft roster period' })
+  @ApiOkResponse({ type: ApplyRotationPatternResponseDto })
+  applyRotation(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ApplyRotationPatternDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.applyRotation(id, dto, user);
+  }
   @Get(':id')
   @ApiOperation({ summary: 'Get shift roster period details' })
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {

@@ -1,0 +1,57 @@
+import { Alert, Box, Button, Chip, Snackbar, Stack, Tooltip, Typography } from '@mui/material';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Archive, CalendarCheck, Edit3, Power, RefreshCw, ShieldCheck } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EmptyState } from '@/components/empty-state';
+import { LoadingSkeleton } from '@/components/loading-skeleton';
+import { PageHeader } from '@/components/page-header';
+import { PageLayout } from '@/components/page-layout/PageLayout';
+import { SectionCard } from '@/components/section-card';
+import { StatusChip } from '@/components/status-chip';
+import { RotationPatternApplyDialog } from '../components/RotationPatternApplyDialog';
+import { deleteRotationPattern, getRotationPattern, previewRotationPattern, updateRotationPattern } from '../services/rotation-patterns-api';
+import { dayTypeLabel, dayTypeTone, formatDate, formatDateTime, localDateString, rotationScopeLabel, statusLabel, statusTone } from '../utils/rotation-pattern-utils';
+
+export default function RotationPatternDetailsPage() {
+  const { id = '' } = useParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [toggleOpen, setToggleOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [toast, setToast] = useState<{ severity: 'success' | 'error'; message: string } | null>(null);
+
+  const patternQuery = useQuery({ queryKey: ['rotation-patterns', id], queryFn: () => getRotationPattern(id), enabled: Boolean(id) });
+  const pattern = patternQuery.data?.data;
+  const previewStart = useMemo(() => localDateString(), []);
+  const previewMutation = useMutation({ mutationFn: () => previewRotationPattern(id, { dateFrom: previewStart, numberOfDays: 14 }), onError: () => setToast({ severity: 'error', message: 'Preview could not be generated.' }) });
+  const toggleMutation = useMutation({ mutationFn: () => updateRotationPattern(id, { enabled: !pattern?.enabled }), onSuccess: async () => { setToggleOpen(false); setToast({ severity: 'success', message: pattern?.enabled ? 'Rotation pattern disabled.' : 'Rotation pattern enabled.' }); await invalidate(); }, onError: () => setToast({ severity: 'error', message: 'Pattern status could not be changed.' }) });
+  const archiveMutation = useMutation({ mutationFn: () => deleteRotationPattern(id), onSuccess: async () => { setArchiveOpen(false); await queryClient.invalidateQueries({ queryKey: ['rotation-patterns'] }); navigate('/scheduling/rotation-patterns', { state: { success: 'Rotation pattern archived.' } }); }, onError: () => setToast({ severity: 'error', message: 'Pattern could not be archived.' }) });
+  const invalidate = async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['rotation-patterns', id] }), queryClient.invalidateQueries({ queryKey: ['rotation-patterns'] })]); };
+  const days = useMemo(() => [...(pattern?.days ?? [])].sort((a, b) => a.sequence - b.sequence), [pattern?.days]);
+  const counts = useMemo(() => ({ working: days.filter((day) => day.dayType === 'WORKING').length, weeklyOff: days.filter((day) => day.dayType === 'WEEKLY_OFF').length, noShift: days.filter((day) => day.dayType === 'NO_SHIFT').length }), [days]);
+
+  if (patternQuery.isLoading) return <PageLayout><LoadingSkeleton rows={8} /></PageLayout>;
+  if (patternQuery.isError) return <PageLayout><Alert severity="error">Rotation pattern could not be loaded.</Alert></PageLayout>;
+  if (!pattern) return <PageLayout><EmptyState title="Rotation pattern not found" description="The selected pattern may have been archived or removed." /></PageLayout>;
+
+  return <PageLayout><PageHeader title={pattern.name} description="Reusable rotation cycle for roster planning." breadcrumbs={['Admin', 'Scheduling', 'Rotation Patterns', pattern.name]} />
+    <Stack direction={{ xs: 'column', lg: 'row' }} gap={2} alignItems={{ xs: 'stretch', lg: 'center' }} justifyContent="space-between"><Stack direction="row" gap={1} flexWrap="wrap"><StatusChip label={statusLabel(pattern.enabled)} tone={statusTone(pattern.enabled)} /><StatusChip label={`${pattern.code} / v${pattern.version}`} tone="neutral" /><StatusChip label={rotationScopeLabel(pattern)} tone="info" /><StatusChip label={pattern.timezone || 'UTC'} tone="neutral" /></Stack><Stack direction="row" gap={1} flexWrap="wrap"><Button variant="outlined" startIcon={<ShieldCheck size={17} />} onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending}>{previewMutation.isPending ? 'Previewing...' : 'Preview'}</Button><Button component={RouterLink} to={`/scheduling/rotation-patterns/${pattern.id}/edit`} variant="outlined" startIcon={<Edit3 size={17} />}>Edit</Button><Button variant="outlined" startIcon={<Power size={17} />} onClick={() => setToggleOpen(true)}>{pattern.enabled ? 'Disable' : 'Enable'}</Button><Button variant="outlined" color="error" startIcon={<Archive size={17} />} onClick={() => setArchiveOpen(true)}>Archive</Button><Tooltip title={pattern.enabled ? 'Apply this pattern to a draft roster' : 'Enable this pattern before applying it to a draft roster'}><span><Button variant="contained" startIcon={<CalendarCheck size={17} />} onClick={() => setApplyOpen(true)} disabled={!pattern.enabled}>Apply Rotation</Button></span></Tooltip></Stack></Stack>
+    <SectionCard title="Pattern Summary" description="Core setup and planning status."><Box sx={summaryGrid}><Info label="Code" value={pattern.code} /><Info label="Scope" value={rotationScopeLabel(pattern)} /><Info label="Timezone" value={pattern.timezone || 'UTC'} /><Info label="Cycle Length" value={`${pattern.cycleLengthDays} days`} /><Info label="Anchor Date" value={formatDate(pattern.anchorDate)} /><Info label="Version" value={`v${pattern.version}`} /><Box><Typography variant="caption" color="text.secondary">Status</Typography><Box mt={0.5}><StatusChip label={statusLabel(pattern.enabled)} tone={statusTone(pattern.enabled)} /></Box></Box><Info label="Updated" value={formatDateTime(pattern.updatedAt)} /></Box>{pattern.description ? <Typography mt={2} color="text.secondary">{pattern.description}</Typography> : null}</SectionCard>
+    <SectionCard title="Cycle Steps" description="Day-by-day sequence used when applying this pattern to a draft roster."><Stack direction="row" gap={0.75} flexWrap="wrap" mb={2}><StatusChip label={`Working: ${counts.working}`} tone="success" /><StatusChip label={`Weekly Off: ${counts.weeklyOff}`} tone="info" /><StatusChip label={`No Shift: ${counts.noShift}`} tone="neutral" /></Stack><Box sx={stepGrid}>{days.map((day) => <Box key={day.id} sx={stepCard}><Stack direction="row" justifyContent="space-between" gap={1} alignItems="center"><Typography fontWeight={900}>Day {day.sequence}</Typography><StatusChip label={dayTypeLabel(day.dayType)} tone={dayTypeTone(day.dayType)} /></Stack><Typography variant="body2" fontWeight={800} mt={1}>{day.dayType === 'WORKING' ? day.shiftName ?? day.shiftCode ?? 'Shift unavailable' : nonWorkingStepTitle(day.dayType)}</Typography><Typography variant="caption" color="text.secondary" display="block">{day.dayType === 'WORKING' ? [day.shiftCode, day.shiftStartTime && day.shiftEndTime ? `${day.shiftStartTime} - ${day.shiftEndTime}` : null].filter(Boolean).join(' - ') || 'Timing unavailable' : 'No shift required'}</Typography>{day.dayType !== 'WORKING' && day.label ? <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>Label: {day.label}</Typography> : null}{day.notes ? <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>{day.notes}</Typography> : null}</Box>)}</Box></SectionCard>
+    <SectionCard title="14 Day Preview" description="Preview uses the pattern anchor date when configured, otherwise today."><Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" mb={2}><Button variant="outlined" startIcon={<RefreshCw size={17} />} onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending}>{previewMutation.isPending ? 'Previewing...' : 'Generate Preview'}</Button>{previewMutation.data?.data ? <Chip size="small" label={`${previewMutation.data.data.dateFrom} to ${previewMutation.data.data.dateTo}`} /> : null}</Stack>{previewMutation.isError ? <Alert severity="error">Preview could not be generated.</Alert> : null}{previewMutation.data?.data ? <Box sx={previewGrid}>{previewMutation.data.data.data.map((item) => <Box key={`${item.workDate}-${item.sequence}`} sx={previewCard}><Typography fontWeight={900}>{item.workDate}</Typography><Typography variant="caption" color="text.secondary">Sequence {item.sequence}</Typography><Box mt={0.75}><StatusChip label={dayTypeLabel(item.dayType)} tone={dayTypeTone(item.dayType)} /></Box><Typography variant="caption" display="block" mt={0.75}>{item.shift?.name ?? item.label ?? 'No shift'}</Typography></Box>)}</Box> : <EmptyState title="Preview not generated" description="Generate a short preview before applying this pattern to a draft roster." />}</SectionCard>
+    <RotationPatternApplyDialog open={applyOpen} pattern={pattern} onClose={() => setApplyOpen(false)} onApplied={() => setToast({ severity: 'success', message: 'Rotation pattern applied to a draft roster.' })} />
+    <ConfirmDialog open={toggleOpen} title={pattern.enabled ? 'Disable this rotation pattern?' : 'Enable this rotation pattern?'} description={pattern.enabled ? 'Disabled patterns cannot be applied to new draft rosters.' : 'This pattern will become available for future draft roster planning.'} confirmLabel={pattern.enabled ? 'Disable' : 'Enable'} loading={toggleMutation.isPending} onClose={() => setToggleOpen(false)} onConfirm={() => toggleMutation.mutate()} />
+    <ConfirmDialog open={archiveOpen} title="Archive rotation pattern?" description="This removes the pattern from active planning. Existing roster days already created from this pattern will not be changed." confirmLabel="Archive Pattern" loading={archiveMutation.isPending} onClose={() => setArchiveOpen(false)} onConfirm={() => archiveMutation.mutate()} />
+    <Snackbar open={Boolean(toast)} autoHideDuration={5000} onClose={() => setToast(null)}>{toast ? <Alert severity={toast.severity} onClose={() => setToast(null)}>{toast.message}</Alert> : undefined}</Snackbar>
+  </PageLayout>;
+}
+function nonWorkingStepTitle(dayType: string) { return dayType === 'WEEKLY_OFF' ? 'Weekly Off' : 'No Shift'; }
+function Info({ label, value }: { label: string; value: string }) { return <Box><Typography variant="caption" color="text.secondary">{label}</Typography><Typography fontWeight={850}>{value}</Typography></Box>; }
+const summaryGrid = { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 2 };
+const stepGrid = { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' }, gap: 1.25 };
+const previewGrid = { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' }, gap: 1 };
+const stepCard = { p: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2.5, bgcolor: 'background.paper' };
+const previewCard = { p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 2.25, bgcolor: 'grey.50' };

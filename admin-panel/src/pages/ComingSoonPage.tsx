@@ -14,7 +14,6 @@ interface ComingSoonPageProps {
 const pageTitles: Record<string, ComingSoonPageProps> = {
   '/organization/teams': { moduleName: 'Organization', title: 'Teams', description: 'Team grouping will be introduced after department and reporting-line workflows are finalized.', plannedPhase: 'Organization Expansion' },
   '/organization/work-locations': { moduleName: 'Organization', title: 'Work Locations', description: 'Office and field work locations will be connected in a future organization phase.', plannedPhase: 'Organization Expansion' },
-  '/scheduling/rotation-patterns': { moduleName: 'Scheduling', title: 'Rotation Patterns', description: 'Define recurring shift rotation patterns for workforce scheduling.', plannedPhase: 'Scheduling' },
   '/employees/documents': { moduleName: 'Employees', title: 'Employee Documents', description: 'Document tracking is reserved for the employee records expansion phase.', plannedPhase: 'Employee Lifecycle' },
   '/employees/onboarding': { moduleName: 'Employees', title: 'Onboarding', description: 'Onboarding workflows will be connected after employee lifecycle setup.', plannedPhase: 'Employee Lifecycle' },
   '/employees/exit-management': { moduleName: 'Employees', title: 'Exit Management', description: 'Exit workflows will be added when offboarding rules are introduced.', plannedPhase: 'Employee Lifecycle' },

@@ -262,6 +262,8 @@ model Company {
   shiftRosterDays    ShiftRosterDay[]
   rosterTemplates    RosterTemplate[]
   rosterTemplateDays RosterTemplateDay[]
+  rotationPatterns   RotationPattern[]
+  rotationPatternDays RotationPatternDay[]
   weeklyOffRules     WeeklyOffRule[]
   holidayCalendars   HolidayCalendar[]
   holidays           Holiday[]
@@ -309,6 +311,7 @@ model Branch {
   employees   Employee[]
   shiftRosterPeriods ShiftRosterPeriod[]
   rosterTemplates RosterTemplate[]
+  rotationPatterns RotationPattern[]
   weeklyOffRules WeeklyOffRule[]
   holidayCalendars HolidayCalendar[]
 
@@ -335,6 +338,7 @@ model Department {
   employees    Employee[]
   shiftRosterPeriods ShiftRosterPeriod[]
   rosterTemplates RosterTemplate[]
+  rotationPatterns RotationPattern[]
   weeklyOffRules WeeklyOffRule[]
 
     monitoringAlertPolicies MonitoringAlertPolicy[]
@@ -383,6 +387,7 @@ model Shift {
   attendanceSnapshots Attendance[] @relation("AttendanceShiftSnapshot")
   rosterDays ShiftRosterDay[]
   rosterTemplateDays RosterTemplateDay[]
+  rotationPatternDays RotationPatternDay[]
 
   @@index([companyId])
   @@index([companyId, code])
@@ -425,6 +430,10 @@ model User {
   updatedRosterTemplates RosterTemplate[] @relation("RosterTemplateUpdatedBy")
   createdRosterTemplateDays RosterTemplateDay[] @relation("RosterTemplateDayCreatedBy")
   updatedRosterTemplateDays RosterTemplateDay[] @relation("RosterTemplateDayUpdatedBy")
+  createdRotationPatterns RotationPattern[] @relation("RotationPatternCreatedBy")
+  updatedRotationPatterns RotationPattern[] @relation("RotationPatternUpdatedBy")
+  createdRotationPatternDays RotationPatternDay[] @relation("RotationPatternDayCreatedBy")
+  updatedRotationPatternDays RotationPatternDay[] @relation("RotationPatternDayUpdatedBy")
   createdWeeklyOffRules WeeklyOffRule[] @relation("WeeklyOffRuleCreatedBy")
   updatedWeeklyOffRules WeeklyOffRule[] @relation("WeeklyOffRuleUpdatedBy")
   createdHolidayCalendars HolidayCalendar[] @relation("HolidayCalendarCreatedBy")
@@ -742,6 +751,71 @@ model RosterTemplateDay {
 
   @@index([companyId, dayOfWeek])
   @@index([templateId, sequence])
+  @@index([shiftId])
+  @@index([dayType])
+  @@index([deletedAt])
+}
+model RotationPattern {
+  id              String               @id @default(uuid()) @db.Uuid
+  companyId       String               @db.Uuid
+  branchId        String?              @db.Uuid
+  departmentId    String?              @db.Uuid
+  name            String
+  code            String
+  description     String?
+  timezone        String               @default("UTC")
+  cycleLengthDays Int
+  anchorDate      DateTime?            @db.Date
+  enabled         Boolean              @default(true)
+  version         Int                  @default(1)
+  notes           String?
+  createdById     String?              @db.Uuid
+  updatedById     String?              @db.Uuid
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  branch          Branch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department      Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy       User?                @relation("RotationPatternCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy       User?                @relation("RotationPatternUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  days            RotationPatternDay[]
+
+  @@index([companyId, enabled])
+  @@index([branchId, enabled])
+  @@index([departmentId, enabled])
+  @@index([cycleLengthDays])
+  @@index([anchorDate])
+  @@index([deletedAt])
+}
+
+model RotationPatternDay {
+  id             String          @id @default(uuid()) @db.Uuid
+  patternId      String          @db.Uuid
+  companyId      String          @db.Uuid
+  sequence       Int
+  dayType        RosterDayType
+  shiftId        String?         @db.Uuid
+  shiftName      String?
+  shiftCode      String?
+  shiftStartTime String?
+  shiftEndTime   String?
+  shiftTimezone  String?
+  label          String?
+  notes          String?
+  createdById    String?         @db.Uuid
+  updatedById    String?         @db.Uuid
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+  pattern        RotationPattern @relation(fields: [patternId], references: [id], onDelete: Cascade)
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  shift          Shift?          @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  createdBy      User?           @relation("RotationPatternDayCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      User?           @relation("RotationPatternDayUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, sequence])
+  @@index([patternId, sequence])
   @@index([shiftId])
   @@index([dayType])
   @@index([deletedAt])

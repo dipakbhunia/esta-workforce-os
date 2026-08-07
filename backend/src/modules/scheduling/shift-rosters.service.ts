@@ -7,6 +7,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { dateOnly } from '../attendance/attendance-time.util';
 import {
   ApplyRosterTemplateDto,
+  ApplyRotationPatternDto,
   BulkUpsertShiftRosterDaysDto,
   CreateShiftRosterPeriodDto,
   ShiftRosterDayQueryDto,
@@ -379,6 +380,86 @@ export class ShiftRostersService {
     });
     return { appliedCount, skippedCount, employeeCount: employees.length, dateCount: dates.length };
   }
+
+  async applyRotation(periodId: string, dto: ApplyRotationPatternDto, actor: AuthenticatedUser) {
+    const companyId = requireTenantId(actor);
+    const roster = await this.requireRoster(periodId, companyId, false);
+    this.assertEditable(roster.status);
+    if (roster.status !== ShiftRosterStatus.DRAFT) throw new BadRequestException('Rotation patterns can only be applied to draft rosters');
+    const employeeIds = [...new Set(dto.employeeIds)];
+    if (!employeeIds.length) throw new BadRequestException('At least one employee is required');
+    if (employeeIds.length > 250) throw new BadRequestException('Rotation application is limited to 250 employees at once');
+    const dateFrom = dateOnly(dto.dateFrom);
+    const dateTo = dateOnly(dto.dateTo);
+    if (dateFrom > dateTo) throw new BadRequestException('dateFrom must not be after dateTo');
+    if (dateFrom < roster.dateFrom || dateTo > roster.dateTo) throw new BadRequestException('Rotation date range must stay within the roster period');
+    const mode = dto.overwriteMode ?? 'EMPTY_ONLY';
+    const pattern = await this.prisma.rotationPattern.findFirst({
+      where: { id: dto.patternId, companyId, deletedAt: null },
+      include: { days: { where: { deletedAt: null }, orderBy: [{ sequence: 'asc' }] } },
+    });
+    if (!pattern) throw new BadRequestException('Rotation pattern not found in this company');
+    if (!pattern.enabled) throw new BadRequestException('Inactive rotation patterns cannot be applied');
+    this.assertTemplateScopeCompatible(roster, pattern);
+    if (pattern.days.length !== pattern.cycleLengthDays) throw new BadRequestException('Rotation pattern is incomplete');
+    const alignmentMode = dto.alignmentMode ?? 'PATTERN_ANCHOR';
+    const anchorDate = alignmentMode === 'START_FROM_SEQUENCE_ONE'
+      ? dateOnly(dto.anchorDate ?? dto.dateFrom)
+      : pattern.anchorDate;
+    if (!anchorDate) throw new BadRequestException('Pattern anchor date is required for pattern-anchor alignment');
+    const employees = await this.prisma.employee.findMany({
+      where: { id: { in: employeeIds }, companyId, deletedAt: null },
+      select: { id: true, branchId: true, departmentId: true },
+    });
+    if (employees.length !== employeeIds.length) throw new BadRequestException('One or more employees were not found in this company');
+    for (const employee of employees) {
+      if (roster.branchId && employee.branchId !== roster.branchId) throw new BadRequestException('One or more employees do not belong to the roster branch');
+      if (roster.departmentId && employee.departmentId !== roster.departmentId) throw new BadRequestException('One or more employees do not belong to the roster department');
+    }
+    const patternDays = new Map(pattern.days.map((day) => [day.sequence, day]));
+    let appliedCount = 0;
+    let skippedCount = 0;
+    const dates = this.eachDate(dateFrom, dateTo);
+    await this.prisma.$transaction(async (tx) => {
+      for (const employee of employees) {
+        for (const workDate of dates) {
+          const sequence = this.rotationSequence(anchorDate, workDate, pattern.cycleLengthDays);
+          const patternDay = patternDays.get(sequence);
+          if (!patternDay) {
+            skippedCount += 1;
+            continue;
+          }
+          const existing = await tx.shiftRosterDay.findUnique({ where: { companyId_employeeId_workDate_rosterPeriodId: { companyId, employeeId: employee.id, workDate, rosterPeriodId: periodId } } });
+          if (existing && mode === 'EMPTY_ONLY' && !existing.deletedAt) {
+            skippedCount += 1;
+            continue;
+          }
+          const data = {
+            companyId,
+            rosterPeriodId: periodId,
+            employeeId: employee.id,
+            workDate,
+            dayType: patternDay.dayType,
+            shiftId: patternDay.shiftId,
+            source: 'TEMPLATE' as const,
+            shiftName: patternDay.shiftName,
+            shiftCode: patternDay.shiftCode,
+            shiftStartTime: patternDay.shiftStartTime,
+            shiftEndTime: patternDay.shiftEndTime,
+            shiftTimezone: patternDay.shiftTimezone,
+            notes: patternDay.notes ?? patternDay.label ?? `Applied from rotation ${pattern.code}`,
+            deletedAt: null,
+            updatedById: actor.id,
+          };
+          if (existing) await tx.shiftRosterDay.update({ where: { id: existing.id }, data });
+          else await tx.shiftRosterDay.create({ data: { ...data, createdById: actor.id } });
+          appliedCount += 1;
+        }
+      }
+      await tx.auditLog.create({ data: { companyId, actorUserId: actor.id, action: 'ROTATION_PATTERN_APPLIED', entityType: 'ShiftRoster', entityId: periodId, metadata: { patternId: pattern.id, patternCode: pattern.code, employeeCount: employees.length, dateCount: dates.length, overwriteMode: mode, alignmentMode, anchorDate: this.formatDate(anchorDate), appliedCount, skippedCount } } });
+    });
+    return { appliedCount, skippedCount, employeeCount: employees.length, dateCount: dates.length };
+  }
   private rosterPeriodWhere(companyId: string, query: ShiftRosterPeriodQueryDto, includeStatus: boolean): Prisma.ShiftRosterPeriodWhereInput {
     return {
       companyId,
@@ -568,6 +649,15 @@ export class ShiftRostersService {
     return dates;
   }
 
+
+
+  private toDateOnly(value: Date | string) {
+    return value instanceof Date ? new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate())) : dateOnly(value);
+  }
+  private rotationSequence(anchorDate: Date, targetDate: Date, cycleLengthDays: number) {
+    const offset = Math.floor((this.toDateOnly(targetDate).getTime() - this.toDateOnly(anchorDate).getTime()) / 86400000);
+    return ((offset % cycleLengthDays) + cycleLengthDays) % cycleLengthDays + 1;
+  }
   private addUtcDays(date: Date, days: number) {
     const next = new Date(date);
     next.setUTCDate(next.getUTCDate() + days);

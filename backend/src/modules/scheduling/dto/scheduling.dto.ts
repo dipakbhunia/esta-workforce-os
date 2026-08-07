@@ -866,3 +866,234 @@ export class ApplyRosterTemplateResponseDto {
   @ApiProperty()
   dateCount!: number;
 }
+
+export class RotationPatternDayInputDto {
+  @ApiProperty({ minimum: 1, maximum: 90 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(90)
+  sequence!: number;
+
+  @ApiProperty({ enum: ['WORKING', 'WEEKLY_OFF', 'NO_SHIFT'] })
+  @IsIn(['WORKING', 'WEEKLY_OFF', 'NO_SHIFT'])
+  dayType!: 'WORKING' | 'WEEKLY_OFF' | 'NO_SHIFT';
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsUUID()
+  @IsOptional()
+  shiftId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  label?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  notes?: string | null;
+}
+
+export class CreateRotationPatternDto {
+  @ApiProperty()
+  @IsString()
+  @MaxLength(120)
+  name!: string;
+
+  @ApiProperty({ example: 'FOUR_ON_TWO_OFF' })
+  @IsString()
+  @MaxLength(40)
+  code!: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  description?: string;
+
+  @ApiPropertyOptional({ example: 'Asia/Kolkata' })
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  timezone?: string;
+
+  @ApiProperty({ minimum: 2, maximum: 90 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(2)
+  @Max(90)
+  cycleLengthDays!: number;
+
+  @ApiPropertyOptional({ format: 'date', nullable: true })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  anchorDate?: string | null;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsUUID()
+  @IsOptional()
+  branchId?: string | null;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string | null;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(1000)
+  @IsOptional()
+  notes?: string;
+
+  @ApiProperty({ type: RotationPatternDayInputDto, isArray: true })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RotationPatternDayInputDto)
+  days!: RotationPatternDayInputDto[];
+}
+
+export class UpdateRotationPatternDto extends PartialType(CreateRotationPatternDto) {}
+
+export class RotationPatternSummaryDto {
+  @ApiProperty()
+  total!: number;
+
+  @ApiProperty()
+  active!: number;
+
+  @ApiProperty()
+  inactive!: number;
+
+  @ApiProperty()
+  companyScope!: number;
+
+  @ApiProperty()
+  branchScope!: number;
+
+  @ApiProperty()
+  departmentScope!: number;
+}
+
+export class RotationPatternListResponseDto {
+  @ApiProperty({ isArray: true, type: Object })
+  data!: unknown[];
+
+  @ApiProperty({ type: Object })
+  meta!: unknown;
+
+  @ApiProperty({ type: RotationPatternSummaryDto })
+  summary!: RotationPatternSummaryDto;
+}
+
+export class RotationPatternQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ['COMPANY', 'BRANCH', 'DEPARTMENT'] })
+  @IsIn(['COMPANY', 'BRANCH', 'DEPARTMENT'])
+  @IsOptional()
+  scope?: 'COMPANY' | 'BRANCH' | 'DEPARTMENT';
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  branchId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @MaxLength(80)
+  @IsOptional()
+  timezone?: string;
+
+  @ApiPropertyOptional({ enum: ['CSV'], description: 'CSV export format.' })
+  @IsIn(['CSV'])
+  @IsOptional()
+  format?: 'CSV';
+}
+
+export class PreviewRotationPatternDto {
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateFrom!: string;
+
+  @ApiPropertyOptional({ format: 'date' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  dateTo?: string;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 180, default: 30 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(180)
+  @IsOptional()
+  numberOfDays?: number;
+
+  @ApiPropertyOptional({ format: 'date', description: 'Optional preview anchor. Defaults to the pattern anchor, then dateFrom.' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  anchorDate?: string;
+}
+
+export class ApplyRotationPatternDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  patternId!: string;
+
+  @ApiProperty({ type: String, isArray: true, format: 'uuid' })
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  employeeIds!: string[];
+
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateFrom!: string;
+
+  @ApiProperty({ format: 'date' })
+  @IsISO8601({ strict: true })
+  dateTo!: string;
+
+  @ApiPropertyOptional({ enum: ['PATTERN_ANCHOR', 'START_FROM_SEQUENCE_ONE'], default: 'PATTERN_ANCHOR' })
+  @IsIn(['PATTERN_ANCHOR', 'START_FROM_SEQUENCE_ONE'])
+  @IsOptional()
+  alignmentMode?: 'PATTERN_ANCHOR' | 'START_FROM_SEQUENCE_ONE';
+
+  @ApiPropertyOptional({ format: 'date', description: 'Required when starting the selected range from a custom sequence anchor.' })
+  @IsISO8601({ strict: true })
+  @IsOptional()
+  anchorDate?: string;
+
+  @ApiPropertyOptional({ enum: ['EMPTY_ONLY', 'REPLACE_SELECTED'], default: 'EMPTY_ONLY' })
+  @IsIn(['EMPTY_ONLY', 'REPLACE_SELECTED'])
+  @IsOptional()
+  overwriteMode?: 'EMPTY_ONLY' | 'REPLACE_SELECTED';
+}
+
+export class ApplyRotationPatternResponseDto {
+  @ApiProperty()
+  appliedCount!: number;
+
+  @ApiProperty()
+  skippedCount!: number;
+
+  @ApiProperty()
+  employeeCount!: number;
+
+  @ApiProperty()
+  dateCount!: number;
+}
