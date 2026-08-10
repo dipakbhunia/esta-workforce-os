@@ -1,4 +1,5 @@
-import { Box, ButtonBase, Stack, Typography } from '@mui/material';
+import { Box, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Copy, Edit3, MousePointer2, Trash2 } from 'lucide-react';
 import { StatusChip } from '@/components/status-chip';
 import type { RosterDayType, ShiftRosterDay } from '../types/shift-roster.types';
 import { dayTypeLabel, dayTypeTone, rosterDayShiftLabel } from '../utils/shift-roster-utils';
@@ -12,45 +13,116 @@ const stateStyles: Record<RosterDayType | 'OPEN', { border: string; bg: string; 
   OPEN: { border: '#E5E7EB', bg: '#F8FAFC', accent: '#94A3B8' },
 };
 
-export function RosterDayCell({ day, disabled, onClick }: { day?: ShiftRosterDay | null; disabled?: boolean; onClick?: () => void }) {
+interface RosterDayCellProps {
+  day?: ShiftRosterDay | null;
+  disabled?: boolean;
+  outOfPeriod?: boolean;
+  copyMode?: boolean;
+  copyingSource?: boolean;
+  readonlyReason?: string;
+  onEdit?: () => void;
+  onCopy?: () => void;
+  onClear?: () => void;
+  onSelectTarget?: () => void;
+}
+
+export function RosterDayCell({
+  day,
+  disabled,
+  outOfPeriod,
+  copyMode,
+  copyingSource,
+  readonlyReason,
+  onEdit,
+  onCopy,
+  onClear,
+  onSelectTarget,
+}: RosterDayCellProps) {
   const dayType = day?.dayType ?? 'OPEN';
   const style = stateStyles[dayType];
   const shiftCode = day?.shift?.code ?? day?.shiftCode ?? null;
+  const shiftName = day?.shift?.name ?? day?.shiftName ?? null;
   const start = day?.shift?.startTime ?? day?.shiftStartTime;
   const end = day?.shift?.endTime ?? day?.shiftEndTime;
   const timing = start && end ? `${start} - ${end}` : null;
-  const title = day ? (shiftCode ?? rosterDayShiftLabel(day)) : 'No shift planned';
+  const title = outOfPeriod ? 'Out of period' : day ? (shiftCode ?? shiftName ?? rosterDayShiftLabel(day)) : 'Open';
+  const detail = outOfPeriod
+    ? 'Not in roster period'
+    : day?.dayType === 'WORKING'
+      ? timing ?? shiftName ?? rosterDayShiftLabel(day)
+      : day ? day.notes || dayTypeLabel(day.dayType) : 'Not scheduled';
+  const source = day?.source ? day.source.replace(/_/g, ' ') : null;
+  const isDisabled = disabled || outOfPeriod;
+  const disabledMessage = outOfPeriod ? 'Date is outside this roster period' : readonlyReason ?? 'Roster is read-only in the scheduler';
+  const targetTitle = copyMode ? 'Copy here' : 'Select roster cell';
 
   return (
-    <ButtonBase
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      aria-label={`${day ? `${dayTypeLabel(day.dayType)}: ${rosterDayShiftLabel(day)}` : 'No shift planned'} roster cell`}
+    <Box
+      role="group"
+      aria-label={`${day ? `${dayTypeLabel(day.dayType)}: ${rosterDayShiftLabel(day)}` : title} roster cell${isDisabled ? `, ${disabledMessage}` : ''}`}
       sx={{
         width: '100%',
-        minHeight: 86,
-        p: 1,
-        borderRadius: 2.25,
+        minHeight: outOfPeriod ? 68 : 82,
+        p: outOfPeriod ? 0.75 : 0.85,
+        borderRadius: 2,
         border: '1px solid',
-        borderColor: style.border,
-        bgcolor: style.bg,
+        borderColor: copyingSource ? 'primary.main' : outOfPeriod ? '#E5E7EB' : style.border,
+        bgcolor: copyingSource ? 'rgba(37,99,235,0.08)' : outOfPeriod ? '#F8FAFC' : style.bg,
+        opacity: outOfPeriod ? 0.82 : 1,
         textAlign: 'left',
-        justifyContent: 'stretch',
+        position: 'relative',
         transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
-        '&:hover': disabled ? {} : { borderColor: style.accent, boxShadow: '0 10px 22px rgba(15,23,42,0.08)', transform: 'translateY(-1px)' },
-        '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+        '&:hover': isDisabled ? {} : { borderColor: style.accent, boxShadow: '0 8px 18px rgba(15,23,42,0.08)', transform: 'translateY(-1px)' },
       }}
     >
-      <Stack gap={0.7} width="100%" minWidth={0}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" gap={0.5}>
-          <StatusChip label={day ? dayTypeLabel(day.dayType) : 'Open'} tone={day ? dayTypeTone(day.dayType) : 'neutral'} />
-          {day?.source ? <Typography variant="caption" color="text.secondary" noWrap>{day.source.replace(/_/g, ' ')}</Typography> : null}
-        </Stack>
+      <Stack gap={0.55} width="100%" minWidth={0}>
+        {day && !outOfPeriod ? (
+          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={0.5} minWidth={0}>
+            <StatusChip label={dayTypeLabel(day.dayType)} tone={dayTypeTone(day.dayType)} />
+            {source ? <Typography variant="caption" color="text.secondary" noWrap>{source}</Typography> : null}
+          </Stack>
+        ) : null}
         <Box minWidth={0}>
           <Typography variant="body2" fontWeight={900} noWrap>{title}</Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>{day?.dayType === 'WORKING' ? timing ?? rosterDayShiftLabel(day) : day ? day.notes || dayTypeLabel(day.dayType) : 'Click to plan this day'}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
         </Box>
+        {!outOfPeriod ? (
+          <Stack direction="row" gap={0.25} justifyContent="flex-end" alignItems="center">
+            <Tooltip title={isDisabled ? disabledMessage : 'Edit roster day'}>
+              <span>
+                <IconButton size="small" aria-label="Edit roster day" disabled={isDisabled} onClick={onEdit}>
+                  <Edit3 size={15} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            {day ? (
+              <Tooltip title={isDisabled ? disabledMessage : 'Copy this roster day'}>
+                <span>
+                  <IconButton size="small" aria-label="Copy roster day" disabled={isDisabled} onClick={onCopy}>
+                    <Copy size={15} />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : null}
+            {day ? (
+              <Tooltip title={isDisabled ? disabledMessage : 'Clear roster day'}>
+                <span>
+                  <IconButton size="small" color="error" aria-label="Clear roster day" disabled={isDisabled} onClick={onClear}>
+                    <Trash2 size={15} />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : null}
+            <Tooltip title={isDisabled ? disabledMessage : targetTitle}>
+              <span>
+                <IconButton size="small" color={copyMode ? 'primary' : 'default'} aria-label={copyMode ? 'Copy roster day to this cell' : 'Select roster cell'} disabled={isDisabled} onClick={onSelectTarget}>
+                  <MousePointer2 size={15} />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+        ) : null}
       </Stack>
-    </ButtonBase>
+    </Box>
   );
 }
