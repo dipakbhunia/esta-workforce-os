@@ -1,4 +1,4 @@
-import { Box, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Checkbox, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import { Copy, Edit3, MousePointer2, Trash2 } from 'lucide-react';
 import { StatusChip } from '@/components/status-chip';
 import type { RosterDayType, ShiftRosterDay } from '../types/shift-roster.types';
@@ -20,6 +20,10 @@ interface RosterDayCellProps {
   copyMode?: boolean;
   copyingSource?: boolean;
   readonlyReason?: string;
+  selectionMode?: boolean;
+  selected?: boolean;
+  selectionLabel?: string;
+  onToggleSelected?: () => void;
   onEdit?: () => void;
   onCopy?: () => void;
   onClear?: () => void;
@@ -33,6 +37,10 @@ export function RosterDayCell({
   copyMode,
   copyingSource,
   readonlyReason,
+  selectionMode,
+  selected,
+  selectionLabel,
+  onToggleSelected,
   onEdit,
   onCopy,
   onClear,
@@ -55,28 +63,55 @@ export function RosterDayCell({
   const isDisabled = disabled || outOfPeriod;
   const disabledMessage = outOfPeriod ? 'Date is outside this roster period' : readonlyReason ?? 'Roster is read-only in the scheduler';
   const targetTitle = copyMode ? 'Copy here' : 'Select roster cell';
+  const canSelect = selectionMode && !isDisabled;
+  const selectLabel = selectionLabel ?? 'roster cell';
+  const selectionActionLabel = (selected ? 'Deselect ' : 'Select ') + selectLabel;
+  const toggleSelection = () => { if (canSelect) onToggleSelected?.(); };
+  const handleSelectionKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!canSelect || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    onToggleSelected?.();
+  };
 
   return (
     <Box
-      role="group"
-      aria-label={`${day ? `${dayTypeLabel(day.dayType)}: ${rosterDayShiftLabel(day)}` : title} roster cell${isDisabled ? `, ${disabledMessage}` : ''}`}
+      role={canSelect ? 'checkbox' : 'group'}
+      aria-checked={canSelect ? Boolean(selected) : undefined}
+      aria-label={canSelect ? selectionActionLabel : `${day ? `${dayTypeLabel(day.dayType)}: ${rosterDayShiftLabel(day)}` : title} roster cell${isDisabled ? `, ${disabledMessage}` : ''}`}
+      tabIndex={canSelect ? 0 : undefined}
+      onClick={canSelect ? toggleSelection : undefined}
+      onKeyDown={handleSelectionKeyDown}
       sx={{
         width: '100%',
         minHeight: outOfPeriod ? 68 : 82,
         p: outOfPeriod ? 0.75 : 0.85,
         borderRadius: 2,
         border: '1px solid',
-        borderColor: copyingSource ? 'primary.main' : outOfPeriod ? '#E5E7EB' : style.border,
-        bgcolor: copyingSource ? 'rgba(37,99,235,0.08)' : outOfPeriod ? '#F8FAFC' : style.bg,
+        borderColor: selected ? 'primary.main' : copyingSource ? 'primary.main' : outOfPeriod ? '#E5E7EB' : style.border,
+        bgcolor: selected ? 'rgba(37,99,235,0.12)' : copyingSource ? 'rgba(37,99,235,0.08)' : outOfPeriod ? '#F8FAFC' : style.bg,
         opacity: outOfPeriod ? 0.82 : 1,
         textAlign: 'left',
         position: 'relative',
+        cursor: canSelect ? 'pointer' : 'default',
         transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
         '&:hover': isDisabled ? {} : { borderColor: style.accent, boxShadow: '0 8px 18px rgba(15,23,42,0.08)', transform: 'translateY(-1px)' },
       }}
     >
       <Stack gap={0.55} width="100%" minWidth={0}>
-        {day && !outOfPeriod ? (
+        {canSelect ? (
+          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={0.5}>
+            <Checkbox
+              size="small"
+              checked={Boolean(selected)}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              onChange={onToggleSelected}
+              inputProps={{ 'aria-label': selectionActionLabel }}
+              sx={{ p: 0.2 }}
+            />
+            <Typography variant="caption" color={selected ? 'primary.main' : 'text.secondary'} fontWeight={800}>{selected ? 'Selected' : 'Select'}</Typography>
+          </Stack>
+        ) : day && !outOfPeriod ? (
           <Stack direction="row" justifyContent="space-between" alignItems="center" gap={0.5} minWidth={0}>
             <StatusChip label={dayTypeLabel(day.dayType)} tone={dayTypeTone(day.dayType)} />
             {source ? <Typography variant="caption" color="text.secondary" noWrap>{source}</Typography> : null}
@@ -86,7 +121,7 @@ export function RosterDayCell({
           <Typography variant="body2" fontWeight={900} noWrap>{title}</Typography>
           <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
         </Box>
-        {!outOfPeriod ? (
+        {!outOfPeriod && !selectionMode ? (
           <Stack direction="row" gap={0.25} justifyContent="flex-end" alignItems="center">
             <Tooltip title={isDisabled ? disabledMessage : 'Edit roster day'}>
               <span>

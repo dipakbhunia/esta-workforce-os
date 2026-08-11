@@ -214,7 +214,15 @@ export class ShiftRostersService {
       dayType: dto.dayType,
       shiftId: dto.shiftId ?? null,
       source: dto.source ?? 'MANUAL',
+      shiftName: null,
+      shiftCode: null,
+      shiftStartTime: null,
+      shiftEndTime: null,
+      shiftTimezone: null,
+      scheduledStartAt: null,
+      scheduledEndAt: null,
       notes: dto.notes?.trim() ?? null,
+      deletedAt: null,
       updatedById: actor.id,
     } satisfies Prisma.ShiftRosterDayUncheckedCreateInput | Prisma.ShiftRosterDayUncheckedUpdateInput;
     const day = existing
