@@ -23,6 +23,7 @@ interface RosterDayCellProps {
   selectionMode?: boolean;
   selected?: boolean;
   selectionLabel?: string;
+  dragHandle?: React.ReactNode;
   onToggleSelected?: () => void;
   onEdit?: () => void;
   onCopy?: () => void;
@@ -40,6 +41,7 @@ export function RosterDayCell({
   selectionMode,
   selected,
   selectionLabel,
+  dragHandle,
   onToggleSelected,
   onEdit,
   onCopy,
@@ -112,14 +114,23 @@ export function RosterDayCell({
             <Typography variant="caption" color={selected ? 'primary.main' : 'text.secondary'} fontWeight={800}>{selected ? 'Selected' : 'Select'}</Typography>
           </Stack>
         ) : day && !outOfPeriod ? (
-          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={0.5} minWidth={0}>
-            <StatusChip label={dayTypeLabel(day.dayType)} tone={dayTypeTone(day.dayType)} />
-            {source ? <Typography variant="caption" color="text.secondary" noWrap>{source}</Typography> : null}
+          <Stack direction="row" alignItems="center" gap={0.5} minWidth={0} overflow="hidden">
+            <Box sx={{ flex: '0 0 auto', minWidth: 0, '& .MuiChip-root': { height: 22 }, '& .MuiChip-label': { px: 0.65, fontSize: '0.7rem', fontWeight: 800 } }}>
+              <StatusChip label={dayTypeLabel(day.dayType)} tone={dayTypeTone(day.dayType)} />
+            </Box>
+            {source ? (
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {source}
+              </Typography>
+            ) : null}
           </Stack>
         ) : null}
-        <Box minWidth={0}>
-          <Typography variant="body2" fontWeight={900} noWrap>{title}</Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: dragHandle ? 'minmax(0, 1fr) 24px' : 'minmax(0, 1fr)', alignItems: 'center', columnGap: 0.25, minWidth: 0 }}>
+          <Box minWidth={0}>
+            <Typography variant="body2" fontWeight={900} noWrap>{title}</Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
+          </Box>
+          {dragHandle ? <Box sx={{ width: 24, minWidth: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>{dragHandle}</Box> : null}
         </Box>
         {!outOfPeriod && !selectionMode ? (
           <Stack direction="row" gap={0.25} justifyContent="flex-end" alignItems="center">

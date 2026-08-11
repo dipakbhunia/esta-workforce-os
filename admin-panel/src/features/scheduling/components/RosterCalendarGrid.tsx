@@ -4,6 +4,7 @@ import type { Employee } from '@/features/people/types/employee.types';
 import type { ShiftRosterDay } from '../types/shift-roster.types';
 import { addDays, dateInputFromDate, employeeName, formatDateOnly } from '../utils/shift-roster-utils';
 import { RosterDayCell } from './RosterDayCell';
+import { isRosterDayDraggable, RosterDragDropCell, RosterDragDropContext, type RosterDragSource, type RosterDragTarget } from './RosterDragDropContext';
 
 export interface RosterCellInput {
   employeeId: string;
@@ -26,6 +27,9 @@ interface RosterCalendarGridProps {
   onToggleCellSelection?: (input: RosterCellInput) => void;
   onToggleEmployeeSelection?: (employeeId: string) => void;
   onToggleDateSelection?: (workDate: string) => void;
+  dragEnabled?: boolean;
+  dragBusy?: boolean;
+  onDragCopy?: (source: RosterDragSource, target: RosterDragTarget) => void;
   onEditCell: (input: RosterCellInput) => void;
   onCopyCell: (day: ShiftRosterDay) => void;
   onClearCell: (day: ShiftRosterDay) => void;
@@ -47,6 +51,9 @@ export function RosterCalendarGrid({
   onToggleCellSelection,
   onToggleEmployeeSelection,
   onToggleDateSelection,
+  dragEnabled,
+  dragBusy,
+  onDragCopy,
   onEditCell,
   onCopyCell,
   onClearCell,
@@ -112,9 +119,12 @@ export function RosterCalendarGrid({
     );
   }
 
+  const desktopDragEnabled = Boolean(dragEnabled && !readonly && !selectionMode && !copySource);
+
   return (
-    <Box sx={{ overflowX: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 3, maxWidth: '100%' }} aria-busy={loading}>
-      <Box sx={{ minWidth: 1024, display: 'grid', gridTemplateColumns: '220px repeat(7, minmax(108px, 1fr))' }}>
+    <RosterDragDropContext enabled={desktopDragEnabled} busy={dragBusy} onDrop={(source, target) => onDragCopy?.(source, target)}>
+      <Box sx={{ overflowX: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 3, maxWidth: '100%' }} aria-busy={loading || dragBusy}>
+        <Box sx={{ minWidth: 1024, display: 'grid', gridTemplateColumns: '220px repeat(7, minmax(108px, 1fr))' }}>
         <HeaderCell sticky>Employee</HeaderCell>
         {dates.map((date) => (
           <DateHeaderCell
@@ -159,32 +169,50 @@ export function RosterCalendarGrid({
                 const outOfPeriod = isOutOfRosterPeriod(date, rosterStart, rosterEnd);
                 const input = { employeeId: employee.id, workDate: date, day };
                 const selected = selectedKeys.has(cellKey(employee.id, date));
+                const employeeLabel = employeeName(employee);
+                const target: RosterDragTarget = { ...input, employeeLabel };
+                const source: RosterDragSource | null = !outOfPeriod && !readonly && isRosterDayDraggable(day) && day
+                  ? { day, employeeId: employee.id, employeeLabel, workDate: date }
+                  : null;
                 return (
                   <Box key={`${employee.id}-${date}`} sx={{ borderTop: '1px solid', borderLeft: '1px solid', borderColor: 'divider', p: 0.55, bgcolor: isWeekend(date) ? 'rgba(15,23,42,0.015)' : 'background.paper' }}>
-                    <RosterDayCell
-                      day={day}
-                      disabled={readonly}
-                      outOfPeriod={outOfPeriod}
-                      readonlyReason={readonlyReason}
-                      copyMode={Boolean(copySource)}
-                      copyingSource={copySource?.id === day?.id}
-                      selectionMode={selectionMode}
-                      selected={selected}
-                      selectionLabel={employeeName(employee) + ' on ' + formatDateOnly(date)}
-                      onToggleSelected={() => onToggleCellSelection?.(input)}
-                      onEdit={() => onEditCell(input)}
-                      onCopy={day ? () => onCopyCell(day) : undefined}
-                      onClear={day ? () => onClearCell(day) : undefined}
-                      onSelectTarget={() => copySource ? onSelectCopyTarget(input) : onEditCell(input)}
-                    />
+                    <RosterDragDropCell
+                      enabled={desktopDragEnabled}
+                      busy={dragBusy}
+                      source={source}
+                      target={target}
+                      targetDisabled={Boolean(readonly || outOfPeriod)}
+                      disabledReason={outOfPeriod ? 'Outside roster period' : readonlyReason}
+                    >
+                      {({ dragHandle }) => (
+                        <RosterDayCell
+                          day={day}
+                          disabled={readonly}
+                          outOfPeriod={outOfPeriod}
+                          readonlyReason={readonlyReason}
+                          copyMode={Boolean(copySource)}
+                          copyingSource={copySource?.id === day?.id}
+                          selectionMode={selectionMode}
+                          selected={selected}
+                          selectionLabel={employeeLabel + ' on ' + formatDateOnly(date)}
+                          dragHandle={dragHandle}
+                          onToggleSelected={() => onToggleCellSelection?.(input)}
+                          onEdit={() => onEditCell(input)}
+                          onCopy={day ? () => onCopyCell(day) : undefined}
+                          onClear={day ? () => onClearCell(day) : undefined}
+                          onSelectTarget={() => copySource ? onSelectCopyTarget(input) : onEditCell(input)}
+                        />
+                      )}
+                    </RosterDragDropCell>
                   </Box>
                 );
               })}
             </Box>
           );
         })}
+        </Box>
       </Box>
-    </Box>
+    </RosterDragDropContext>
   );
 }
 

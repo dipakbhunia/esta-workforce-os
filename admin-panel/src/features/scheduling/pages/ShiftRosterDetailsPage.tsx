@@ -20,6 +20,8 @@ import { RosterBulkActionDialog } from '../components/RosterBulkActionDialog';
 import { RosterBulkSelectionDialog, type RosterBulkSelectionSubmitConfig } from '../components/RosterBulkSelectionDialog';
 import { RosterCalendarGrid, cellKey, type RosterCellInput } from '../components/RosterCalendarGrid';
 import { RosterDayDialog } from '../components/RosterDayDialog';
+import { isRosterDayDraggable, type RosterDragSource, type RosterDragTarget } from '../components/RosterDragDropContext';
+import { RosterDropConflictDialog } from '../components/RosterDropConflictDialog';
 import { RosterLifecycleDialog } from '../components/RosterLifecycleDialog';
 import { RosterPreviewPanel } from '../components/RosterPreviewPanel';
 import { RosterSchedulerToolbar } from '../components/RosterSchedulerToolbar';
@@ -62,6 +64,7 @@ export default function ShiftRosterDetailsPage() {
   const [clearTarget, setClearTarget] = useState<ShiftRosterDay | null>(null);
   const [copySource, setCopySource] = useState<ShiftRosterDay | null>(null);
   const [copyTarget, setCopyTarget] = useState<RosterCellInput | null>(null);
+  const [dragConflict, setDragConflict] = useState<{ source: RosterDragSource; target: RosterDragTarget } | null>(null);
   const [lifecycle, setLifecycle] = useState<'publish' | 'lock' | null>(null);
   const [preview, setPreview] = useState<RosterPreviewResponse | null>(null);
   const [toast, setToast] = useState<ToastState | null>(location.state?.success ? { severity: 'success', message: location.state.success } : null);
@@ -212,6 +215,19 @@ export default function ShiftRosterDetailsPage() {
 
   const upsertMutation = useMutation({ mutationFn: (payload: Parameters<typeof upsertShiftRosterDay>[1]) => upsertShiftRosterDay(id!, payload), onSuccess: async () => { setDayDialog(null); setToast({ severity: 'success', message: 'Roster day saved.' }); await invalidate(); }, onError: () => setToast({ severity: 'error', message: 'Roster day could not be saved.' }) });
   const copyMutation = useMutation({ mutationFn: (payload: Parameters<typeof upsertShiftRosterDay>[1]) => upsertShiftRosterDay(id!, payload), onSuccess: async () => { setCopyTarget(null); setCopySource(null); setToast({ severity: 'success', message: 'Roster day copied.' }); await invalidate(); }, onError: () => setToast({ severity: 'error', message: 'Roster day could not be copied.' }) });
+  const dragCopyMutation = useMutation({
+    mutationFn: ({ source, target }: { source: RosterDragSource; target: RosterDragTarget }) => upsertShiftRosterDay(id!, copyPayload(source.day, target.employeeId, target.workDate)),
+    onSuccess: async (_, variables) => {
+      setDragConflict(null);
+      setToast({ severity: 'success', message: `${rosterDayShiftLabel(variables.source.day)} copied to ${variables.target.employeeLabel} on ${formatDateOnly(variables.target.workDate)}.` });
+      await invalidate();
+    },
+    onError: async () => {
+      setDragConflict(null);
+      setToast({ severity: 'error', message: 'Roster day could not be copied. The scheduler was refreshed to show backend state.' });
+      await invalidate();
+    },
+  });
   const selectionBulkMutation = useMutation({
     mutationFn: (payload: { days: ShiftRosterDayPayload[] }) => bulkUpsertShiftRosterDays(id!, payload),
     onSuccess: async (response) => { clearSelectionState(); setToast({ severity: 'success', message: `${response.data.count} roster cell${response.data.count === 1 ? '' : 's'} saved.` }); await invalidate(); },
@@ -301,6 +317,24 @@ export default function ShiftRosterDetailsPage() {
       source: 'MANUAL',
       notes: source.notes ?? null,
     });
+  };
+  const handleDragCopy = (source: RosterDragSource, target: RosterDragTarget) => {
+    if (dragCopyMutation.isPending || selectionMode || copySource) return;
+    if (!ensureSchedulerEditable() || !ensureInRosterPeriod(source.workDate) || !ensureInRosterPeriod(target.workDate)) return;
+    if (!isRosterDayDraggable(source.day)) {
+      setToast({ severity: 'info', message: 'Only working, weekly-off, and no-shift roster days can be dragged.' });
+      return;
+    }
+    if (cellKey(source.employeeId, source.workDate) === cellKey(target.employeeId, target.workDate)) return;
+    if (target.day) {
+      setDragConflict({ source, target });
+      return;
+    }
+    dragCopyMutation.mutate({ source, target });
+  };
+  const confirmDragReplacement = () => {
+    if (!dragConflict || dragCopyMutation.isPending) return;
+    dragCopyMutation.mutate(dragConflict);
   };
   const requestClear = (day: ShiftRosterDay) => {
     if (!ensureSchedulerEditable()) return;
@@ -404,7 +438,7 @@ export default function ShiftRosterDetailsPage() {
               canPreviousWeek={canPreviousWeek}
               canNextWeek={canNextWeek}
               copyModeLabel={copyModeLabel}
-              loading={calendarDaysQuery.isFetching || employeeQuery.isFetching || copyMutation.isPending || clearMutation.isPending || upsertMutation.isPending || selectionBulkMutation.isPending || selectionClearMutation.isPending}
+              loading={calendarDaysQuery.isFetching || employeeQuery.isFetching || copyMutation.isPending || dragCopyMutation.isPending || clearMutation.isPending || upsertMutation.isPending || selectionBulkMutation.isPending || selectionClearMutation.isPending}
               onPreviousWeek={() => setBoundedWeek(addDays(week, -7))}
               onToday={selectTodayWeek}
               onNextWeek={() => setBoundedWeek(addDays(week, 7))}
@@ -450,6 +484,9 @@ export default function ShiftRosterDetailsPage() {
               onToggleCellSelection={toggleCellSelection}
               onToggleEmployeeSelection={toggleEmployeeSelection}
               onToggleDateSelection={toggleDateSelection}
+              dragEnabled={!schedulerReadOnly && !selectionMode && !copySource}
+              dragBusy={dragCopyMutation.isPending}
+              onDragCopy={handleDragCopy}
               onEditCell={openCellEditor}
               onCopyCell={startCopy}
               onClearCell={requestClear}
@@ -487,6 +524,7 @@ export default function ShiftRosterDetailsPage() {
       <RosterBulkSelectionDialog open={Boolean(bulkSelectionOperation)} operation={bulkSelectionOperation} mode={selectionConflictMode} selectedCells={selectedCells} visibleCells={visibleCells} employees={calendarEmployees} shifts={shifts} sourceDay={copyDaySource} sourceDayCandidates={selectedExistingDays} sourceWeekEmployeeId={copyWeekSourceEmployeeId} previousWeekDays={previousWeekDays} weekStart={week} loading={selectionBulkMutation.isPending || selectionClearMutation.isPending} backendLimit={BULK_CELL_LIMIT} onClose={() => setBulkSelectionOperation(null)} onSubmit={handleBulkSelectionSubmit} />
       <RosterTemplateApplyDialog open={templateApplyOpen} roster={roster} onClose={() => setTemplateApplyOpen(false)} onApplied={async () => { setToast({ severity: 'success', message: 'Template applied to this draft roster.' }); clearSelectionState(); await invalidate(); }} />
       <RotationPatternApplyDialog open={rotationApplyOpen} roster={roster} onClose={() => setRotationApplyOpen(false)} onApplied={async () => { setToast({ severity: 'success', message: 'Rotation pattern applied to this draft roster.' }); clearSelectionState(); await invalidate(); }} />
+      <RosterDropConflictDialog open={Boolean(dragConflict)} source={dragConflict?.source ?? null} target={dragConflict?.target ?? null} loading={dragCopyMutation.isPending} onClose={() => setDragConflict(null)} onConfirm={confirmDragReplacement} />
       <RosterLifecycleDialog open={Boolean(lifecycle)} action={lifecycle ?? 'publish'} loading={publishMutation.isPending || lockMutation.isPending} blocked={lifecycle === 'publish' && preview?.valid === false} onClose={() => setLifecycle(null)} onConfirm={() => lifecycle === 'publish' ? publishMutation.mutate() : lockMutation.mutate()} />
       <ConfirmDialog open={Boolean(clearTarget)} title="Clear Roster Day" description="This draft roster day will be removed from the period." confirmLabel="Clear Day" loading={clearMutation.isPending} onClose={() => setClearTarget(null)} onConfirm={() => clearTarget && clearMutation.mutate(clearTarget)} />
       <ConfirmDialog open={Boolean(copyTarget)} title="Replace Existing Roster Day?" description={`The target cell for ${targetEmployeeName} on ${formatDateOnly(copyTarget?.workDate)} already contains roster data. Replace it with the copied assignment?`} confirmLabel="Replace Cell" loading={copyMutation.isPending} onClose={() => setCopyTarget(null)} onConfirm={() => copySource && copyTarget && copyRosterDay(copySource, copyTarget)} />
