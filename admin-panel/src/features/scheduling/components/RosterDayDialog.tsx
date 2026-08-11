@@ -48,7 +48,7 @@ export function RosterDayDialog({ open, day, defaultEmployeeId = '', defaultWork
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={loading ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>{day ? 'Edit Roster Day' : 'Add Roster Day'}</DialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ pt: 1 }}>

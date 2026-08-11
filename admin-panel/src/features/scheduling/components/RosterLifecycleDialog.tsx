@@ -12,7 +12,7 @@ interface RosterLifecycleDialogProps {
 export function RosterLifecycleDialog({ open, action, loading, blocked, onClose, onConfirm }: RosterLifecycleDialogProps) {
   const isPublish = action === 'publish';
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={loading ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>{isPublish ? 'Publish Shift Roster' : 'Lock Shift Roster'}</DialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ pt: 1 }}>

@@ -48,7 +48,7 @@ export function RosterBulkActionDialog({ open, employees, shifts, loading, reado
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={loading ? undefined : onClose} fullWidth maxWidth="md">
       <DialogTitle>Bulk Update Roster Days</DialogTitle>
       <DialogContent>
         <Stack gap={2} sx={{ pt: 1 }}>

@@ -1,4 +1,5 @@
 import { Box, Button, Card, CardContent, Checkbox, Stack, Typography, useMediaQuery, useTheme } from '@mui/material';
+import { useMemo } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import type { Employee } from '@/features/people/types/employee.types';
 import type { ShiftRosterDay } from '../types/shift-roster.types';
@@ -11,6 +12,8 @@ export interface RosterCellInput {
   workDate: string;
   day?: ShiftRosterDay | null;
 }
+
+const EMPTY_SELECTED_KEYS = new Set<string>();
 
 interface RosterCalendarGridProps {
   employees: Employee[];
@@ -47,7 +50,7 @@ export function RosterCalendarGrid({
   copySource,
   loading,
   selectionMode,
-  selectedKeys = new Set<string>(),
+  selectedKeys = EMPTY_SELECTED_KEYS,
   onToggleCellSelection,
   onToggleEmployeeSelection,
   onToggleDateSelection,
@@ -61,11 +64,23 @@ export function RosterCalendarGrid({
 }: RosterCalendarGridProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const dates = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const dates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
   const today = dateInputFromDate(new Date());
   const rosterStart = rosterDateFrom?.slice(0, 10) ?? null;
   const rosterEnd = rosterDateTo?.slice(0, 10) ?? null;
-  const dayMap = new Map(days.map((day) => [`${day.employeeId}:${day.workDate.slice(0, 10)}`, day]));
+  const dayMap = useMemo(() => new Map(days.map((day) => [`${day.employeeId}:${day.workDate.slice(0, 10)}`, day])), [days]);
+  const inPeriodDates = useMemo(() => dates.filter((date) => !isOutOfRosterPeriod(date, rosterStart, rosterEnd)), [dates, rosterEnd, rosterStart]);
+  const employeeLabels = useMemo(() => new Map(employees.map((employee) => [employee.id, employeeName(employee)])), [employees]);
+  const rowSelectionCounts = useMemo(() => new Map(employees.map((employee) => [
+    employee.id,
+    inPeriodDates.reduce((count, date) => count + Number(selectedKeys.has(cellKey(employee.id, date))), 0),
+  ])), [employees, inPeriodDates, selectedKeys]);
+  const dateSelectionCounts = useMemo(() => new Map(dates.map((date) => [
+    date,
+    employees.reduce((count, employee) => count + Number(selectedKeys.has(cellKey(employee.id, date))), 0),
+  ])), [dates, employees, selectedKeys]);
+  const interactionDisabled = Boolean(readonly || dragBusy);
+  const interactionDisabledReason = dragBusy ? 'Roster update in progress' : readonlyReason;
 
   if (!employees.length) {
     return <EmptyState title="No employees available" description="Adjust the roster scope or employee search to load employees for planning." />;
@@ -86,7 +101,7 @@ export function RosterCalendarGrid({
                 <Stack gap={1}>
                   <Stack direction="row" justifyContent="space-between" gap={1}>
                     <Box minWidth={0}>
-                      <Typography fontWeight={850} noWrap>{employeeName(employee)}</Typography>
+                      <Typography fontWeight={850} noWrap>{employeeLabels.get(employee.id)}</Typography>
                       <Typography variant="caption" color="text.secondary" noWrap>{employee.employeeCode}</Typography>
                     </Box>
                     <Box textAlign="right">
@@ -96,14 +111,14 @@ export function RosterCalendarGrid({
                   </Stack>
                   <RosterDayCell
                     day={day}
-                    disabled={readonly}
+                    disabled={interactionDisabled}
                     outOfPeriod={outOfPeriod}
-                    readonlyReason={readonlyReason}
+                    readonlyReason={interactionDisabledReason}
                     copyMode={Boolean(copySource)}
                     copyingSource={copySource?.id === day?.id}
                     selectionMode={selectionMode}
                     selected={selected}
-                    selectionLabel={employeeName(employee) + ' on ' + formatDateOnly(date)}
+                    selectionLabel={employeeLabels.get(employee.id) + ' on ' + formatDateOnly(date)}
                     onToggleSelected={() => onToggleCellSelection?.(input)}
                     onEdit={() => onEditCell(input)}
                     onCopy={day ? () => onCopyCell(day) : undefined}
@@ -133,14 +148,15 @@ export function RosterCalendarGrid({
             today={today}
             outOfPeriod={isOutOfRosterPeriod(date, rosterStart, rosterEnd)}
             selectionMode={selectionMode}
-            selectedCount={employees.filter((employee) => selectedKeys.has(cellKey(employee.id, date))).length}
-            selectableCount={employees.filter(() => !isOutOfRosterPeriod(date, rosterStart, rosterEnd)).length}
+            selectedCount={dateSelectionCounts.get(date) ?? 0}
+            selectableCount={isOutOfRosterPeriod(date, rosterStart, rosterEnd) ? 0 : employees.length}
             onToggle={() => onToggleDateSelection?.(date)}
           />
         ))}
         {employees.map((employee) => {
-          const rowDates = dates.filter((date) => !isOutOfRosterPeriod(date, rosterStart, rosterEnd));
-          const rowSelectedCount = rowDates.filter((date) => selectedKeys.has(cellKey(employee.id, date))).length;
+          const rowDates = inPeriodDates;
+          const rowSelectedCount = rowSelectionCounts.get(employee.id) ?? 0;
+          const employeeLabel = employeeLabels.get(employee.id) ?? employee.employeeCode;
           return (
             <Box key={employee.id} sx={{ display: 'contents' }}>
               <Box sx={{ position: 'sticky', left: 0, zIndex: 2, bgcolor: 'background.paper', borderTop: '1px solid', borderColor: 'divider', p: 0.95, minWidth: 0 }}>
@@ -151,12 +167,12 @@ export function RosterCalendarGrid({
                       checked={rowDates.length > 0 && rowSelectedCount === rowDates.length}
                       indeterminate={rowSelectedCount > 0 && rowSelectedCount < rowDates.length}
                       onChange={() => onToggleEmployeeSelection?.(employee.id)}
-                      inputProps={{ 'aria-label': `Select visible week for ${employeeName(employee)}` }}
+                      inputProps={{ 'aria-label': `Select visible week for ${employeeLabel}` }}
                       sx={{ p: 0.2 }}
                     />
                   ) : null}
                   <Box minWidth={0}>
-                    <Typography fontWeight={900} noWrap>{employeeName(employee)}</Typography>
+                    <Typography fontWeight={900} noWrap>{employeeLabel}</Typography>
                     <Typography variant="caption" color="text.secondary" noWrap>{employee.employeeCode}</Typography>
                     <Typography variant="caption" color="text.secondary" noWrap display="block">
                       {employee.department?.name ?? employee.designation?.name ?? employee.branch?.name ?? 'No scope'}
@@ -169,7 +185,6 @@ export function RosterCalendarGrid({
                 const outOfPeriod = isOutOfRosterPeriod(date, rosterStart, rosterEnd);
                 const input = { employeeId: employee.id, workDate: date, day };
                 const selected = selectedKeys.has(cellKey(employee.id, date));
-                const employeeLabel = employeeName(employee);
                 const target: RosterDragTarget = { ...input, employeeLabel };
                 const source: RosterDragSource | null = !outOfPeriod && !readonly && isRosterDayDraggable(day) && day
                   ? { day, employeeId: employee.id, employeeLabel, workDate: date }
@@ -181,15 +196,15 @@ export function RosterCalendarGrid({
                       busy={dragBusy}
                       source={source}
                       target={target}
-                      targetDisabled={Boolean(readonly || outOfPeriod)}
-                      disabledReason={outOfPeriod ? 'Outside roster period' : readonlyReason}
+                      targetDisabled={Boolean(interactionDisabled || outOfPeriod)}
+                      disabledReason={outOfPeriod ? 'Outside roster period' : interactionDisabledReason}
                     >
                       {({ dragHandle }) => (
                         <RosterDayCell
                           day={day}
-                          disabled={readonly}
+                          disabled={interactionDisabled}
                           outOfPeriod={outOfPeriod}
-                          readonlyReason={readonlyReason}
+                          readonlyReason={interactionDisabledReason}
                           copyMode={Boolean(copySource)}
                           copyingSource={copySource?.id === day?.id}
                           selectionMode={selectionMode}

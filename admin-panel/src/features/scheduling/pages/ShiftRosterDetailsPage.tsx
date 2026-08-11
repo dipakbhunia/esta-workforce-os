@@ -29,13 +29,12 @@ import { type RosterBulkSelectionOperation, type RosterConflictMode, RosterSelec
 import { RosterStatusBadge } from '../components/RosterStatusBadge';
 import { RosterTemplateApplyDialog } from '../components/RosterTemplateApplyDialog';
 import { RotationPatternApplyDialog } from '../components/RotationPatternApplyDialog';
-import { bulkUpsertShiftRosterDays, deleteShiftRosterDay, exportShiftRosterDays, getShiftRoster, getShiftRosterDays, lockShiftRoster, previewShiftRoster, publishShiftRoster, upsertShiftRosterDay } from '../services/shift-rosters-api';
+import { bulkUpsertShiftRosterDays, deleteShiftRosterDay, exportShiftRosterDays, getShiftRoster, getShiftRosterDays, getShiftRosterDaysForCalendar, lockShiftRoster, previewShiftRoster, publishShiftRoster, upsertShiftRosterDay } from '../services/shift-rosters-api';
 import type { RosterDayType, RosterPreviewResponse, ShiftRosterDay, ShiftRosterDayPayload } from '../types/shift-roster.types';
 import { addDays, dateInputFromDate, dayTypeLabel, dayTypeTone, downloadBlob, employeeName, formatDateOnly, formatDateRange, formatDateTime, formatDurationDays, localDateForFilename, responseBlob, rosterDayShiftLabel, rosterDayTypeOptions, rosterStatusLabel, scopeLabel, weekStart } from '../utils/shift-roster-utils';
 
 type ToastState = { severity: 'success' | 'error' | 'info'; message: string };
 
-const CALENDAR_READ_LIMIT = 100;
 const BULK_CELL_LIMIT = 500;
 
 export default function ShiftRosterDetailsPage() {
@@ -90,13 +89,13 @@ export default function ShiftRosterDetailsPage() {
 
   const calendarDaysQuery = useQuery({
     queryKey: ['shift-roster-calendar-days', id, { week, calendarWeekEnd }],
-    queryFn: () => getShiftRosterDays(id!, { page: 1, limit: CALENDAR_READ_LIMIT, dateFrom: week, dateTo: calendarWeekEnd }),
+    queryFn: () => getShiftRosterDaysForCalendar(id!, { dateFrom: week, dateTo: calendarWeekEnd }),
     enabled: Boolean(id) && Boolean(roster),
   });
 
   const previousWeekDaysQuery = useQuery({
     queryKey: ['shift-roster-previous-week-days', id, { previousWeekStart, previousWeekEnd }],
-    queryFn: () => getShiftRosterDays(id!, { page: 1, limit: CALENDAR_READ_LIMIT, dateFrom: previousWeekStart, dateTo: previousWeekEnd }),
+    queryFn: () => getShiftRosterDaysForCalendar(id!, { dateFrom: previousWeekStart, dateTo: previousWeekEnd }),
     enabled: Boolean(id) && Boolean(roster) && !schedulerReadOnly && (!rosterDateFrom || previousWeekEnd >= rosterDateFrom),
   });
 
@@ -109,8 +108,8 @@ export default function ShiftRosterDetailsPage() {
   const employees = employeeQuery.data?.data.data ?? [];
   const shifts = shiftsQuery.data?.data.data ?? [];
   const days = daysQuery.data?.data.data ?? [];
-  const calendarDays = calendarDaysQuery.data?.data.data ?? [];
-  const previousWeekDays = previousWeekDaysQuery.data?.data.data ?? [];
+  const calendarDays = calendarDaysQuery.data ?? [];
+  const previousWeekDays = previousWeekDaysQuery.data ?? [];
   const meta = daysQuery.data?.data.meta;
   const duration = inclusiveDateDuration(roster?.dateFrom, roster?.dateTo);
   const hasFilters = Boolean(search || employeeId || dayType || dateFrom || dateTo);
@@ -147,10 +146,21 @@ export default function ShiftRosterDetailsPage() {
     .map((workDate) => ({ employeeId: employee.id, workDate, day: calendarDayByKey.get(cellKey(employee.id, workDate)) ?? null }))), [calendarDayByKey, calendarEmployees, rosterDateFrom, rosterDateTo, weekDates]);
   const visibleKeySet = useMemo(() => new Set(visibleCells.map((cell) => cellKey(cell.employeeId, cell.workDate))), [visibleCells]);
   const selectedCells = useMemo(() => visibleCells.filter((cell) => selectedKeys.has(cellKey(cell.employeeId, cell.workDate))), [selectedKeys, visibleCells]);
-  const selectedExistingCount = selectedCells.filter((cell) => Boolean(cell.day)).length;
-  const selectedEmployeeCount = new Set(selectedCells.map((cell) => cell.employeeId)).size;
-  const selectedDateCount = new Set(selectedCells.map((cell) => cell.workDate)).size;
-  const selectedExistingDays = selectedCells.map((cell) => cell.day).filter(Boolean) as ShiftRosterDay[];
+  const selectionSummary = useMemo(() => {
+    const existingDays: ShiftRosterDay[] = [];
+    const employeeIds = new Set<string>();
+    const workDates = new Set<string>();
+    selectedCells.forEach((cell) => {
+      employeeIds.add(cell.employeeId);
+      workDates.add(cell.workDate);
+      if (cell.day) existingDays.push(cell.day);
+    });
+    return { existingDays, employeeCount: employeeIds.size, dateCount: workDates.size };
+  }, [selectedCells]);
+  const selectedExistingDays = selectionSummary.existingDays;
+  const selectedExistingCount = selectedExistingDays.length;
+  const selectedEmployeeCount = selectionSummary.employeeCount;
+  const selectedDateCount = selectionSummary.dateCount;
   const copyDaySource = selectedExistingDays.length === 1 ? selectedExistingDays[0] : null;
   const canCopyDay = selectedExistingDays.length >= 1 && selectedCells.length >= 2;
   const selectedSourceEmployeeIds = new Set(selectedCells.map((cell) => cell.employeeId));
@@ -231,8 +241,7 @@ export default function ShiftRosterDetailsPage() {
   const selectionBulkMutation = useMutation({
     mutationFn: (payload: { days: ShiftRosterDayPayload[] }) => bulkUpsertShiftRosterDays(id!, payload),
     onSuccess: async (response) => { clearSelectionState(); setToast({ severity: 'success', message: `${response.data.count} roster cell${response.data.count === 1 ? '' : 's'} saved.` }); await invalidate(); },
-    onError: () => setToast({ severity: 'error', message: 'Bulk selection update failed. No optimistic changes were applied; refresh completed state before retrying.' }),
-    onSettled: () => void invalidate(),
+    onError: async () => { setToast({ severity: 'error', message: 'Bulk selection update failed. No optimistic changes were applied; refresh completed state before retrying.' }); await invalidate(); },
   });
   const selectionClearMutation = useMutation({
     mutationFn: async (targets: ShiftRosterDay[]) => {
@@ -260,6 +269,14 @@ export default function ShiftRosterDetailsPage() {
     },
     onError: () => setToast({ severity: 'error', message: 'Roster days export failed. Narrow filters and try again.' }),
   });
+  const rosterDayMutationBusy = upsertMutation.isPending
+    || copyMutation.isPending
+    || dragCopyMutation.isPending
+    || clearMutation.isPending
+    || bulkMutation.isPending
+    || selectionBulkMutation.isPending
+    || selectionClearMutation.isPending;
+  const rosterDayInteractionReason = rosterDayMutationBusy ? 'Roster update in progress' : schedulerReadonlyReason;
 
   const columns = useMemo<GridColDef<ShiftRosterDay>[]>(() => [
     { field: 'employee', headerName: 'Employee', minWidth: 260, flex: 1, renderCell: ({ row }) => <Box minWidth={0}><Typography fontWeight={850} noWrap>{employeeName(row.employee)}</Typography><Typography variant="caption" color="text.secondary" noWrap>{row.employee?.employeeCode ?? row.employeeId}</Typography></Box> },
@@ -268,8 +285,8 @@ export default function ShiftRosterDetailsPage() {
     { field: 'shift', headerName: 'Shift', minWidth: 240, valueGetter: (_, row) => rosterDayShiftLabel(row) },
     { field: 'source', headerName: 'Source', minWidth: 160, valueGetter: (_, row) => row.source.replace(/_/g, ' ') },
     { field: 'notes', headerName: 'Notes', minWidth: 220, valueGetter: (_, row) => row.notes ?? '-' },
-    { field: 'actions', headerName: 'Actions', minWidth: 120, sortable: false, filterable: false, renderCell: ({ row }) => <Stack direction="row"><Tooltip title={schedulerReadOnly ? schedulerReadonlyReason : 'Edit day'}><span><IconButton size="small" disabled={schedulerReadOnly} onClick={() => setDayDialog({ day: row, employeeId: row.employeeId, workDate: row.workDate.slice(0, 10) })}><Edit3 size={17} /></IconButton></span></Tooltip><Tooltip title={schedulerReadOnly ? schedulerReadonlyReason : 'Clear day'}><span><IconButton size="small" color="error" disabled={schedulerReadOnly} onClick={() => setClearTarget(row)}><Trash2 size={17} /></IconButton></span></Tooltip></Stack> },
-  ], [schedulerReadOnly, schedulerReadonlyReason]);
+    { field: 'actions', headerName: 'Actions', minWidth: 120, sortable: false, filterable: false, renderCell: ({ row }) => <Stack direction="row"><Tooltip title={schedulerReadOnly || rosterDayMutationBusy ? rosterDayInteractionReason : 'Edit day'}><span><IconButton size="small" aria-label={`Edit roster day for ${employeeName(row.employee)} on ${formatDateOnly(row.workDate)}`} disabled={schedulerReadOnly || rosterDayMutationBusy} onClick={() => setDayDialog({ day: row, employeeId: row.employeeId, workDate: row.workDate.slice(0, 10) })}><Edit3 size={17} /></IconButton></span></Tooltip><Tooltip title={schedulerReadOnly || rosterDayMutationBusy ? rosterDayInteractionReason : 'Clear day'}><span><IconButton size="small" color="error" aria-label={`Clear roster day for ${employeeName(row.employee)} on ${formatDateOnly(row.workDate)}`} disabled={schedulerReadOnly || rosterDayMutationBusy} onClick={() => setClearTarget(row)}><Trash2 size={17} /></IconButton></span></Tooltip></Stack> },
+  ], [rosterDayInteractionReason, rosterDayMutationBusy, schedulerReadOnly]);
 
   const canPreviousWeek = !rosterDateFrom || addDays(week, -1) >= rosterDateFrom;
   const canNextWeek = !rosterDateTo || addDays(week, 7) <= rosterDateTo;
@@ -288,15 +305,18 @@ export default function ShiftRosterDetailsPage() {
     return false;
   };
   const openCellEditor = (input: RosterCellInput) => {
+    if (rosterDayMutationBusy) return;
     if (!ensureSchedulerEditable() || !ensureInRosterPeriod(input.workDate)) return;
     setDayDialog(input);
   };
   const startCopy = (day: ShiftRosterDay) => {
+    if (rosterDayMutationBusy) return;
     if (!ensureSchedulerEditable()) return;
     setCopySource(day);
     setToast({ severity: 'info', message: 'Copy mode enabled. Select the target roster cell.' });
   };
   const selectCopyTarget = (input: RosterCellInput) => {
+    if (rosterDayMutationBusy) return;
     if (!copySource) {
       openCellEditor(input);
       return;
@@ -309,6 +329,7 @@ export default function ShiftRosterDetailsPage() {
     copyRosterDay(copySource, input);
   };
   const copyRosterDay = (source: ShiftRosterDay, target: RosterCellInput) => {
+    if (rosterDayMutationBusy) return;
     copyMutation.mutate({
       employeeId: target.employeeId,
       workDate: target.workDate,
@@ -319,7 +340,7 @@ export default function ShiftRosterDetailsPage() {
     });
   };
   const handleDragCopy = (source: RosterDragSource, target: RosterDragTarget) => {
-    if (dragCopyMutation.isPending || selectionMode || copySource) return;
+    if (rosterDayMutationBusy || selectionMode || copySource) return;
     if (!ensureSchedulerEditable() || !ensureInRosterPeriod(source.workDate) || !ensureInRosterPeriod(target.workDate)) return;
     if (!isRosterDayDraggable(source.day)) {
       setToast({ severity: 'info', message: 'Only working, weekly-off, and no-shift roster days can be dragged.' });
@@ -333,15 +354,24 @@ export default function ShiftRosterDetailsPage() {
     dragCopyMutation.mutate({ source, target });
   };
   const confirmDragReplacement = () => {
-    if (!dragConflict || dragCopyMutation.isPending) return;
+    if (!dragConflict || rosterDayMutationBusy) return;
+    if (!ensureSchedulerEditable()
+      || !ensureInRosterPeriod(dragConflict.source.workDate)
+      || !ensureInRosterPeriod(dragConflict.target.workDate)
+      || !isRosterDayDraggable(dragConflict.source.day)
+      || cellKey(dragConflict.source.employeeId, dragConflict.source.workDate) === cellKey(dragConflict.target.employeeId, dragConflict.target.workDate)) {
+      setDragConflict(null);
+      return;
+    }
     dragCopyMutation.mutate(dragConflict);
   };
   const requestClear = (day: ShiftRosterDay) => {
+    if (rosterDayMutationBusy) return;
     if (!ensureSchedulerEditable()) return;
     setClearTarget(day);
   };
   const toggleCellSelection = (input: RosterCellInput) => {
-    if (schedulerReadOnly || isOutOfRosterPeriod(input.workDate, rosterDateFrom, rosterDateTo)) return;
+    if (schedulerReadOnly || rosterDayMutationBusy || isOutOfRosterPeriod(input.workDate, rosterDateFrom, rosterDateTo)) return;
     setSelectedKeys((current) => {
       const next = new Set(current);
       const key = cellKey(input.employeeId, input.workDate);
@@ -368,11 +398,11 @@ export default function ShiftRosterDetailsPage() {
     });
   };
   const selectVisibleWeek = () => setSelectedKeys(new Set(visibleCells.map((cell) => cellKey(cell.employeeId, cell.workDate))));
-  const beginSelectionMode = () => { if (!ensureSchedulerEditable()) return; setSelectionMode(true); setCopySource(null); setCopyTarget(null); };
+  const beginSelectionMode = () => { if (rosterDayMutationBusy || !ensureSchedulerEditable()) return; setSelectionMode(true); setCopySource(null); setCopyTarget(null); };
   const cancelSelectionMode = () => { setSelectionMode(false); clearSelectionState(); };
-  const openSelectionOperation = (operation: RosterBulkSelectionOperation) => { if (!ensureSchedulerEditable()) return; setBulkSelectionOperation(operation); };
+  const openSelectionOperation = (operation: RosterBulkSelectionOperation) => { if (rosterDayMutationBusy || !ensureSchedulerEditable()) return; setBulkSelectionOperation(operation); };
   const handleBulkSelectionSubmit = (config: RosterBulkSelectionSubmitConfig) => {
-    if (!ensureSchedulerEditable()) return;
+    if (rosterDayMutationBusy || !ensureSchedulerEditable()) return;
     if (config.operation === 'CLEAR') {
       const targets = selectedExistingDays;
       if (!targets.length) { setToast({ severity: 'info', message: 'Selected cells are already empty.' }); return; }
@@ -438,7 +468,7 @@ export default function ShiftRosterDetailsPage() {
               canPreviousWeek={canPreviousWeek}
               canNextWeek={canNextWeek}
               copyModeLabel={copyModeLabel}
-              loading={calendarDaysQuery.isFetching || employeeQuery.isFetching || copyMutation.isPending || dragCopyMutation.isPending || clearMutation.isPending || upsertMutation.isPending || selectionBulkMutation.isPending || selectionClearMutation.isPending}
+              loading={calendarDaysQuery.isFetching || employeeQuery.isFetching || rosterDayMutationBusy}
               onPreviousWeek={() => setBoundedWeek(addDays(week, -7))}
               onToday={selectTodayWeek}
               onNextWeek={() => setBoundedWeek(addDays(week, 7))}
@@ -478,14 +508,14 @@ export default function ShiftRosterDetailsPage() {
               readonly={schedulerReadOnly}
               readonlyReason={schedulerReadonlyReason}
               copySource={copySource}
-              loading={calendarDaysQuery.isFetching || employeeQuery.isFetching}
+              loading={calendarDaysQuery.isFetching || employeeQuery.isFetching || rosterDayMutationBusy}
               selectionMode={selectionMode}
               selectedKeys={selectedKeys}
               onToggleCellSelection={toggleCellSelection}
               onToggleEmployeeSelection={toggleEmployeeSelection}
               onToggleDateSelection={toggleDateSelection}
-              dragEnabled={!schedulerReadOnly && !selectionMode && !copySource}
-              dragBusy={dragCopyMutation.isPending}
+              dragEnabled={!schedulerReadOnly && !selectionMode && !copySource && !rosterDayMutationBusy}
+              dragBusy={rosterDayMutationBusy}
               onDragCopy={handleDragCopy}
               onEditCell={openCellEditor}
               onCopyCell={startCopy}
@@ -519,15 +549,15 @@ export default function ShiftRosterDetailsPage() {
 
       {tab === 2 ? <RosterPreviewPanel preview={preview} loading={previewMutation.isPending} /> : null}
 
-      <RosterDayDialog open={Boolean(dayDialog)} day={dayDialog?.day ?? null} defaultEmployeeId={dayDialog?.employeeId} defaultWorkDate={dayDialog?.workDate} employees={employees} shifts={shifts} readonly={schedulerReadOnly} loading={upsertMutation.isPending || clearMutation.isPending} onClose={() => setDayDialog(null)} onSubmit={(payload) => upsertMutation.mutate(payload)} onClear={(day) => setClearTarget(day)} />
-      <RosterBulkActionDialog open={bulkOpen} employees={employees} shifts={shifts} readonly={schedulerReadOnly} loading={bulkMutation.isPending} onClose={() => setBulkOpen(false)} onSubmit={(days) => bulkMutation.mutate({ days })} />
+      <RosterDayDialog open={Boolean(dayDialog)} day={dayDialog?.day ?? null} defaultEmployeeId={dayDialog?.employeeId} defaultWorkDate={dayDialog?.workDate} employees={employees} shifts={shifts} readonly={schedulerReadOnly} loading={upsertMutation.isPending || clearMutation.isPending} onClose={() => setDayDialog(null)} onSubmit={(payload) => { if (!rosterDayMutationBusy) upsertMutation.mutate(payload); }} onClear={(day) => { if (!rosterDayMutationBusy) setClearTarget(day); }} />
+      <RosterBulkActionDialog open={bulkOpen} employees={employees} shifts={shifts} readonly={schedulerReadOnly} loading={bulkMutation.isPending} onClose={() => setBulkOpen(false)} onSubmit={(days) => { if (!rosterDayMutationBusy) bulkMutation.mutate({ days }); }} />
       <RosterBulkSelectionDialog open={Boolean(bulkSelectionOperation)} operation={bulkSelectionOperation} mode={selectionConflictMode} selectedCells={selectedCells} visibleCells={visibleCells} employees={calendarEmployees} shifts={shifts} sourceDay={copyDaySource} sourceDayCandidates={selectedExistingDays} sourceWeekEmployeeId={copyWeekSourceEmployeeId} previousWeekDays={previousWeekDays} weekStart={week} loading={selectionBulkMutation.isPending || selectionClearMutation.isPending} backendLimit={BULK_CELL_LIMIT} onClose={() => setBulkSelectionOperation(null)} onSubmit={handleBulkSelectionSubmit} />
       <RosterTemplateApplyDialog open={templateApplyOpen} roster={roster} onClose={() => setTemplateApplyOpen(false)} onApplied={async () => { setToast({ severity: 'success', message: 'Template applied to this draft roster.' }); clearSelectionState(); await invalidate(); }} />
       <RotationPatternApplyDialog open={rotationApplyOpen} roster={roster} onClose={() => setRotationApplyOpen(false)} onApplied={async () => { setToast({ severity: 'success', message: 'Rotation pattern applied to this draft roster.' }); clearSelectionState(); await invalidate(); }} />
       <RosterDropConflictDialog open={Boolean(dragConflict)} source={dragConflict?.source ?? null} target={dragConflict?.target ?? null} loading={dragCopyMutation.isPending} onClose={() => setDragConflict(null)} onConfirm={confirmDragReplacement} />
       <RosterLifecycleDialog open={Boolean(lifecycle)} action={lifecycle ?? 'publish'} loading={publishMutation.isPending || lockMutation.isPending} blocked={lifecycle === 'publish' && preview?.valid === false} onClose={() => setLifecycle(null)} onConfirm={() => lifecycle === 'publish' ? publishMutation.mutate() : lockMutation.mutate()} />
-      <ConfirmDialog open={Boolean(clearTarget)} title="Clear Roster Day" description="This draft roster day will be removed from the period." confirmLabel="Clear Day" loading={clearMutation.isPending} onClose={() => setClearTarget(null)} onConfirm={() => clearTarget && clearMutation.mutate(clearTarget)} />
-      <ConfirmDialog open={Boolean(copyTarget)} title="Replace Existing Roster Day?" description={`The target cell for ${targetEmployeeName} on ${formatDateOnly(copyTarget?.workDate)} already contains roster data. Replace it with the copied assignment?`} confirmLabel="Replace Cell" loading={copyMutation.isPending} onClose={() => setCopyTarget(null)} onConfirm={() => copySource && copyTarget && copyRosterDay(copySource, copyTarget)} />
+      <ConfirmDialog open={Boolean(clearTarget)} title="Clear Roster Day" description="This draft roster day will be removed from the period." confirmLabel="Clear Day" loading={clearMutation.isPending} onClose={clearMutation.isPending ? undefined : () => setClearTarget(null)} onConfirm={() => { if (clearTarget && !rosterDayMutationBusy) clearMutation.mutate(clearTarget); }} />
+      <ConfirmDialog open={Boolean(copyTarget)} title="Replace Existing Roster Day?" description={`The target cell for ${targetEmployeeName} on ${formatDateOnly(copyTarget?.workDate)} already contains roster data. Replace it with the copied assignment?`} confirmLabel="Replace Cell" loading={copyMutation.isPending} onClose={copyMutation.isPending ? undefined : () => setCopyTarget(null)} onConfirm={() => { if (copySource && copyTarget && !rosterDayMutationBusy) copyRosterDay(copySource, copyTarget); }} />
       <Snackbar open={Boolean(toast)} autoHideDuration={5000} onClose={() => setToast(null)}>{toast ? <Alert severity={toast.severity} onClose={() => setToast(null)}>{toast.message}</Alert> : undefined}</Snackbar>
     </PageLayout>
   );

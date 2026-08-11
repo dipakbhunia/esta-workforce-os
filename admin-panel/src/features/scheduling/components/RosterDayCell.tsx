@@ -67,6 +67,7 @@ export function RosterDayCell({
   const targetTitle = copyMode ? 'Copy here' : 'Select roster cell';
   const canSelect = selectionMode && !isDisabled;
   const selectLabel = selectionLabel ?? 'roster cell';
+  const actionContext = selectionLabel ? ' for ' + selectionLabel : '';
   const selectionActionLabel = (selected ? 'Deselect ' : 'Select ') + selectLabel;
   const toggleSelection = () => { if (canSelect) onToggleSelected?.(); };
   const handleSelectionKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -136,7 +137,7 @@ export function RosterDayCell({
           <Stack direction="row" gap={0.25} justifyContent="flex-end" alignItems="center">
             <Tooltip title={isDisabled ? disabledMessage : 'Edit roster day'}>
               <span>
-                <IconButton size="small" aria-label="Edit roster day" disabled={isDisabled} onClick={onEdit}>
+                <IconButton size="small" aria-label={'Edit roster day' + actionContext} disabled={isDisabled} onClick={onEdit}>
                   <Edit3 size={15} />
                 </IconButton>
               </span>
@@ -144,7 +145,7 @@ export function RosterDayCell({
             {day ? (
               <Tooltip title={isDisabled ? disabledMessage : 'Copy this roster day'}>
                 <span>
-                  <IconButton size="small" aria-label="Copy roster day" disabled={isDisabled} onClick={onCopy}>
+                  <IconButton size="small" aria-label={'Copy roster day' + actionContext} disabled={isDisabled} onClick={onCopy}>
                     <Copy size={15} />
                   </IconButton>
                 </span>
@@ -153,7 +154,7 @@ export function RosterDayCell({
             {day ? (
               <Tooltip title={isDisabled ? disabledMessage : 'Clear roster day'}>
                 <span>
-                  <IconButton size="small" color="error" aria-label="Clear roster day" disabled={isDisabled} onClick={onClear}>
+                  <IconButton size="small" color="error" aria-label={'Clear roster day' + actionContext} disabled={isDisabled} onClick={onClear}>
                     <Trash2 size={15} />
                   </IconButton>
                 </span>
@@ -161,7 +162,7 @@ export function RosterDayCell({
             ) : null}
             <Tooltip title={isDisabled ? disabledMessage : targetTitle}>
               <span>
-                <IconButton size="small" color={copyMode ? 'primary' : 'default'} aria-label={copyMode ? 'Copy roster day to this cell' : 'Select roster cell'} disabled={isDisabled} onClick={onSelectTarget}>
+                <IconButton size="small" color={copyMode ? 'primary' : 'default'} aria-label={copyMode ? 'Copy roster day to ' + selectLabel : 'Edit ' + selectLabel} disabled={isDisabled} onClick={onSelectTarget}>
                   <MousePointer2 size={15} />
                 </IconButton>
               </span>

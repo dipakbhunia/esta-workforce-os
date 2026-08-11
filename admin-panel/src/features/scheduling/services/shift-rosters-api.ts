@@ -37,6 +37,24 @@ export function getShiftRosterDays(id: string, params: ShiftRosterDayListParams)
   return http.get<PaginatedResponse<ShiftRosterDay>>(`/shift-rosters/${id}/days`, { params });
 }
 
+export async function getShiftRosterDaysForCalendar(
+  id: string,
+  params: Omit<ShiftRosterDayListParams, 'page' | 'limit'>,
+) {
+  const pageSize = 100;
+  const firstPage = await getShiftRosterDays(id, { ...params, page: 1, limit: pageSize });
+  const totalPages = firstPage.data.meta.totalPages;
+  if (totalPages <= 1) return firstPage.data.data;
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      getShiftRosterDays(id, { ...params, page: index + 2, limit: pageSize }),
+    ),
+  );
+  const days = [firstPage, ...remainingPages].flatMap((response) => response.data.data);
+  return Array.from(new Map(days.map((day) => [day.id, day])).values());
+}
+
 export function exportShiftRosterDays(id: string, params: Omit<ShiftRosterDayListParams, 'page' | 'limit'>) {
   return http.get<Blob>(`/shift-rosters/${id}/days/export`, { params: { ...params, format: 'CSV' }, responseType: 'blob' });
 }
