@@ -1,33 +1,47 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Alert, Box, MenuItem, Stack, TextField } from '@mui/material';
+import { Alert, Autocomplete, Box, MenuItem, Stack, TextField } from '@mui/material';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { FormActions } from '@/components/form-actions';
 import { SectionCard } from '@/components/section-card';
 import type { Company, CompanyFormValues } from '../types/company.types';
 import { companyDefaults, companyFormSchema, slugifyCompanyName, toCompanyPayload } from '../utils/company-form';
+import {
+  companyCountryOptions,
+  companyCurrencyOptions,
+  companyTimezoneOptions,
+  currencyOptionLabel,
+  getCountryRegionalDefaults,
+  includePersistedOption,
+} from '../utils/company-regional-options';
 
 interface CompanyFormProps {
   company?: Company;
   loading?: boolean;
   submitLabel: string;
+  errorMessage?: string | null;
   onSubmit: (values: ReturnType<typeof toCompanyPayload>) => Promise<void>;
 }
 
-export function CompanyForm({ company, loading = false, submitLabel, onSubmit }: CompanyFormProps) {
+export function CompanyForm({ company, loading = false, submitLabel, errorMessage, onSubmit }: CompanyFormProps) {
   const [manualSlug, setManualSlug] = useState(Boolean(company));
   const initialValues = useRef(companyDefaults(company));
   const { control, handleSubmit, formState: { errors, isDirty }, reset, watch, setValue } = useForm<CompanyFormValues>({
     resolver: zodResolver(companyFormSchema),
     defaultValues: initialValues.current,
+    mode: 'onBlur',
   });
   const name = watch('name');
+  const slug = watch('slug');
 
   useEffect(() => {
     if (!manualSlug) {
-      setValue('slug', slugifyCompanyName(name), { shouldDirty: true, shouldValidate: true });
+      const generatedSlug = slugifyCompanyName(name);
+      if (generatedSlug !== slug) {
+        setValue('slug', generatedSlug, { shouldDirty: Boolean(name), shouldValidate: false });
+      }
     }
-  }, [manualSlug, name, setValue]);
+  }, [manualSlug, name, setValue, slug]);
 
   useEffect(() => {
     // TODO: Add in-app route blocking once the router layer exposes a stable blocker API for data routers.
@@ -48,9 +62,7 @@ export function CompanyForm({ company, loading = false, submitLabel, onSubmit }:
 
   return (
     <Stack component="form" gap={3} onSubmit={submit}>
-      <Alert severity="info">
-        The current backend Company API stores company name, company code, and status. Contact, address, timezone, and currency fields are UI placeholders for the company profile expansion.
-      </Alert>
+      {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
 
       <SectionCard title="General Information" description="Core tenant identity used across Esta Workforce OS.">
         <Box sx={formGrid}>
@@ -72,19 +84,58 @@ export function CompanyForm({ company, loading = false, submitLabel, onSubmit }:
               />
             )}
           />
-          <Controller control={control} name="email" render={({ field }) => <TextField {...field} label="Email" fullWidth error={Boolean(errors.email)} helperText={errors.email?.message ?? 'Future profile field'} />} />
-          <Controller control={control} name="phone" render={({ field }) => <TextField {...field} label="Phone" fullWidth error={Boolean(errors.phone)} helperText={errors.phone?.message ?? 'Future profile field'} />} />
-          <Controller control={control} name="website" render={({ field }) => <TextField {...field} label="Website" fullWidth error={Boolean(errors.website)} helperText={errors.website?.message ?? 'Future profile field'} />} />
+          <Controller control={control} name="primaryEmail" render={({ field }) => <TextField {...field} label="Primary Email" type="email" fullWidth error={Boolean(errors.primaryEmail)} helperText={errors.primaryEmail?.message ?? 'Optional company contact email.'} />} />
+          <Controller control={control} name="phone" render={({ field }) => <TextField {...field} label="Phone" fullWidth error={Boolean(errors.phone)} helperText={errors.phone?.message ?? 'Optional company contact number.'} />} />
+          <Controller control={control} name="website" render={({ field }) => <TextField {...field} label="Website" fullWidth error={Boolean(errors.website)} helperText={errors.website?.message ?? 'Include https:// in the address.'} />} />
         </Box>
       </SectionCard>
 
-      <SectionCard title="Business Information" description="Regional and billing metadata placeholders for future company settings.">
+      <SectionCard title="Business Information" description="Regional settings used to present company information consistently.">
         <Box sx={formGrid}>
-          <Controller control={control} name="country" render={({ field }) => <TextField {...field} label="Country" fullWidth helperText="Future profile field" />} />
-          <Controller control={control} name="timezone" render={({ field }) => <TextField {...field} label="Timezone" fullWidth helperText="Future profile field" />} />
-          <Controller control={control} name="currency" render={({ field }) => <TextField {...field} label="Currency" fullWidth helperText="Future profile field" />} />
+          <Controller control={control} name="country" render={({ field }) => (
+            <Autocomplete
+              options={includePersistedOption(companyCountryOptions, field.value)}
+              value={field.value || null}
+              onChange={(_, value) => {
+                const nextCountry = value ?? '';
+                field.onChange(nextCountry);
+                if (!nextCountry) return;
+
+                const defaults = getCountryRegionalDefaults(nextCountry);
+                if (defaults.currency) setValue('currency', defaults.currency, { shouldDirty: true, shouldValidate: true });
+                if (defaults.timezone) setValue('timezone', defaults.timezone, { shouldDirty: true, shouldValidate: true });
+              }}
+              onBlur={field.onBlur}
+              disabled={loading}
+              autoHighlight
+              renderInput={(params) => <TextField {...params} label="Country" error={Boolean(errors.country)} helperText={errors.country?.message ?? 'Optional operating country.'} />}
+            />
+          )} />
+          <Controller control={control} name="timezone" render={({ field }) => (
+            <Autocomplete
+              options={includePersistedOption(companyTimezoneOptions, field.value)}
+              value={field.value || null}
+              onChange={(_, value) => field.onChange(value ?? '')}
+              onBlur={field.onBlur}
+              disabled={loading}
+              autoHighlight
+              renderInput={(params) => <TextField {...params} label="Timezone" required error={Boolean(errors.timezone)} helperText={errors.timezone?.message ?? 'Select the IANA timezone used for company operations.'} />}
+            />
+          )} />
+          <Controller control={control} name="currency" render={({ field }) => (
+            <Autocomplete
+              options={includePersistedOption(companyCurrencyOptions, field.value)}
+              value={field.value || null}
+              getOptionLabel={currencyOptionLabel}
+              onChange={(_, value) => field.onChange(value ?? '')}
+              onBlur={field.onBlur}
+              disabled={loading}
+              autoHighlight
+              renderInput={(params) => <TextField {...params} label="Currency" error={Boolean(errors.currency)} helperText={errors.currency?.message ?? 'Optional ISO currency used for company reporting.'} />}
+            />
+          )} />
           <Box sx={{ gridColumn: '1 / -1' }}>
-            <Controller control={control} name="address" render={({ field }) => <TextField {...field} label="Address" fullWidth multiline minRows={3} helperText="Future profile field" />} />
+            <Controller control={control} name="address" render={({ field }) => <TextField {...field} label="Primary Address" fullWidth multiline minRows={3} error={Boolean(errors.address)} helperText={errors.address?.message ?? 'Optional primary company address.'} />} />
           </Box>
         </Box>
       </SectionCard>

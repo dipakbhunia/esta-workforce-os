@@ -20,12 +20,16 @@ import {
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { CompaniesService } from './companies.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
+import { CompanyQueryDto } from './dto/company-query.dto';
+import {
+  CompanyPaginatedResponseDto,
+  CompanyResponseDto,
+} from './dto/company-response.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 
 @ApiTags('Companies')
@@ -38,17 +42,20 @@ export class CompaniesController {
   @Post()
   @Roles(RoleName.SUPER_ADMIN)
   @ApiOperation({ summary: 'Create a company (super admin)' })
-  @ApiCreatedResponse()
-  create(@Body() dto: CreateCompanyDto) {
-    return this.companiesService.create(dto);
+  @ApiCreatedResponse({ type: CompanyResponseDto })
+  create(
+    @Body() dto: CreateCompanyDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.companiesService.create(dto, user);
   }
 
   @Get()
   @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN, RoleName.HR)
   @ApiOperation({ summary: 'List accessible companies' })
-  @ApiOkResponse()
+  @ApiOkResponse({ type: CompanyPaginatedResponseDto })
   findAll(
-    @Query() query: PaginationQueryDto,
+    @Query() query: CompanyQueryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.companiesService.findAll(query, user);
@@ -57,6 +64,7 @@ export class CompaniesController {
   @Get(':id')
   @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN, RoleName.HR)
   @ApiOperation({ summary: 'Get an accessible company' })
+  @ApiOkResponse({ type: CompanyResponseDto })
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -67,6 +75,7 @@ export class CompaniesController {
   @Patch(':id')
   @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN)
   @ApiOperation({ summary: 'Update an accessible company' })
+  @ApiOkResponse({ type: CompanyResponseDto })
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCompanyDto,
@@ -77,8 +86,12 @@ export class CompaniesController {
 
   @Delete(':id')
   @Roles(RoleName.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Soft-delete a company (super admin)' })
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.companiesService.remove(id);
+  @ApiOperation({ summary: 'Archive a company without deleting tenant data (super admin)' })
+  @ApiOkResponse({ type: CompanyResponseDto })
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.companiesService.remove(id, user);
   }
 }

@@ -4,12 +4,22 @@ export interface Company {
   id: string;
   name: string;
   slug: string;
+  primaryEmail: string | null;
+  phone: string | null;
+  website: string | null;
+  country: string | null;
+  timezone: string;
+  currency: string | null;
+  address: string | null;
   status: CompanyStatus;
   createdAt: string;
   updatedAt: string;
-  deletedAt?: string | null;
-  _count?: {
-    employees?: number;
+  counts: {
+    branches: number;
+    departments: number;
+    designations: number;
+    employees: number;
+    users: number;
   };
 }
 
@@ -27,11 +37,19 @@ export interface CompanyListParams {
   page: number;
   limit: number;
   search?: string;
+  status?: CompanyStatus;
 }
 
 export interface CompanyPayload {
   name: string;
   slug: string;
+  primaryEmail?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  country?: string | null;
+  timezone?: string;
+  currency?: string | null;
+  address?: string | null;
   status: CompanyStatus;
 }
 
@@ -39,7 +57,7 @@ export interface CompanyFormValues {
   name: string;
   slug: string;
   status: CompanyStatus;
-  email: string;
+  primaryEmail: string;
   phone: string;
   website: string;
   country: string;

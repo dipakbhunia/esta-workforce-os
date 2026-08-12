@@ -247,6 +247,13 @@ model Company {
   id                 String             @id @default(uuid()) @db.Uuid
   name               String
   slug               String
+  primaryEmail       String?
+  phone              String?
+  website            String?
+  country            String?
+  timezone           String             @default("UTC")
+  currency           String?
+  address            String?
   status             CompanyStatus      @default(TRIAL)
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
