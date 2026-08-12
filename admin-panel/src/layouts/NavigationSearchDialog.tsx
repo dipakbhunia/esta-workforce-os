@@ -24,6 +24,8 @@ interface SearchEntry {
   keywords: string[];
   context: string;
   comingSoon?: boolean;
+  permission?: Permission;
+  roles?: RoleName[];
 }
 
 const implementedNavPaths = new Set([
@@ -73,6 +75,8 @@ const extraEntries: SearchEntry[] = [
     icon: Download,
     keywords: ['desktop agent', 'windows installer', 'macos', 'download apps', 'apps'],
     context: getRouteMeta('/downloads').breadcrumbs.join(' / '),
+    permission: 'dashboard:view',
+    roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'],
   },
 ];
 
@@ -83,7 +87,10 @@ export function NavigationSearchDialog({ open, onClose }: NavigationSearchDialog
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const entries = useMemo(() => [...navigationEntries(navigation, permissions, roles), ...extraEntries], [permissions, roles]);
+  const entries = useMemo(
+    () => [...navigationEntries(navigation, permissions, roles), ...extraEntries.filter((entry) => isAllowed(entry, permissions, roles))],
+    [permissions, roles],
+  );
   const results = useMemo(() => searchEntries(entries, query).slice(0, 10), [entries, query]);
 
   useEffect(() => {
@@ -263,6 +270,6 @@ function normalize(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function isAllowed(item: NavGroup | NavItem, permissions: Permission[], roles: RoleName[]) {
+function isAllowed(item: Pick<NavGroup | NavItem | SearchEntry, 'permission' | 'roles'>, permissions: Permission[], roles: RoleName[]) {
   return hasPermission(permissions, item.permission) && hasAnyRole(roles, item.roles);
 }

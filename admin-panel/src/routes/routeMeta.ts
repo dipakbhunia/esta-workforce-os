@@ -17,9 +17,9 @@ interface RoutePatternMeta extends RouteMeta {
 const explicitRoutePatterns: RoutePatternMeta[] = [
   { pattern: '/', title: 'Workforce Control Center', breadcrumbs: ['Dashboard'], moduleName: 'Dashboard', canonicalPath: '/' },
   { pattern: '/downloads', title: 'Download Apps', breadcrumbs: ['Downloads', 'Download Apps'], moduleName: 'Downloads', canonicalPath: '/downloads' },
-  { pattern: '/organization/companies/create', title: 'Create Company', breadcrumbs: ['Organization', 'Companies', 'Create'], moduleName: 'Organization', canonicalPath: '/organization/companies/create' },
-  { pattern: '/organization/companies/:id/edit', title: 'Edit Company', breadcrumbs: ['Organization', 'Companies', 'Edit'], moduleName: 'Organization', canonicalPath: '/organization/companies/:id/edit' },
-  { pattern: '/organization/companies/:id', title: 'Company Details', breadcrumbs: ['Organization', 'Companies', 'Details'], moduleName: 'Organization', canonicalPath: '/organization/companies/:id' },
+  { pattern: '/organization/companies/create', title: 'Create Company', breadcrumbs: ['SaaS Management', 'Companies', 'Create'], moduleName: 'SaaS Management', canonicalPath: '/organization/companies/create' },
+  { pattern: '/organization/companies/:id/edit', title: 'Edit Company', breadcrumbs: ['SaaS Management', 'Companies', 'Edit'], moduleName: 'SaaS Management', canonicalPath: '/organization/companies/:id/edit' },
+  { pattern: '/organization/companies/:id', title: 'Company Details', breadcrumbs: ['SaaS Management', 'Companies', 'Details'], moduleName: 'SaaS Management', canonicalPath: '/organization/companies/:id' },
   { pattern: '/organization/branches/create', title: 'Create Branch', breadcrumbs: ['Organization', 'Branches', 'Create'], moduleName: 'Organization', canonicalPath: '/organization/branches/create' },
   { pattern: '/organization/branches/:id/edit', title: 'Edit Branch', breadcrumbs: ['Organization', 'Branches', 'Edit'], moduleName: 'Organization', canonicalPath: '/organization/branches/:id/edit' },
   { pattern: '/organization/branches/:id', title: 'Branch Details', breadcrumbs: ['Organization', 'Branches', 'Details'], moduleName: 'Organization', canonicalPath: '/organization/branches/:id' },

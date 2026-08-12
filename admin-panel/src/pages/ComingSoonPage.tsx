@@ -88,7 +88,7 @@ export default function ComingSoonPage(props: ComingSoonPageProps) {
               {config.plannedPhase && <Chip size="small" label={config.plannedPhase} color="primary" variant="outlined" />}
             </Stack>
             <Typography color="text.secondary" sx={{ maxWidth: 560 }}>
-              This page is part of the production navigation foundation, but no CRUD, reports, or API integration has been added yet.
+              This workspace is planned for a future release. Configuration and actions are not available yet.
             </Typography>
             <Button component={RouterLink} to="/" variant="contained">Back to dashboard</Button>
           </Stack>
