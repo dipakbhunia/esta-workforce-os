@@ -11,6 +11,9 @@ const CompaniesPage = lazy(() => import('@/features/organization/pages/Companies
 const CompanyCreatePage = lazy(() => import('@/features/organization/pages/CompanyCreatePage'));
 const CompanyDetailsPage = lazy(() => import('@/features/organization/pages/CompanyDetailsPage'));
 const CompanyEditPage = lazy(() => import('@/features/organization/pages/CompanyEditPage'));
+const PlansPage = lazy(() => import('@/features/plans/PlansPage'));
+const PlanFormPage = lazy(() => import('@/features/plans/PlanFormPage'));
+const PlanDetailsPage = lazy(() => import('@/features/plans/PlanDetailsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -155,7 +158,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'saas/plans', title: 'Plans & Pricing', moduleName: 'SaaS Management', description: 'Configure the plans and commercial options available to tenant companies.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/subscriptions', title: 'Subscriptions', moduleName: 'SaaS Management', description: 'Manage tenant plan assignments, seats, renewals, and subscription lifecycle.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/trials', title: 'Trial Management', moduleName: 'SaaS Management', description: 'Manage configurable tenant trials, expiry, status, and conversion readiness.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/usage-seats', title: 'Usage & Seats', moduleName: 'SaaS Management', description: 'Review tenant seat allocation and platform usage when metering is available.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
@@ -249,6 +251,10 @@ export const router = createBrowserRouter([
           { path: 'organization/companies/create', element: protectedElement(<CompanyCreatePage />, 'companies:manage', ['SUPER_ADMIN']) },
           { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', ['SUPER_ADMIN']) },
           { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', ['SUPER_ADMIN']) },
+          { path: 'saas/plans', element: protectedElement(<PlansPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/plans/create', element: protectedElement(<PlanFormPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/plans/:id/edit', element: protectedElement(<PlanFormPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/plans/:id', element: protectedElement(<PlanDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

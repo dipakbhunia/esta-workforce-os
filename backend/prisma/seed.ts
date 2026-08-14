@@ -2,6 +2,8 @@ import {
   CompanyStatus,
   EmployeeStatus,
   EmploymentType,
+  PlanBillingModel,
+  PlanStatus,
   PrismaClient,
   RoleName,
   UserStatus,
@@ -214,6 +216,16 @@ async function upsertAttendancePolicy(companyId: string) {
 }
 
 async function main(): Promise<void> {
+  await prisma.plan.createMany({
+    skipDuplicates: true,
+    data: [
+      { code: 'STARTER', name: 'Starter', description: 'Essential attendance and leave management.', status: PlanStatus.ACTIVE, billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 9900, currency: 'INR', sortOrder: 10, isPublic: true, entitlements: ['workforce.attendance', 'workforce.leave', 'workforce.scheduling'], limits: {} },
+      { code: 'PROFESSIONAL', name: 'Professional', description: 'Workforce management with release-ready monitoring capabilities.', status: PlanStatus.ACTIVE, billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 19900, currency: 'INR', sortOrder: 20, isPublic: true, isRecommended: true, entitlements: ['workforce.attendance', 'workforce.leave', 'workforce.scheduling', 'monitoring.core', 'monitoring.screenshots', 'monitoring.productivity', 'monitoring.alerts'], limits: {} },
+      { code: 'ENTERPRISE', name: 'Enterprise', description: 'Enterprise-ready workforce and monitoring capabilities with room for higher negotiated limits.', status: PlanStatus.ACTIVE, billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 29900, currency: 'INR', sortOrder: 30, isPublic: true, entitlements: ['workforce.attendance', 'workforce.leave', 'workforce.scheduling', 'monitoring.core', 'monitoring.screenshots', 'monitoring.productivity', 'monitoring.alerts'], limits: {} },
+      { code: 'CUSTOM', name: 'Custom', description: 'Private catalog offering for future subscription-level negotiated terms.', status: PlanStatus.ACTIVE, billingModel: PlanBillingModel.CUSTOM, monthlyPricePerSeatMinor: null, currency: 'INR', sortOrder: 40, isPublic: false, entitlements: [], limits: {} },
+    ],
+  });
+
   const superAdminEmail =
     process.env.SEED_SUPER_ADMIN_EMAIL ?? 'superadmin@esta.local';
   const superAdminPassword =

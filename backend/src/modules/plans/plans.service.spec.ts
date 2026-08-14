@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { PlanBillingModel, PlanStatus, RoleName, UserStatus } from '@prisma/client';
+import { PlansService } from './plans.service';
+import { PlansController } from './plans.controller';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { ENTITLEMENT_CATALOG, EntitlementAvailability, isAssignableEntitlement } from './plan-catalog.registry';
+
+const actor = { id: 'actor-1', companyId: null, email: 'admin@example.com', firstName: 'Super', lastName: 'Admin', status: UserStatus.ACTIVE, roles: [RoleName.SUPER_ADMIN] };
+const plan = { id: 'plan-1', code: 'STARTER', name: 'Starter', description: null, status: PlanStatus.DRAFT, billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 9900, currency: 'INR', minSeats: null, maxSeats: null, sortOrder: 10, isPublic: true, isRecommended: false, entitlements: ['workforce.attendance'], limits: {}, createdAt: new Date(), updatedAt: new Date(), archivedAt: null };
+const valid = { code: 'STARTER', name: 'Starter', billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 9900, currency: 'INR', entitlements: ['workforce.attendance'] };
+const serviceWith = (prisma: Record<string, unknown>) => new PlansService(prisma as never);
+
+function createHarness() {
+  const audits: string[] = []; let data: Record<string, unknown> = {};
+  const tx = { plan: { create: async (args: { data: Record<string, unknown> }) => { data = args.data; return { ...plan, ...args.data }; } }, auditLog: { create: async (args: { data: { action: string } }) => { audits.push(args.data.action); return {}; } } };
+  return { service: serviceWith({ $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx) }), audits, data: () => data };
+}
+
+function updateHarness(current = plan) {
+  const audits: string[] = []; let data: Record<string, unknown> = {};
+  const tx = { plan: { update: async (args: { data: Record<string, unknown> }) => { data = args.data; return { ...current, ...args.data }; } }, auditLog: { create: async (args: { data: { action: string } }) => { audits.push(args.data.action); return {}; } } };
+  return { service: serviceWith({ plan: { findUnique: async () => current }, $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx) }), audits, data: () => data };
+}
+
+describe('PlansService', () => {
+  it('declares SUPER_ADMIN-only access and denies a tenant role', () => { const reflector = new Reflector(); const roles = reflector.get<RoleName[]>('roles', PlansController); assert.deepEqual(roles, [RoleName.SUPER_ADMIN]); const guard = new RolesGuard({ getAllAndOverride: () => roles } as never); const context = { getHandler: () => PlansController.prototype.findAll, getClass: () => PlansController, switchToHttp: () => ({ getRequest: () => ({ user: { ...actor, roles: [RoleName.COMPANY_ADMIN] } }) }) }; assert.throws(() => guard.canActivate(context as never), ForbiddenException); });
+  it('allows SUPER_ADMIN to read the protected entitlement catalog', () => { const roles = [RoleName.SUPER_ADMIN]; const guard = new RolesGuard({ getAllAndOverride: () => roles } as never); const context = { getHandler: () => PlansController.prototype.entitlementCatalog, getClass: () => PlansController, switchToHttp: () => ({ getRequest: () => ({ user: actor }) }) }; assert.equal(guard.canActivate(context as never), true); const response = new PlansController(serviceWith({})).entitlementCatalog(); assert.ok(response.length > 7); });
+  it('catalogs expected commercial modules without exposing internal fields', () => { const response = serviceWith({}).entitlementCatalog(); for (const key of ['workforce.attendance', 'workforce.leave', 'workforce.scheduling', 'monitoring.core', 'crm.core', 'projects.core', 'hrms.core', 'erp.core', 'communication.core', 'reports.core', 'analytics.ai', 'platform.api_access', 'mobile.app']) assert.ok(response.some((item) => item.key === key)); assert.deepEqual(Object.keys(response[0]).sort(), ['assignable', 'availability', 'description', 'group', 'key', 'name', 'sortOrder']); });
+  it('derives assignability from the canonical catalog availability metadata', () => { const available = ENTITLEMENT_CATALOG.find((item) => item.key === 'workforce.attendance'); const comingSoon = ENTITLEMENT_CATALOG.find((item) => item.key === 'crm.core'); assert.equal(available?.availability, EntitlementAvailability.AVAILABLE); assert.equal(isAssignableEntitlement('workforce.attendance'), true); assert.equal(comingSoon?.availability, EntitlementAvailability.COMING_SOON); assert.equal(isAssignableEntitlement('crm.core'), false); assert.equal(isAssignableEntitlement('unknown.feature'), false); });
+  it('creates a normalized plan and creation audit', async () => { const h = createHarness(); await h.service.create({ ...valid, code: ' starter ', name: ' Starter ' }, actor); assert.equal(h.data().code, 'STARTER'); assert.deepEqual(h.audits, ['PLAN_CREATED']); });
+  it('reports duplicate plan codes as a conflict', async () => { const error = Object.assign(new Error(), { code: 'P2002', name: 'PrismaClientKnownRequestError', clientVersion: '6' }); Object.setPrototypeOf(error, (await import('@prisma/client')).Prisma.PrismaClientKnownRequestError.prototype); const service = serviceWith({ $transaction: async () => { throw error; } }); await assert.rejects(() => service.create(valid, actor), ConflictException); });
+  it('rejects null required values without TypeError', async () => { for (const field of ['code', 'name', 'billingModel', 'currency'] as const) { const h = createHarness(); await assert.rejects(() => h.service.create({ ...valid, [field]: null } as never, actor), BadRequestException); } });
+  it('requires non-negative integer PER_USER pricing', async () => { for (const price of [null, -1, 1.5]) { const h = createHarness(); await assert.rejects(() => h.service.create({ ...valid, monthlyPricePerSeatMinor: price } as never, actor), BadRequestException); } });
+  it('allows CUSTOM without a catalog price', async () => { const h = createHarness(); await h.service.create({ ...valid, code: 'CUSTOM', billingModel: PlanBillingModel.CUSTOM, monthlyPricePerSeatMinor: null }, actor); assert.equal(h.data().monthlyPricePerSeatMinor, null); });
+  it('rejects unsupported currency, seat bounds, entitlements, and limit keys', async () => { const invalid = [{ currency: 'USD' }, { minSeats: -1 }, { minSeats: 10, maxSeats: 2 }, { entitlements: ['mobile.app'] }, { limits: { arbitrary: 1 } }]; for (const patch of invalid) { const h = createHarness(); await assert.rejects(() => h.service.create({ ...valid, ...patch } as never, actor), BadRequestException); } });
+  it('rejects manually submitted Coming Soon and unknown entitlements', async () => { for (const key of ['crm.core', 'unknown.feature']) { const h = createHarness(); await assert.rejects(() => h.service.create({ ...valid, entitlements: [key] }, actor), BadRequestException); } });
+  it('keeps code immutable and rejects malformed null updates', async () => { for (const patch of [{ code: 'OTHER' }, { name: null }, { currency: null }]) { const h = updateHarness(); await assert.rejects(() => h.service.update(plan.id, patch as never, actor), BadRequestException); } });
+  it('writes focused update, price, entitlement, and limit audits', async () => { const h = updateHarness(); await h.service.update(plan.id, { monthlyPricePerSeatMinor: 12900, entitlements: ['workforce.leave'], limits: { screenshotRetentionDays: 30 } }, actor); assert.deepEqual(h.audits, ['PLAN_UPDATED', 'PLAN_PRICE_CHANGED', 'PLAN_ENTITLEMENTS_CHANGED', 'PLAN_LIMITS_CHANGED']); });
+  it('allows approved transitions and archives without deleting', async () => { const h = updateHarness(); const result = await h.service.updateStatus(plan.id, PlanStatus.ARCHIVED, actor); assert.equal(result.status, PlanStatus.ARCHIVED); assert.deepEqual(h.audits, ['PLAN_ARCHIVED']); assert.ok(h.data().archivedAt); });
+  it('rejects no-op and invalid lifecycle transitions', async () => { await assert.rejects(() => updateHarness().service.updateStatus(plan.id, PlanStatus.DRAFT, actor), BadRequestException); const archived = { ...plan, status: PlanStatus.ARCHIVED }; await assert.rejects(() => updateHarness(archived).service.updateStatus(plan.id, PlanStatus.ACTIVE, actor), BadRequestException); });
+  it('applies search and status before pagination and keeps an accurate total', async () => { let findWhere: unknown; let countWhere: unknown; const service = serviceWith({ plan: { findMany: async (args: { where: unknown }) => { findWhere = args.where; return [plan]; }, count: async (args: { where: unknown }) => { countWhere = args.where; return 1; } }, $transaction: async (ops: Promise<unknown>[]) => Promise.all(ops) }); const result = await service.findAll({ page: 1, limit: 20, search: 'start', status: PlanStatus.DRAFT }); assert.deepEqual(findWhere, countWhere); assert.equal(result.meta.total, 1); });
+});
