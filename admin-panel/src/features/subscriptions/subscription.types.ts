@@ -14,5 +14,6 @@ export interface Subscription {
   supersedes: SubscriptionSummary | null; successors: SubscriptionSummary[];
 }
 export interface SubscriptionPayload { companyId: string; planId: string; billingInterval: BillingInterval; activationSource: SubscriptionActivationSource; seatQuantity: number; pricePerSeatMinor?: number | null; customRecurringPriceMinor?: number | null; entitlements?: string[]; limits?: Record<string, number>; startsAt?: string | null; currentPeriodStart?: string | null; currentPeriodEnd?: string | null }
-export interface AmendmentPayload { planId?: string; billingInterval?: BillingInterval; seatQuantity?: number; pricePerSeatMinor?: number | null; customRecurringPriceMinor?: number | null; entitlements?: string[]; limits?: Record<string, number> }
+export interface OverLimitOverride { allowOverLimit?: boolean; reason?: string }
+export interface AmendmentPayload extends OverLimitOverride { planId?: string; billingInterval?: BillingInterval; seatQuantity?: number; pricePerSeatMinor?: number | null; customRecurringPriceMinor?: number | null; entitlements?: string[]; limits?: Record<string, number> }
 export interface PaginatedSubscriptions { data: Subscription[]; meta: { page: number; limit: number; total: number; totalPages: number } }

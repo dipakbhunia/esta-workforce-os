@@ -45,6 +45,7 @@ export interface StartTrialPayload {
   seatLimit?: number;
   durationHours?: number;
   reason?: string;
+  allowOverLimit?: boolean;
 }
 
 export interface ConvertTrialPayload {
@@ -55,4 +56,6 @@ export interface ConvertTrialPayload {
   customRecurringPriceMinor?: number;
   entitlements?: string[];
   limits?: Record<string, number>;
+  allowOverLimit?: boolean;
+  reason?: string;
 }

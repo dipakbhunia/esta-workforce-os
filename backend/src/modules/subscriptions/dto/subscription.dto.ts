@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BillingInterval, SubscriptionActivationSource, SubscriptionStatus } from '@prisma/client';
-import { Type } from 'class-transformer';
-import { IsArray, IsDate, IsEnum, IsInt, IsObject, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 export class CreateSubscriptionDto {
@@ -34,4 +34,11 @@ export class AmendSubscriptionDto {
   @ApiPropertyOptional({ minimum: 0, nullable: true }) @IsOptional() @IsInt() @Min(0) customRecurringPriceMinor?: number | null;
   @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @IsString({ each: true }) entitlements?: string[];
   @ApiPropertyOptional({ type: Object }) @IsOptional() @IsObject() limits?: Record<string, unknown>;
+  @ApiPropertyOptional({ type: Boolean }) @IsOptional() @IsBoolean() allowOverLimit?: boolean;
+  @ApiPropertyOptional({ description: 'Required when approving capacity below current usage.' }) @Transform(({ value }) => typeof value === 'string' ? value.trim() : value) @IsOptional() @IsString() @IsNotEmpty() @MaxLength(500) reason?: string;
+}
+
+export class ActivateSubscriptionDto {
+  @ApiPropertyOptional({ type: Boolean }) @IsOptional() @IsBoolean() allowOverLimit?: boolean;
+  @ApiPropertyOptional({ description: 'Required when approving capacity below current usage.' }) @Transform(({ value }) => typeof value === 'string' ? value.trim() : value) @IsOptional() @IsString() @IsNotEmpty() @MaxLength(500) reason?: string;
 }

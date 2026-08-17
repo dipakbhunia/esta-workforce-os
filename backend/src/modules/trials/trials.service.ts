@@ -5,6 +5,7 @@ import { paginatedResult, paginationArgs } from '../../common/utils/pagination.u
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { ApprovedOverLimit, SeatUsageService } from '../usage-seats/seat-usage.service';
 import { CancelTrialDto, ConvertTrialDto, ExtendTrialDto, StartTrialDto, TrialQueryDto } from './dto/trial.dto';
 import { DEFAULT_TRIAL_DURATION_HOURS, DEFAULT_TRIAL_LIMITS, DEFAULT_TRIAL_SEAT_LIMIT, MAX_TRIAL_DURATION_HOURS, trialEntitlementSnapshot } from './trial-policy';
 
@@ -19,7 +20,11 @@ export function isEffectiveTrial(value: { status: TrialStatus; startsAt: Date; e
 
 @Injectable()
 export class TrialsService {
-  constructor(private readonly prisma: PrismaService, private readonly subscriptions: SubscriptionsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly subscriptions: SubscriptionsService,
+    private readonly seatUsage: SeatUsageService,
+  ) {}
 
   async start(dto: StartTrialDto, actor: AuthenticatedUser) {
     const now = new Date();
@@ -28,7 +33,7 @@ export class TrialsService {
     this.positiveInteger(durationHours, 'Trial duration', MAX_TRIAL_DURATION_HOURS);
     this.positiveInteger(seatLimit, 'Seat limit');
     return this.prisma.$transaction(async (tx) => {
-      await this.subscriptions.lockCompany(tx, dto.companyId);
+      await this.seatUsage.lockCompany(tx, dto.companyId);
       const company = await tx.company.findFirst({ where: { id: dto.companyId, deletedAt: null } });
       if (!company) throw new NotFoundException('Company not found');
       if (company.status !== CompanyStatus.ACTIVE && company.status !== CompanyStatus.TRIAL) throw new BadRequestException('Company is not operationally eligible for a Trial');
@@ -38,12 +43,14 @@ export class TrialsService {
       const history = await tx.companyTrial.count({ where: { companyId: company.id } });
       const reason = dto.reason?.trim();
       if (history > 0 && !reason) throw new BadRequestException('A reason is required when starting another Trial for this Company');
+      const used = await this.seatUsage.countUsedSeats(company.id, tx);
+      const approval = this.seatUsage.assessProposedCapacity(used, seatLimit, dto);
       const created = await tx.companyTrial.create({ data: {
         companyId: company.id, status: TrialStatus.ACTIVE, startsAt: now,
         endsAt: new Date(now.getTime() + durationHours * 60 * 60 * 1000), seatLimit,
         entitlementsSnapshot: trialEntitlementSnapshot(), limitsSnapshot: DEFAULT_TRIAL_LIMITS,
       }, include: detailInclude });
-      await this.audit(tx, actor.id, company.id, created.id, 'TRIAL_STARTED', { durationHours, seatLimit, entitlementCount: created.entitlementsSnapshot.length, ...(reason ? { reason } : {}) });
+      await this.audit(tx, actor.id, company.id, created.id, 'TRIAL_STARTED', { durationHours, seatLimit, entitlementCount: created.entitlementsSnapshot.length, ...(reason ? { reason } : {}), ...this.overLimitMetadata(approval) });
       return created;
     });
   }
@@ -81,7 +88,7 @@ export class TrialsService {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.companyTrial.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Trial not found');
-      await this.subscriptions.lockCompany(tx, current.companyId);
+      await this.seatUsage.lockCompany(tx, current.companyId);
       const locked = await tx.companyTrial.findUnique({ where: { id } });
       const now = new Date();
       if (!locked || !isEffectiveTrial(locked, now)) throw new BadRequestException('Only an effective ACTIVE Trial can be extended');
@@ -97,7 +104,7 @@ export class TrialsService {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.companyTrial.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Trial not found');
-      await this.subscriptions.lockCompany(tx, current.companyId);
+      await this.seatUsage.lockCompany(tx, current.companyId);
       const locked = await tx.companyTrial.findUnique({ where: { id } });
       const now = new Date();
       if (!locked || !isEffectiveTrial(locked, now)) throw new BadRequestException('Only an effective ACTIVE Trial can be cancelled');
@@ -111,19 +118,21 @@ export class TrialsService {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.companyTrial.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Trial not found');
-      await this.subscriptions.lockCompany(tx, current.companyId);
+      await this.seatUsage.lockCompany(tx, current.companyId);
       const locked = await tx.companyTrial.findUnique({ where: { id } });
       const now = new Date();
       if (!locked || !isEffectiveTrial(locked, now)) throw new BadRequestException('Only an effective ACTIVE Trial can be converted');
       await this.subscriptions.assertNoLiveSubscription(tx, locked.companyId);
+      const used = await this.seatUsage.countUsedSeats(locked.companyId, tx);
+      const approval = this.seatUsage.assessProposedCapacity(used, dto.seatQuantity, dto);
       const subscription = await this.subscriptions.createActiveInTransaction(tx, {
         companyId: locked.companyId, planId: dto.planId, billingInterval: dto.billingInterval,
         activationSource: SubscriptionActivationSource.TRIAL_CONVERSION, seatQuantity: dto.seatQuantity,
         pricePerSeatMinor: dto.pricePerSeatMinor, customRecurringPriceMinor: dto.customRecurringPriceMinor,
         entitlements: dto.entitlements, limits: dto.limits, startsAt: now,
-      }, actor);
+      }, actor, approval);
       const converted = await tx.companyTrial.update({ where: { id }, data: { status: TrialStatus.CONVERTED, convertedAt: now, convertedSubscriptionId: subscription.id }, include: detailInclude });
-      await this.audit(tx, actor.id, locked.companyId, id, 'TRIAL_CONVERTED', { subscriptionId: subscription.id, planId: subscription.planId });
+      await this.audit(tx, actor.id, locked.companyId, id, 'TRIAL_CONVERTED', { subscriptionId: subscription.id, planId: subscription.planId, ...this.overLimitMetadata(approval) });
       return converted;
     });
   }
@@ -134,7 +143,7 @@ export class TrialsService {
     let count = 0;
     for (const candidate of candidates) {
       count += await this.prisma.$transaction(async (tx) => {
-        await this.subscriptions.lockCompany(tx, candidate.companyId);
+        await this.seatUsage.lockCompany(tx, candidate.companyId);
         const changed = await tx.companyTrial.updateMany({ where: { id: candidate.id, status: TrialStatus.ACTIVE, endsAt: { lte: now } }, data: { status: TrialStatus.EXPIRED, expiredAt: now } });
         if (!changed.count) return 0;
         await this.audit(tx, null, candidate.companyId, candidate.id, 'TRIAL_EXPIRED', { expiredAt: now.toISOString() });
@@ -155,4 +164,5 @@ export class TrialsService {
   private positiveInteger(value: unknown, field: string, max = Number.MAX_SAFE_INTEGER) { if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > max) throw new BadRequestException(`${field} must be a positive integer no greater than ${max}`); }
   private reason(value: unknown) { if (typeof value !== 'string' || !value.trim()) throw new BadRequestException('Reason is required'); return value.trim(); }
   private audit(tx: Prisma.TransactionClient, actorUserId: string | null, companyId: string, entityId: string, action: string, metadata: Prisma.InputJsonObject) { return tx.auditLog.create({ data: { actorUserId, companyId, action, entityType: 'CompanyTrial', entityId, metadata } }); }
+  private overLimitMetadata(approval: ApprovedOverLimit | null): Prisma.InputJsonObject { return approval ? { overLimitOverride: true, usedSeats: approval.usedSeats, proposedCapacity: approval.proposedCapacity, overBy: approval.overBy, reason: approval.reason } : {}; }
 }

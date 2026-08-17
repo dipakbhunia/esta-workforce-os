@@ -10,12 +10,13 @@ import { TrialsController } from './trials.controller';
 import { CancelTrialDto, ConvertTrialDto, ExtendTrialDto, StartTrialDto } from './dto/trial.dto';
 import { DEFAULT_TRIAL_DURATION_HOURS, DEFAULT_TRIAL_SEAT_LIMIT } from './trial-policy';
 import { isEffectiveTrial, TrialsService } from './trials.service';
+import { SeatUsageService } from '../usage-seats/seat-usage.service';
 
 const actor = { id: 'actor-1', companyId: null, email: 'admin@example.com', firstName: 'Super', lastName: 'Admin', status: UserStatus.ACTIVE, roles: [RoleName.SUPER_ADMIN] };
 const company = { id: 'company-1', name: 'Acme', slug: 'acme', status: CompanyStatus.ACTIVE, deletedAt: null };
 const activeTrial = { id: 'trial-1', companyId: company.id, status: TrialStatus.ACTIVE, startsAt: new Date(Date.now() - 3600000), endsAt: new Date(Date.now() + 86400000), seatLimit: 10, entitlementsSnapshot: ['workforce.attendance'], limitsSnapshot: {}, cancelledAt: null, expiredAt: null, convertedAt: null, convertedSubscriptionId: null, createdAt: new Date(), updatedAt: new Date() };
 
-function harness(options: { history?: number; active?: typeof activeTrial | null; liveSubscription?: boolean; conversionFailure?: boolean } = {}) {
+function harness(options: { history?: number; active?: typeof activeTrial | null; liveSubscription?: boolean; conversionFailure?: boolean; used?: number } = {}) {
   let trial = options.active === undefined ? null : options.active;
   const audits: Array<{ action: string; metadata: unknown }> = [];
   let createData: Record<string, unknown> | null = null;
@@ -39,7 +40,6 @@ function harness(options: { history?: number; active?: typeof activeTrial | null
     $transaction: async (value: unknown) => typeof value === 'function' ? (value as (tx: typeof tx) => unknown)(tx) : Promise.all(value as Promise<unknown>[]),
   };
   const subscriptions = {
-    lockCompany: async () => undefined,
     assertNoLiveSubscription: async () => { if (options.liveSubscription) throw new ConflictException('live'); },
     createActiveInTransaction: async (_tx: unknown, dto: Record<string, unknown>) => {
       if (options.conversionFailure) throw new Error('conversion failed');
@@ -47,7 +47,13 @@ function harness(options: { history?: number; active?: typeof activeTrial | null
       return { id: 'subscription-1', planId: dto.planId, status: SubscriptionStatus.ACTIVE, activationSource: dto.activationSource, planCodeSnapshot: 'PRO', planNameSnapshot: 'Professional', billingModelSnapshot: PlanBillingModel.PER_USER, entitlementsSnapshot: ['workforce.leave'], limitsSnapshot: { screenshotRetentionDays: 30 } };
     },
   };
-  return { service: new TrialsService(prisma as never, subscriptions as never), audits, createData: () => createData, updateData: () => updateData, conversionData: () => conversionData, trial: () => trial };
+  const seatPolicy = new SeatUsageService({} as never);
+  const seatUsage = {
+    lockCompany: async () => undefined,
+    countUsedSeats: async () => options.used ?? 0,
+    assessProposedCapacity: seatPolicy.assessProposedCapacity.bind(seatPolicy),
+  };
+  return { service: new TrialsService(prisma as never, subscriptions as never, seatUsage as never), audits, createData: () => createData, updateData: () => updateData, conversionData: () => conversionData, trial: () => trial };
 }
 
 describe('TrialsService', () => {
@@ -63,4 +69,6 @@ describe('TrialsService', () => {
   it('converts atomically using TRIAL_CONVERSION and selected Plan terms, never Trial terms', async () => { const h = harness({ active: activeTrial }); await h.service.convert(activeTrial.id, { planId: 'plan-1', billingInterval: BillingInterval.MONTHLY, seatQuantity: 5 }, actor); assert.equal(h.trial()!.status, TrialStatus.CONVERTED); assert.equal(h.trial()!.convertedSubscriptionId, 'subscription-1'); assert.equal(h.conversionData()!.activationSource, SubscriptionActivationSource.TRIAL_CONVERSION); assert.equal(h.conversionData()!.entitlements, undefined); assert.notDeepEqual(h.conversionData()!.entitlements, activeTrial.entitlementsSnapshot); assert.equal(h.audits[0].action, 'TRIAL_CONVERTED'); });
   it('leaves Trial ACTIVE and unaudited when Subscription creation fails', async () => { const h = harness({ active: activeTrial, conversionFailure: true }); await assert.rejects(() => h.service.convert(activeTrial.id, { planId: 'plan-1', billingInterval: BillingInterval.MONTHLY, seatQuantity: 5 }, actor), /conversion failed/); assert.equal(h.trial()!.status, TrialStatus.ACTIVE); assert.equal(h.updateData(), null); assert.deepEqual(h.audits, []); });
   it('never mutates Company status', async () => { const h = harness(); await h.service.start({ companyId: company.id }, actor); assert.equal(company.status, CompanyStatus.ACTIVE); assert.equal('status' in (h.createData() ?? {}), true); });
+  it('requires a reasoned override when Trial capacity is below current usage', async () => { await assert.rejects(() => harness({ used: 11 }).service.start({ companyId: company.id, seatLimit: 10 }, actor), BadRequestException); const h = harness({ used: 11 }); await h.service.start({ companyId: company.id, seatLimit: 10, allowOverLimit: true, reason: 'Approved Trial exception' }, actor); const metadata = h.audits[0].metadata as { overLimitOverride: boolean; usedSeats: number; proposedCapacity: number; overBy: number; reason: string }; assert.deepEqual(metadata, { durationHours: 168, seatLimit: 10, entitlementCount: 7, reason: 'Approved Trial exception', overLimitOverride: true, usedSeats: 11, proposedCapacity: 10, overBy: 1 }); });
+  it('requires a reasoned override when Trial conversion capacity is below usage', async () => { await assert.rejects(() => harness({ active: activeTrial, used: 6 }).service.convert(activeTrial.id, { planId: 'plan-1', billingInterval: BillingInterval.MONTHLY, seatQuantity: 5 }, actor), BadRequestException); const h = harness({ active: activeTrial, used: 6 }); await h.service.convert(activeTrial.id, { planId: 'plan-1', billingInterval: BillingInterval.MONTHLY, seatQuantity: 5, allowOverLimit: true, reason: 'Approved conversion' }, actor); assert.equal((h.audits[0].metadata as { overLimitOverride: boolean }).overLimitOverride, true); });
 });

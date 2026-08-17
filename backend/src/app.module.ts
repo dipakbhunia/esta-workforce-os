@@ -27,6 +27,7 @@ import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { ShiftAssignmentsModule } from './modules/shift-assignments/shift-assignments.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { UsersModule } from './modules/users/users.module';
+import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { UsersModule } from './modules/users/users.module';
     ShiftAssignmentsModule,
     ShiftsModule,
     UsersModule,
+    UsageSeatsModule,
     RolesModule,
     HealthModule,
   ],

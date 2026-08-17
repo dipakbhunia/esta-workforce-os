@@ -10,6 +10,7 @@ import { getEntitlementCatalog, getPlans } from '@/features/plans/plans-api';
 import type { Plan } from '@/features/plans/plan.types';
 import { money } from '@/features/plans/plan-utils';
 import type { BillingInterval } from '@/features/subscriptions/subscription.types';
+import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
 import type { ConvertTrialPayload } from './trial.types';
 import { convertTrial, getTrial } from './trials-api';
 import { isEffectiveTrial, trialDate, trialError, trialRemaining } from './trial-utils';
@@ -28,10 +29,16 @@ export default function TrialConvertPage() {
   const [entitlements, setEntitlements] = useState<string[]>([]);
   const [maxStorageBytes, setMaxStorageBytes] = useState('');
   const [screenshotRetentionDays, setScreenshotRetentionDays] = useState('');
+  const [allowOverLimit, setAllowOverLimit] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
   const [error, setError] = useState('');
   const plans = plansQuery.data?.data.data ?? [];
   const trial = trialQuery.data?.data;
   const selectedPlan = plans.find((plan) => plan.id === planId);
+  const usageQuery = useQuery({ queryKey: ['usage-seats', 'company', trial?.companyId, { summary: true }], queryFn: () => getCompanySeatUsage(trial!.companyId, { page: 1, limit: 1 }), enabled: Boolean(trial?.companyId) });
+  const usedSeats = usageQuery.data?.data.seats.used;
+  const parsedSeats = Number(seats);
+  const needsOverLimitOverride = usedSeats !== undefined && Number.isInteger(parsedSeats) && parsedSeats >= 1 && parsedSeats < usedSeats;
   const custom = selectedPlan?.billingModel === 'CUSTOM';
   const catalog = useMemo(() => catalogQuery.data?.data ?? [], [catalogQuery.data]);
   const mutation = useMutation({
@@ -42,6 +49,7 @@ export default function TrialConvertPage() {
         client.invalidateQueries({ queryKey: ['trial', id] }),
         client.invalidateQueries({ queryKey: ['subscriptions'] }),
         client.invalidateQueries({ queryKey: ['company', data.companyId] }),
+        client.invalidateQueries({ queryKey: ['usage-seats'] }),
       ]);
       if (data.convertedSubscription?.id) navigate(`/saas/subscriptions/${data.convertedSubscription.id}`, { replace: true });
       else navigate(`/saas/trials/${data.id}`, { replace: true, state: { success: 'Trial converted successfully.' } });
@@ -51,6 +59,8 @@ export default function TrialConvertPage() {
 
   const changePlan = (nextId: string) => {
     setPlanId(nextId);
+    setAllowOverLimit(false);
+    setOverrideReason('');
     setError('');
     const plan = plans.find((value) => value.id === nextId);
     if (!plan || !trial) return;
@@ -80,6 +90,14 @@ export default function TrialConvertPage() {
       setError(catalogQuery.isError ? 'Reload the entitlement catalog before converting a CUSTOM Plan.' : 'CUSTOM limits must be non-negative whole numbers.');
       return;
     }
+    if (usageQuery.isLoading || usageQuery.isError || usedSeats === undefined) {
+      setError('Current Employee seat usage must be loaded before conversion.');
+      return;
+    }
+    if (seatQuantity < usedSeats && (!allowOverLimit || !overrideReason.trim())) {
+      setError('Acknowledge the over-limit conversion and provide a reason.');
+      return;
+    }
     const limits: Record<string, number> = {};
     if (maxStorageBytes) limits.maxStorageBytes = Number(maxStorageBytes);
     if (screenshotRetentionDays) limits.screenshotRetentionDays = Number(screenshotRetentionDays);
@@ -88,6 +106,7 @@ export default function TrialConvertPage() {
       billingInterval,
       seatQuantity,
       ...(custom ? { customRecurringPriceMinor: priceMinor, entitlements, limits } : priceMinor !== selectedPlan.monthlyPricePerSeatMinor ? { pricePerSeatMinor: priceMinor } : {}),
+      ...(seatQuantity < usedSeats ? { allowOverLimit: true, reason: overrideReason.trim() } : {}),
     };
     mutation.mutate(payload);
   };
@@ -97,7 +116,7 @@ export default function TrialConvertPage() {
   return <PageLayout>
     <PageHeader title="Convert Trial to Subscription" description="Create an ACTIVE Subscription from current Plan terms and permitted negotiated overrides." breadcrumbs={['Admin', 'SaaS Management', 'Trial Management', trial?.company.name ?? 'Trial', 'Convert']} />
     {loading ? <LoadingSkeleton rows={8} /> : trialQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void trialQuery.refetch()}>Retry</Button>}>Trial could not be loaded.</Alert> : plansQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void plansQuery.refetch()}>Retry</Button>}>Active Plans could not be loaded.</Alert> : !trial ? <Alert severity="warning">Trial not found.</Alert> : !effective ? <Alert severity="warning" action={<Button component={Link} color="inherit" to={`/saas/trials/${trial.id}`}>View Trial</Button>}>Only an effective ACTIVE Trial can be converted.</Alert> : <Stack gap={2}>
-      {error ? <Alert severity="error" onClose={() => setError('')}>{error}</Alert> : null}
+      {error ? <Alert severity="error" onClose={() => setError('')}>{error}</Alert> : null}{usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current Employee seat usage could not be loaded.</Alert> : null}
       <SectionCard title="Trial Being Converted" description="Trial access is not copied into Subscription commercial terms."><Box sx={detailGrid}><Fact label="Company" value={trial.company.name} /><Fact label="Trial ends" value={trialDate(trial.endsAt)} /><Fact label="Remaining" value={trialRemaining(trial.endsAt)} /><Fact label="Trial seat allowance" value={String(trial.seatLimit)} /><Fact label="Trial entitlements" value={String(trial.entitlementsSnapshot.length)} /></Box></SectionCard>
       <Card><CardContent><Stack component="form" gap={3} onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <Box sx={formGrid}>
@@ -110,8 +129,9 @@ export default function TrialConvertPage() {
         </Box>
         {selectedPlan ? <PlanPreview plan={selectedPlan} /> : <Alert severity="info">Choose a target Plan to preview the Subscription commercial snapshot.</Alert>}
         {custom ? <CustomTerms catalogLoading={catalogQuery.isLoading} catalogError={catalogQuery.isError} retryCatalog={() => void catalogQuery.refetch()} catalog={catalog} entitlements={entitlements} setEntitlements={setEntitlements} maxStorageBytes={maxStorageBytes} setMaxStorageBytes={setMaxStorageBytes} screenshotRetentionDays={screenshotRetentionDays} setScreenshotRetentionDays={setScreenshotRetentionDays} /> : selectedPlan ? <Alert severity="info">Entitlements and limits will be snapshotted from the selected current Plan. Trial snapshot values are not submitted.</Alert> : null}
+        {needsOverLimitOverride && usedSeats !== undefined ? <Stack gap={1.5}><Alert severity="warning">The selected capacity of {seats} is below current usage of {usedSeats}. Conversion will leave the Company {usedSeats - parsedSeats} seats over limit.</Alert><FormControlLabel control={<Checkbox checked={allowOverLimit} onChange={(_, checked) => setAllowOverLimit(checked)} />} label="Allow Subscription capacity below current seat usage" /><TextField required label="Override reason" value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} multiline minRows={3} inputProps={{ maxLength: 500 }} helperText="Required audit reason for the intentional over-limit conversion." /></Stack> : null}
         <Alert severity="warning">Conversion is atomic and terminal: the Trial becomes CONVERTED and the new Subscription becomes ACTIVE with activation source TRIAL_CONVERSION.</Alert>
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end" gap={1}><Button onClick={() => navigate(`/saas/trials/${trial.id}`)} disabled={mutation.isPending}>Cancel</Button><Button type="submit" variant="contained" disabled={mutation.isPending || !selectedPlan || (custom && catalogQuery.isLoading)}>{mutation.isPending ? 'Converting…' : 'Convert and activate Subscription'}</Button></Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end" gap={1}><Button onClick={() => navigate(`/saas/trials/${trial.id}`)} disabled={mutation.isPending}>Cancel</Button><Button type="submit" variant="contained" disabled={mutation.isPending || usageQuery.isLoading || !selectedPlan || (custom && catalogQuery.isLoading)}>{mutation.isPending ? 'Converting…' : 'Convert and activate Subscription'}</Button></Stack>
       </Stack></CardContent></Card>
     </Stack>}
   </PageLayout>;
