@@ -16,6 +16,8 @@ import type { CompanyStatus } from '../types/company.types';
 import { companyErrorMessage, formatDateTime } from '../utils/company-form';
 import { getSubscriptions } from '@/features/subscriptions/subscriptions-api';
 import { subscriptionMoney } from '@/features/subscriptions/subscription-utils';
+import { getTrials } from '@/features/trials/trials-api';
+import { isEffectiveTrial, trialDate, trialRemaining } from '@/features/trials/trial-utils';
 
 interface LocationState {
   success?: string;
@@ -29,6 +31,7 @@ export default function CompanyDetailsPage() {
   const [toast, setToast] = useState<{ severity: 'success' | 'error'; message: string } | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const companyQuery = useQuery({ queryKey: ['company', id], queryFn: () => getCompany(id!), enabled: Boolean(id) });
+  const trialsQuery = useQuery({ queryKey: ['trials', 'company-active', id], queryFn: () => getTrials({ page: 1, limit: 1, companyId: id!, status: 'ACTIVE' }), enabled: Boolean(id), refetchInterval: 60_000 });
   const subscriptionsQuery = useQuery({ queryKey: ['subscriptions', 'company-live', id], queryFn: async () => { const [active, suspended] = await Promise.all([getSubscriptions({ page: 1, limit: 1, companyId: id!, status: 'ACTIVE' }), getSubscriptions({ page: 1, limit: 1, companyId: id!, status: 'SUSPENDED' })]); return active.data.data[0] ?? suspended.data.data[0] ?? null; }, enabled: Boolean(id) });
   const archiveMutation = useMutation({
     mutationFn: () => deleteCompany(id!),
@@ -45,6 +48,8 @@ export default function CompanyDetailsPage() {
   }, [location.state]);
 
   const company = companyQuery.data?.data;
+  const activeTrial = trialsQuery.data?.data.data[0];
+  const effectiveTrial = activeTrial && isEffectiveTrial(activeTrial) ? activeTrial : null;
   const liveSubscription = subscriptionsQuery.data;
 
   return (
@@ -85,8 +90,8 @@ export default function CompanyDetailsPage() {
           </Box>
         </SectionCard>
 
-        <SectionCard title="Commercial Access" description="Read-only current subscription summary. Company operational status remains separate.">
-          {subscriptionsQuery.isLoading ? <LoadingSkeleton rows={2} /> : subscriptionsQuery.isError ? <Alert severity="error">Commercial access could not be loaded.</Alert> : liveSubscription ? <Box sx={detailGrid}><Detail label="Plan" value={`${liveSubscription.planNameSnapshot} (${liveSubscription.planCodeSnapshot})`} /><Box><Typography variant="caption" color="text.secondary">Subscription Status</Typography><div><StatusChip label={liveSubscription.status} tone={liveSubscription.status === 'ACTIVE' ? 'success' : 'danger'} /></div></Box><Detail label="Contracted Seats" value={String(liveSubscription.seatQuantity)} /><Detail label="Effective Price" value={subscriptionMoney(liveSubscription.billingModelSnapshot === 'PER_USER' ? liveSubscription.pricePerSeatMinor : liveSubscription.customRecurringPriceMinor, liveSubscription.currency)} /><Detail label="Billing Interval" value={liveSubscription.billingInterval} /><Detail label="Activation Source" value={liveSubscription.activationSource.replaceAll('_', ' ')} /><Button component={RouterLink} to={`/saas/subscriptions/${liveSubscription.id}`} variant="outlined">View subscription</Button></Box> : <Stack alignItems="flex-start" gap={1}><Typography color="text.secondary">No active or suspended commercial subscription exists for this company.</Typography><Button component={RouterLink} to="/saas/subscriptions" variant="outlined">Open Subscription Management</Button></Stack>}
+        <SectionCard title="Commercial Access" description="Read-only current access source. Company operational status remains separate from Trial and Subscription access.">
+          {trialsQuery.isLoading ? <LoadingSkeleton rows={2} /> : trialsQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void trialsQuery.refetch()}>Retry</Button>}>Current Trial access could not be verified.</Alert> : effectiveTrial ? <Box sx={detailGrid}><Detail label="Source" value="Trial" /><Box><Typography variant="caption" color="text.secondary">Trial Status</Typography><div><StatusChip label={effectiveTrial.status} tone="success" /></div></Box><Detail label="Starts" value={trialDate(effectiveTrial.startsAt)} /><Detail label="Ends" value={trialDate(effectiveTrial.endsAt)} /><Detail label="Remaining" value={trialRemaining(effectiveTrial.endsAt)} /><Detail label="Trial Seat Limit" value={String(effectiveTrial.seatLimit)} /><Detail label="Entitlement Count" value={String(effectiveTrial.entitlementsSnapshot.length)} /><Button component={RouterLink} to={`/saas/trials/${effectiveTrial.id}`} variant="outlined">View Trial</Button></Box> : subscriptionsQuery.isLoading ? <LoadingSkeleton rows={2} /> : subscriptionsQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void subscriptionsQuery.refetch()}>Retry</Button>}>Current Subscription access could not be verified.</Alert> : liveSubscription ? <Box sx={detailGrid}><Detail label="Source" value="Subscription" /><Detail label="Plan" value={`${liveSubscription.planNameSnapshot} (${liveSubscription.planCodeSnapshot})`} /><Box><Typography variant="caption" color="text.secondary">Subscription Status</Typography><div><StatusChip label={liveSubscription.status} tone={liveSubscription.status === 'ACTIVE' ? 'success' : 'danger'} /></div></Box><Detail label="Contracted Seats" value={String(liveSubscription.seatQuantity)} /><Detail label="Effective Price" value={subscriptionMoney(liveSubscription.billingModelSnapshot === 'PER_USER' ? liveSubscription.pricePerSeatMinor : liveSubscription.customRecurringPriceMinor, liveSubscription.currency)} /><Detail label="Billing Interval" value={liveSubscription.billingInterval} /><Detail label="Activation Source" value={liveSubscription.activationSource.replaceAll('_', ' ')} /><Button component={RouterLink} to={`/saas/subscriptions/${liveSubscription.id}`} variant="outlined">View subscription</Button></Box> : <Stack alignItems="flex-start" gap={1}><Typography color="text.secondary">No effective Trial or active/suspended Subscription currently provides commercial access for this company.</Typography><Stack direction={{ xs: 'column', sm: 'row' }} gap={1}><Button component={RouterLink} to="/saas/trials/new" variant="contained">Start Trial</Button><Button component={RouterLink} to="/saas/subscriptions" variant="outlined">Open Subscription Management</Button></Stack></Stack>}
         </SectionCard>
 
         <SectionCard title="Record Information" description="Company record creation and last update timestamps.">

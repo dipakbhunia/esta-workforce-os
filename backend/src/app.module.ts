@@ -21,6 +21,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ProductivityModule } from './modules/productivity/productivity.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { TrialsModule } from './modules/trials/trials.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { ShiftAssignmentsModule } from './modules/shift-assignments/shift-assignments.module';
@@ -56,6 +57,7 @@ import { UsersModule } from './modules/users/users.module';
     ProductivityModule,
     PlansModule,
     SubscriptionsModule,
+    TrialsModule,
     SchedulingModule,
     ShiftAssignmentsModule,
     ShiftsModule,

@@ -20,7 +20,7 @@ export class PlansService {
   constructor(private readonly prisma: PrismaService) {}
 
   entitlementCatalog() {
-    return ENTITLEMENT_CATALOG.map(({ key, name, group, description, availability, assignable, sortOrder }) => ({ key, name, group, description, availability, assignable, sortOrder }));
+    return ENTITLEMENT_CATALOG.map(({ key, name, group, description, availability, assignable, trialEligible, sortOrder }) => ({ key, name, group, description, availability, assignable, trialEligible, sortOrder }));
   }
 
   async create(dto: CreatePlanDto, actor: AuthenticatedUser): Promise<PlanResponseDto> {

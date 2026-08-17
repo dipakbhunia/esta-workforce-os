@@ -94,8 +94,10 @@ export class SubscriptionsService {
     const effectiveAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      await this.lockCompany(tx, source.companyId);
       const locked = await tx.companySubscription.findUnique({ where: { id } });
       if (!locked || locked.status !== source.status) throw new ConflictException('Subscription changed while the amendment was being prepared');
+      await this.assertNoEffectiveTrial(tx, source.companyId);
       await this.assertNoLive(tx, source.companyId, source.id);
       await tx.companySubscription.update({ where: { id }, data: { status: SubscriptionStatus.SUPERSEDED, endedAt: effectiveAt } });
       const successor = await tx.companySubscription.create({ data: { ...resolved.data, supersedesSubscriptionId: source.id }, include: detailInclude });
@@ -105,6 +107,24 @@ export class SubscriptionsService {
       return successor;
     });
   }
+
+  async createActiveInTransaction(tx: Prisma.TransactionClient, dto: CreateSubscriptionDto, actor: AuthenticatedUser) {
+    const plan = await tx.plan.findUnique({ where: { id: dto.planId } });
+    if (!plan) throw new NotFoundException('Plan not found');
+    if (plan.status !== PlanStatus.ACTIVE || plan.archivedAt) throw new BadRequestException('Only active plans can be selected for Trial conversion');
+    const data = this.createData(dto, plan);
+    const created = await tx.companySubscription.create({ data: { ...data, status: SubscriptionStatus.ACTIVE, startsAt: dto.startsAt ?? new Date() }, include: detailInclude });
+    await this.audit(tx, actor.id, created.companyId, created.id, 'SUBSCRIPTION_CREATED', { planId: created.planId, status: SubscriptionStatus.ACTIVE, activationSource: created.activationSource });
+    await this.audit(tx, actor.id, created.companyId, created.id, 'SUBSCRIPTION_ACTIVATED', { from: SubscriptionStatus.PENDING, to: SubscriptionStatus.ACTIVE, conversion: true });
+    return created;
+  }
+
+  async lockCompany(tx: Prisma.TransactionClient, companyId: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Company" WHERE "id" = ${companyId}::uuid FOR UPDATE`);
+    if (!rows.length) throw new NotFoundException('Company not found');
+  }
+
+  async assertNoLiveSubscription(tx: Prisma.TransactionClient, companyId: string, excludeId?: string) { return this.assertNoLive(tx, companyId, excludeId); }
 
   private createData(dto: CreateSubscriptionDto, plan: Plan): Prisma.CompanySubscriptionCreateInput {
     this.validateSeats(dto.seatQuantity, plan);
@@ -167,9 +187,14 @@ export class SubscriptionsService {
   }
 
   private async transition(id: string, from: SubscriptionStatus, to: SubscriptionStatus, action: string, actor: AuthenticatedUser, extra: (tx: Prisma.TransactionClient, current: CompanySubscription, now: Date) => Promise<Prisma.CompanySubscriptionUpdateInput>) {
-    const current = await this.get(id);
-    if (current.status !== from) throw new BadRequestException(`Cannot transition subscription from ${current.status} to ${to}`);
     return this.prisma.$transaction(async (tx) => {
+      const candidate = await tx.companySubscription.findUnique({ where: { id } });
+      if (!candidate) throw new NotFoundException('Subscription not found');
+      await this.lockCompany(tx, candidate.companyId);
+      const current = await tx.companySubscription.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Subscription not found');
+      if (current.status !== from) throw new BadRequestException(`Cannot transition subscription from ${current.status} to ${to}`);
+      if (to === SubscriptionStatus.ACTIVE) await this.assertNoEffectiveTrial(tx, current.companyId);
       const data = await extra(tx, current, new Date());
       const updated = await tx.companySubscription.update({ where: { id }, data: { ...data, status: to }, include: detailInclude });
       await this.audit(tx, actor.id, current.companyId, id, action, { from, to });
@@ -177,7 +202,8 @@ export class SubscriptionsService {
     });
   }
   private async updateWithAudit(current: CompanySubscription, data: Prisma.CompanySubscriptionUpdateInput, action: string, actor: AuthenticatedUser) { return this.prisma.$transaction(async (tx) => { const updated = await tx.companySubscription.update({ where: { id: current.id }, data, include: detailInclude }); await this.audit(tx, actor.id, current.companyId, current.id, action, { from: current.status, to: updated.status }); return updated; }); }
-  private async assertNoLive(tx: Prisma.TransactionClient, companyId: string, excludeId: string) { const live = await tx.companySubscription.findFirst({ where: { companyId, id: { not: excludeId }, status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED] } } }); if (live) throw new ConflictException('Company already has an active or suspended subscription'); }
+  private async assertNoLive(tx: Prisma.TransactionClient, companyId: string, excludeId?: string) { const live = await tx.companySubscription.findFirst({ where: { companyId, ...(excludeId ? { id: { not: excludeId } } : {}), status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED] } } }); if (live) throw new ConflictException('Company already has an active or suspended subscription'); }
+  private async assertNoEffectiveTrial(tx: Prisma.TransactionClient, companyId: string) { const now = new Date(); const trial = await tx.companyTrial.findFirst({ where: { companyId, status: 'ACTIVE', startsAt: { lte: now }, endsAt: { gt: now } } }); if (trial) throw new ConflictException('Company already has an effective active Trial'); }
   private async get(id: string) { const value = await this.prisma.companySubscription.findUnique({ where: { id } }); if (!value) throw new NotFoundException('Subscription not found'); return value; }
   private validateSeats(value: number, plan: Plan) { this.integer(value, 'Seat quantity', 1); if (plan.minSeats !== null && value < plan.minSeats) throw new BadRequestException(`Seat quantity must be at least ${plan.minSeats}`); if (plan.maxSeats !== null && value > plan.maxSeats) throw new BadRequestException(`Seat quantity cannot exceed ${plan.maxSeats}`); }
   private validatePeriod(start?: Date | null, end?: Date | null) { if (Boolean(start) !== Boolean(end)) throw new BadRequestException('Current period start and end must both be provided or both omitted'); if (start && end && start >= end) throw new BadRequestException('Current period start must be before current period end'); }

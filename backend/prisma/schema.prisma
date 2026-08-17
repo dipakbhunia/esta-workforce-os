@@ -277,6 +277,13 @@ enum SubscriptionActivationSource {
   COMPLIMENTARY
 }
 
+enum TrialStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  CONVERTED
+}
+
 model Plan {
   id                       String                @id @default(uuid()) @db.Uuid
   code                     String                @unique
@@ -358,6 +365,7 @@ model Company {
   roles                        Role[]
   auditLogs                    AuditLog[]
   subscriptions                CompanySubscription[]
+  trials                       CompanyTrial[]
 
   @@index([status])
   @@index([slug])
@@ -393,12 +401,36 @@ model CompanySubscription {
   plan                      Plan                         @relation(fields: [planId], references: [id], onDelete: Restrict)
   supersedes                CompanySubscription?         @relation("SubscriptionLineage", fields: [supersedesSubscriptionId], references: [id], onDelete: Restrict)
   successors                CompanySubscription[]        @relation("SubscriptionLineage")
+  convertedTrial            CompanyTrial?
 
   @@index([companyId, status])
   @@index([planId, status])
   @@index([status, currentPeriodEnd])
   @@index([createdAt])
   @@index([supersedesSubscriptionId])
+}
+
+model CompanyTrial {
+  id                      String               @id @default(uuid()) @db.Uuid
+  companyId               String               @db.Uuid
+  status                  TrialStatus          @default(ACTIVE)
+  startsAt                DateTime             @default(now())
+  endsAt                  DateTime
+  seatLimit               Int
+  entitlementsSnapshot    String[]             @default([])
+  limitsSnapshot          Json                 @default("{}")
+  cancelledAt             DateTime?
+  expiredAt               DateTime?
+  convertedAt             DateTime?
+  convertedSubscriptionId String?              @unique @db.Uuid
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  company                 Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  convertedSubscription   CompanySubscription? @relation(fields: [convertedSubscriptionId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([status, endsAt])
+  @@index([createdAt])
 }
 
 model Branch {

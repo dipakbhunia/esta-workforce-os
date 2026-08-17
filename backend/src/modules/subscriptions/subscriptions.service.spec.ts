@@ -21,16 +21,16 @@ function createHarness(selectedPlan = plan) {
   return { service, data: () => createdData, audits };
 }
 
-function lifecycleHarness(current = subscription, live: unknown = null) {
+function lifecycleHarness(current = subscription, live: unknown = null, activeTrial: unknown = null) {
   const audits: string[] = []; let updated: Record<string, unknown> = {};
-  const tx = { companySubscription: { findFirst: async () => live, update: async ({ data }: { data: Record<string, unknown> }) => { updated = data; return { ...current, ...data }; } }, auditLog: { create: async ({ data }: { data: { action: string } }) => { audits.push(data.action); return {}; } } };
+  const tx = { $queryRaw: async () => [{ id: company.id }], companyTrial: { findFirst: async () => activeTrial }, companySubscription: { findUnique: async () => current, findFirst: async () => live, update: async ({ data }: { data: Record<string, unknown> }) => { updated = data; return { ...current, ...data }; } }, auditLog: { create: async ({ data }: { data: { action: string } }) => { audits.push(data.action); return {}; } } };
   const service = serviceWith({ companySubscription: { findUnique: async () => current }, $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx) });
   return { service, data: () => updated, audits };
 }
 
-function amendmentHarness(current = { ...subscription, status: SubscriptionStatus.ACTIVE }, selectedPlan = plan, failCreate = false) {
+function amendmentHarness(current = { ...subscription, status: SubscriptionStatus.ACTIVE }, selectedPlan = plan, failCreate = false, activeTrial: unknown = null) {
   const events: string[] = []; const audits: string[] = []; let successorData: Record<string, unknown> = {}; let sourceUpdate: Record<string, unknown> = {};
-  const tx = { companySubscription: {
+  const tx = { $queryRaw: async () => [{ id: company.id }], companyTrial: { findFirst: async () => activeTrial }, companySubscription: {
     findUnique: async () => current,
     findFirst: async () => null,
     update: async ({ data }: { data: Record<string, unknown> }) => { sourceUpdate = data; events.push(`update:${String(data.status)}`); return { ...current, ...data }; },
@@ -56,6 +56,7 @@ describe('SubscriptionsService', () => {
   it('snapshots an eligible target Plan when the amendment changes Plan', async () => { const target = { ...plan, id: 'plan-2', code: 'ENTERPRISE', name: 'Enterprise', monthlyPricePerSeatMinor: 19900, entitlements: ['workforce.leave'] }; const h = amendmentHarness({ ...subscription, status: SubscriptionStatus.ACTIVE }, target); await h.service.amend(subscription.id, { planId: target.id }, actor); assert.equal(h.data().planId, target.id); assert.equal(h.data().planCodeSnapshot, 'ENTERPRISE'); assert.equal(h.data().pricePerSeatMinor, 19900); assert.deepEqual(h.data().entitlementsSnapshot, ['workforce.leave']); });
   it('rejects semantic no-op amendments and every ineligible source status', async () => { await assert.rejects(() => amendmentHarness().service.amend(subscription.id, {}, actor), BadRequestException); for (const status of [SubscriptionStatus.PENDING, SubscriptionStatus.SUPERSEDED, SubscriptionStatus.CANCELLED, SubscriptionStatus.EXPIRED]) await assert.rejects(() => amendmentHarness({ ...subscription, status }).service.amend(subscription.id, { seatQuantity: 6 }, actor), BadRequestException); });
   it('does not allow SUPERSEDED to reactivate', async () => { await assert.rejects(() => lifecycleHarness({ ...subscription, status: SubscriptionStatus.SUPERSEDED }).service.activate(subscription.id, actor), BadRequestException); });
+  it('blocks activation, resume, and live amendment while an effective Trial exists', async () => { const trial = { id: 'trial-1' }; await assert.rejects(() => lifecycleHarness(subscription, null, trial).service.activate(subscription.id, actor), ConflictException); await assert.rejects(() => lifecycleHarness({ ...subscription, status: SubscriptionStatus.SUSPENDED }, null, trial).service.resume(subscription.id, actor), ConflictException); await assert.rejects(() => amendmentHarness({ ...subscription, status: SubscriptionStatus.ACTIVE }, plan, false, trial).service.amend(subscription.id, { seatQuantity: 6 }, actor), ConflictException); });
   it('keeps source replacement and successor creation in one transaction so failures reject the operation', async () => { const h = amendmentHarness({ ...subscription, status: SubscriptionStatus.ACTIVE }, plan, true); await assert.rejects(() => h.service.amend(subscription.id, { seatQuantity: 6 }, actor), /create failed/); assert.deepEqual(h.events, ['update:SUPERSEDED', 'create']); assert.deepEqual(h.audits, []); });
   it('accepts SUPERSEDED in list status filtering', async () => { let where: { status?: SubscriptionStatus } = {}; const service = serviceWith({ companySubscription: { findMany: async (args: { where: typeof where }) => { where = args.where; return []; }, count: async () => 0 }, $transaction: async (ops: Promise<unknown>[]) => Promise.all(ops) }); await service.findAll({ page: 1, limit: 20, status: SubscriptionStatus.SUPERSEDED }); assert.equal(where.status, SubscriptionStatus.SUPERSEDED); });
 });

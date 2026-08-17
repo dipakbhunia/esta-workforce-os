@@ -18,6 +18,10 @@ const SubscriptionsPage = lazy(() => import('@/features/subscriptions/Subscripti
 const SubscriptionCreatePage = lazy(() => import('@/features/subscriptions/SubscriptionCreatePage'));
 const SubscriptionDetailsPage = lazy(() => import('@/features/subscriptions/SubscriptionDetailsPage'));
 const SubscriptionAmendPage = lazy(() => import('@/features/subscriptions/SubscriptionAmendPage'));
+const TrialsPage = lazy(() => import('@/features/trials/TrialsPage'));
+const TrialCreatePage = lazy(() => import('@/features/trials/TrialCreatePage'));
+const TrialDetailsPage = lazy(() => import('@/features/trials/TrialDetailsPage'));
+const TrialConvertPage = lazy(() => import('@/features/trials/TrialConvertPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -162,7 +166,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'saas/trials', title: 'Trial Management', moduleName: 'SaaS Management', description: 'Manage configurable tenant trials, expiry, status, and conversion readiness.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/usage-seats', title: 'Usage & Seats', moduleName: 'SaaS Management', description: 'Review tenant seat allocation and platform usage when metering is available.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/storage', title: 'Storage Usage', moduleName: 'SaaS Management', description: 'Review tenant storage consumption, allowances, usage percentage, and over-limit status when metering is available.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/payments', title: 'Payments', moduleName: 'Billing', description: 'Review provider-neutral tenant payment records after payment gateway integration is available.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
@@ -262,6 +265,10 @@ export const router = createBrowserRouter([
           { path: 'saas/subscriptions/new', element: protectedElement(<SubscriptionCreatePage />, 'settings:view', superAdminRoles) },
           { path: 'saas/subscriptions/:id', element: protectedElement(<SubscriptionDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/subscriptions/:id/amend', element: protectedElement(<SubscriptionAmendPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/trials', element: protectedElement(<TrialsPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/trials/new', element: protectedElement(<TrialCreatePage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/trials/:id/convert', element: protectedElement(<TrialConvertPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/trials/:id', element: protectedElement(<TrialDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },
