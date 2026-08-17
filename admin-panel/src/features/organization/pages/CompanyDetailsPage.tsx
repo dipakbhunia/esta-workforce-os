@@ -14,6 +14,8 @@ import { SummaryCardsContainer } from '@/components/summary-cards-container';
 import { deleteCompany, getCompany } from '../services/companies-api';
 import type { CompanyStatus } from '../types/company.types';
 import { companyErrorMessage, formatDateTime } from '../utils/company-form';
+import { getSubscriptions } from '@/features/subscriptions/subscriptions-api';
+import { subscriptionMoney } from '@/features/subscriptions/subscription-utils';
 
 interface LocationState {
   success?: string;
@@ -27,6 +29,7 @@ export default function CompanyDetailsPage() {
   const [toast, setToast] = useState<{ severity: 'success' | 'error'; message: string } | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const companyQuery = useQuery({ queryKey: ['company', id], queryFn: () => getCompany(id!), enabled: Boolean(id) });
+  const subscriptionsQuery = useQuery({ queryKey: ['subscriptions', 'company-live', id], queryFn: async () => { const [active, suspended] = await Promise.all([getSubscriptions({ page: 1, limit: 1, companyId: id!, status: 'ACTIVE' }), getSubscriptions({ page: 1, limit: 1, companyId: id!, status: 'SUSPENDED' })]); return active.data.data[0] ?? suspended.data.data[0] ?? null; }, enabled: Boolean(id) });
   const archiveMutation = useMutation({
     mutationFn: () => deleteCompany(id!),
     onSuccess: async () => {
@@ -42,6 +45,7 @@ export default function CompanyDetailsPage() {
   }, [location.state]);
 
   const company = companyQuery.data?.data;
+  const liveSubscription = subscriptionsQuery.data;
 
   return (
     <PageLayout>
@@ -79,6 +83,10 @@ export default function CompanyDetailsPage() {
             <Box><Typography variant="caption" color="text.secondary">Website</Typography>{company.website ? <Typography fontWeight={800}><Link href={company.website} target="_blank" rel="noreferrer">{company.website}</Link></Typography> : <Typography fontWeight={800}>Not provided</Typography>}</Box>
             <Box sx={{ gridColumn: { md: 'span 2' } }}><Detail label="Primary Address" value={company.address} /></Box>
           </Box>
+        </SectionCard>
+
+        <SectionCard title="Commercial Access" description="Read-only current subscription summary. Company operational status remains separate.">
+          {subscriptionsQuery.isLoading ? <LoadingSkeleton rows={2} /> : subscriptionsQuery.isError ? <Alert severity="error">Commercial access could not be loaded.</Alert> : liveSubscription ? <Box sx={detailGrid}><Detail label="Plan" value={`${liveSubscription.planNameSnapshot} (${liveSubscription.planCodeSnapshot})`} /><Box><Typography variant="caption" color="text.secondary">Subscription Status</Typography><div><StatusChip label={liveSubscription.status} tone={liveSubscription.status === 'ACTIVE' ? 'success' : 'danger'} /></div></Box><Detail label="Contracted Seats" value={String(liveSubscription.seatQuantity)} /><Detail label="Effective Price" value={subscriptionMoney(liveSubscription.billingModelSnapshot === 'PER_USER' ? liveSubscription.pricePerSeatMinor : liveSubscription.customRecurringPriceMinor, liveSubscription.currency)} /><Detail label="Billing Interval" value={liveSubscription.billingInterval} /><Detail label="Activation Source" value={liveSubscription.activationSource.replaceAll('_', ' ')} /><Button component={RouterLink} to={`/saas/subscriptions/${liveSubscription.id}`} variant="outlined">View subscription</Button></Box> : <Stack alignItems="flex-start" gap={1}><Typography color="text.secondary">No active or suspended commercial subscription exists for this company.</Typography><Button component={RouterLink} to="/saas/subscriptions" variant="outlined">Open Subscription Management</Button></Stack>}
         </SectionCard>
 
         <SectionCard title="Record Information" description="Company record creation and last update timestamps.">

@@ -255,25 +255,48 @@ enum PlanBillingModel {
   CUSTOM
 }
 
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  SUPERSEDED
+  CANCELLED
+  EXPIRED
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+enum SubscriptionActivationSource {
+  MANUAL
+  PAYMENT
+  TRIAL_CONVERSION
+  COMPLIMENTARY
+}
+
 model Plan {
-  id                       String           @id @default(uuid()) @db.Uuid
-  code                     String           @unique
+  id                       String                @id @default(uuid()) @db.Uuid
+  code                     String                @unique
   name                     String
   description              String?
-  status                   PlanStatus       @default(DRAFT)
+  status                   PlanStatus            @default(DRAFT)
   billingModel             PlanBillingModel
   monthlyPricePerSeatMinor Int?
-  currency                 String           @default("INR")
+  currency                 String                @default("INR")
   minSeats                 Int?
   maxSeats                 Int?
-  sortOrder                Int              @default(0)
-  isPublic                 Boolean          @default(false)
-  isRecommended            Boolean          @default(false)
-  entitlements             String[]         @default([])
-  limits                   Json             @default("{}")
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  sortOrder                Int                   @default(0)
+  isPublic                 Boolean               @default(false)
+  isRecommended            Boolean               @default(false)
+  entitlements             String[]              @default([])
+  limits                   Json                  @default("{}")
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
   archivedAt               DateTime?
+  subscriptions            CompanySubscription[]
 
   @@index([status, isPublic, sortOrder])
   @@index([billingModel])
@@ -334,10 +357,48 @@ model Company {
   websiteProductivityRules     WebsiteProductivityRule[]
   roles                        Role[]
   auditLogs                    AuditLog[]
+  subscriptions                CompanySubscription[]
 
   @@index([status])
   @@index([slug])
   @@index([deletedAt])
+}
+
+model CompanySubscription {
+  id                        String                       @id @default(uuid()) @db.Uuid
+  companyId                 String                       @db.Uuid
+  planId                    String                       @db.Uuid
+  status                    SubscriptionStatus           @default(PENDING)
+  activationSource          SubscriptionActivationSource
+  billingInterval           BillingInterval
+  planCodeSnapshot          String
+  planNameSnapshot          String
+  billingModelSnapshot      PlanBillingModel
+  currency                  String
+  pricePerSeatMinor         Int?
+  customRecurringPriceMinor Int?
+  seatQuantity              Int
+  entitlementsSnapshot      String[]                     @default([])
+  limitsSnapshot            Json                         @default("{}")
+  startsAt                  DateTime?
+  currentPeriodStart        DateTime?
+  currentPeriodEnd          DateTime?
+  suspendedAt               DateTime?
+  cancelledAt               DateTime?
+  endedAt                   DateTime?
+  supersedesSubscriptionId  String?                      @db.Uuid
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
+  company                   Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  plan                      Plan                         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  supersedes                CompanySubscription?         @relation("SubscriptionLineage", fields: [supersedesSubscriptionId], references: [id], onDelete: Restrict)
+  successors                CompanySubscription[]        @relation("SubscriptionLineage")
+
+  @@index([companyId, status])
+  @@index([planId, status])
+  @@index([status, currentPeriodEnd])
+  @@index([createdAt])
+  @@index([supersedesSubscriptionId])
 }
 
 model Branch {

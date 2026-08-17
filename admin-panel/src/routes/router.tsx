@@ -14,6 +14,10 @@ const CompanyEditPage = lazy(() => import('@/features/organization/pages/Company
 const PlansPage = lazy(() => import('@/features/plans/PlansPage'));
 const PlanFormPage = lazy(() => import('@/features/plans/PlanFormPage'));
 const PlanDetailsPage = lazy(() => import('@/features/plans/PlanDetailsPage'));
+const SubscriptionsPage = lazy(() => import('@/features/subscriptions/SubscriptionsPage'));
+const SubscriptionCreatePage = lazy(() => import('@/features/subscriptions/SubscriptionCreatePage'));
+const SubscriptionDetailsPage = lazy(() => import('@/features/subscriptions/SubscriptionDetailsPage'));
+const SubscriptionAmendPage = lazy(() => import('@/features/subscriptions/SubscriptionAmendPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -158,7 +162,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'saas/subscriptions', title: 'Subscriptions', moduleName: 'SaaS Management', description: 'Manage tenant plan assignments, seats, renewals, and subscription lifecycle.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/trials', title: 'Trial Management', moduleName: 'SaaS Management', description: 'Manage configurable tenant trials, expiry, status, and conversion readiness.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/usage-seats', title: 'Usage & Seats', moduleName: 'SaaS Management', description: 'Review tenant seat allocation and platform usage when metering is available.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'saas/storage', title: 'Storage Usage', moduleName: 'SaaS Management', description: 'Review tenant storage consumption, allowances, usage percentage, and over-limit status when metering is available.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
@@ -255,6 +258,10 @@ export const router = createBrowserRouter([
           { path: 'saas/plans/create', element: protectedElement(<PlanFormPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/plans/:id/edit', element: protectedElement(<PlanFormPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/plans/:id', element: protectedElement(<PlanDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/subscriptions', element: protectedElement(<SubscriptionsPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/subscriptions/new', element: protectedElement(<SubscriptionCreatePage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/subscriptions/:id', element: protectedElement(<SubscriptionDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/subscriptions/:id/amend', element: protectedElement(<SubscriptionAmendPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

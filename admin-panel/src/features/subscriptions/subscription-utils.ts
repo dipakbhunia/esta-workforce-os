@@ -1,0 +1,3 @@
+export function subscriptionMoney(amount: number | null, currency: string) { return amount === null ? 'Negotiated' : new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount / 100); }
+export function subscriptionDate(value: string | null) { return value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Not set'; }
+export function subscriptionTone(status: string): 'success' | 'warning' | 'danger' | 'neutral' | 'info' { if (status === 'ACTIVE') return 'success'; if (status === 'PENDING') return 'warning'; if (status === 'SUSPENDED') return 'danger'; return 'neutral'; }
