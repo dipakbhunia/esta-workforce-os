@@ -61,6 +61,7 @@ const implementedNavPaths = new Set([
   '/monitoring/productivity/websites',
   '/notifications',
   '/notifications/preferences',
+  '/billing/settings',
   '/settings/users',
   '/settings/roles',
   '/settings/permissions',

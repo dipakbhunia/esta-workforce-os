@@ -26,6 +26,7 @@ const UsageSeatsPage = lazy(() => import('@/features/usage-seats/UsageSeatsPage'
 const CompanySeatDetailsPage = lazy(() => import('@/features/usage-seats/CompanySeatDetailsPage'));
 const StorageUsagePage = lazy(() => import('@/features/storage-usage/StorageUsagePage'));
 const CompanyStorageDetailsPage = lazy(() => import('@/features/storage-usage/CompanyStorageDetailsPage'));
+const BillingSettingsPage = lazy(() => import('@/features/billing/BillingSettingsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -174,7 +175,6 @@ const comingSoonRoutes: ComingSoonRoute[] = [
   { path: 'billing/invoices', title: 'Invoices', moduleName: 'Billing', description: 'Manage SaaS subscription invoices and payment records.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/gst-invoices', title: 'GST Invoices', moduleName: 'Billing', description: 'Manage GST-compliant subscription invoices and tax records.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/renewals', title: 'Renewals', moduleName: 'Billing', description: 'Track upcoming renewals and tenant subscription continuity.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
-  { path: 'billing/settings', title: 'Billing Settings', moduleName: 'Billing', description: 'Manage payment gateways, the active default provider, invoice and GST preferences, and renewal rules. Razorpay is planned as the initial supported provider.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-configuration', title: 'Email Configuration', moduleName: 'Platform Communication', description: 'Configure the platform email delivery service for SaaS communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-templates', title: 'Email Templates', moduleName: 'Platform Communication', description: 'Manage reusable platform email templates for tenant and billing communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-delivery-logs', title: 'Email Delivery Logs', moduleName: 'Platform Communication', description: 'Review platform email delivery outcomes and failures.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
@@ -275,6 +275,7 @@ export const router = createBrowserRouter([
           { path: 'saas/usage-seats/:companyId', element: protectedElement(<CompanySeatDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/storage', element: protectedElement(<StorageUsagePage />, 'settings:view', superAdminRoles) },
           { path: 'saas/storage/:companyId', element: protectedElement(<CompanyStorageDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/settings', element: protectedElement(<BillingSettingsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

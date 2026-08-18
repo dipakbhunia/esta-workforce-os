@@ -284,6 +284,26 @@ enum TrialStatus {
   CONVERTED
 }
 
+enum InvoiceNumberResetPolicy {
+  NEVER
+  CALENDAR_YEAR
+  FINANCIAL_YEAR
+}
+
+enum RenewalMode {
+  MANUAL
+  AUTOMATIC
+}
+
+enum PaymentProviderType {
+  RAZORPAY
+}
+
+enum PaymentProviderMode {
+  TEST
+  LIVE
+}
+
 model Plan {
   id                       String                @id @default(uuid()) @db.Uuid
   code                     String                @unique
@@ -431,6 +451,56 @@ model CompanyTrial {
   @@index([companyId, status])
   @@index([status, endsAt])
   @@index([createdAt])
+}
+
+model BillingSettings {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  scope                    String                   @unique @default("PLATFORM")
+  invoicePrefix            String                   @default("INV")
+  invoiceNumberResetPolicy InvoiceNumberResetPolicy @default(NEVER)
+  defaultPaymentTermsDays  Int                      @default(15)
+  defaultInvoiceNotes      String?
+  sellerLegalName          String?
+  sellerBillingEmail       String?
+  sellerAddressLine1       String?
+  sellerAddressLine2       String?
+  sellerCity               String?
+  sellerState              String?
+  sellerStateCode          String?
+  sellerPostalCode         String?
+  sellerCountry            String?
+  gstEnabled               Boolean                  @default(false)
+  gstin                    String?
+  gstLegalName             String?
+  gstRegisteredState       String?
+  gstRegisteredStateCode   String?
+  renewalMode              RenewalMode              @default(MANUAL)
+  renewalLeadDays          Int                      @default(0)
+  renewalGracePeriodDays   Int                      @default(0)
+  renewalReminderDays      Int[]                    @default([])
+  updatedById              String?                  @db.Uuid
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  updatedBy                User?                    @relation("BillingSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([updatedById])
+}
+
+model BillingProviderConfiguration {
+  id               String              @id @default(uuid()) @db.Uuid
+  provider         PaymentProviderType @unique
+  mode             PaymentProviderMode @default(TEST)
+  displayName      String?
+  accountReference String?
+  enabled          Boolean             @default(false)
+  isDefault        Boolean             @default(false)
+  updatedById      String?             @db.Uuid
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  updatedBy        User?               @relation("BillingProviderConfigurationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([enabled, isDefault])
+  @@index([updatedById])
 }
 
 model Branch {
@@ -582,11 +652,13 @@ model User {
   reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
   leaveApprovalHistories         LeaveApprovalHistory[]        @relation("LeaveApprovalHistoryActor")
 
-  acknowledgedMonitoringAlerts MonitoringAlert[]       @relation("MonitoringAlertAcknowledgedBy")
-  resolvedMonitoringAlerts     MonitoringAlert[]       @relation("MonitoringAlertResolvedBy")
-  monitoringAlertEvents        MonitoringAlertEvent[]  @relation("MonitoringAlertEventActor")
+  acknowledgedMonitoringAlerts MonitoringAlert[]              @relation("MonitoringAlertAcknowledgedBy")
+  resolvedMonitoringAlerts     MonitoringAlert[]              @relation("MonitoringAlertResolvedBy")
+  monitoringAlertEvents        MonitoringAlertEvent[]         @relation("MonitoringAlertEventActor")
   notifications                Notification[]
   notificationPreference       NotificationPreference?
+  billingSettingsUpdates       BillingSettings[]              @relation("BillingSettingsUpdatedBy")
+  billingProviderUpdates       BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
 
   @@index([companyId])
   @@index([branchId])

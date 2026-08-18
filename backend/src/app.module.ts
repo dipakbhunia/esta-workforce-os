@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { environmentValidationSchema } from './config/environment.validation';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BillingSettingsModule } from './modules/billing-settings/billing-settings.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { AttendanceCorrectionsModule } from './modules/attendance-corrections/attendance-corrections.module';
 import { BreakPoliciesModule } from './modules/break-policies/break-policies.module';
@@ -44,6 +45,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
+    BillingSettingsModule,
     AttendanceModule,
     AttendanceCorrectionsModule,
     BreakPoliciesModule,
