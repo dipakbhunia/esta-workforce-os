@@ -50,20 +50,6 @@ export default function UsageSeatsPage() {
 
   return <PageLayout>
     <PageHeader title="Usage & Seats" description="Inspect current commercial seat authority and live workforce usage without billing projections." breadcrumbs={['Admin', 'SaaS Management', 'Usage & Seats']} />
-    {summary ? <Stack gap={1}>
-      <SummaryCardsContainer minCardWidth={175}>
-        <StatCard label="Effective Trials" value={String(summary.effectiveTrialCompanies)} helper="Temporary allowances" icon={TicketCheck} tone="#2563EB" />
-        <StatCard label="Active Subscriptions" value={String(summary.activeSubscriptionCompanies)} helper="Allocation enabled" icon={Building2} tone="#16A34A" />
-        <StatCard label="Suspended" value={String(summary.suspendedSubscriptionCompanies)} helper="Capacity visible" icon={ShieldAlert} tone="#D97706" />
-        <StatCard label="No Access" value={String(summary.noCommercialAccessCompanies)} helper="No seat allowance" icon={ShieldAlert} tone="#64748B" />
-        <StatCard label="At Capacity" value={String(summary.atCapacityCompanies)} helper="No seats remaining" icon={CircleGauge} tone="#D97706" />
-        <StatCard label="Over Limit" value={String(summary.overLimitCompanies)} helper="Positive deltas blocked" icon={ShieldAlert} tone="#DC2626" />
-        <StatCard label="Trial Allowance" value={String(summary.totalTrialAllowance)} helper="Effective Trials only" icon={Users} tone="#7C3AED" />
-        <StatCard label="Subscription Capacity" value={String(summary.totalSubscriptionCapacity)} helper="Active + suspended" icon={Users} tone="#0891B2" />
-        <StatCard label="Used Workforce Seats" value={String(summary.currentUsedWorkforceSeats)} helper="ACTIVE Employees" icon={Users} tone="#0F766E" />
-      </SummaryCardsContainer>
-      <Typography variant="caption" color="text.secondary">Scope: {summary.scope === 'FILTERED' ? 'current filters' : 'all non-archived companies'} · As of {response ? new Date(response.asOf).toLocaleString() : '—'}</Typography>
-    </Stack> : query.isLoading ? <LoadingSkeleton rows={3} /> : null}
     <EnterpriseFilterCard title="Usage Filters" description="Derived commercial and capacity filters are applied by the server before pagination." loading={query.isFetching} summary={total ? `${total} compan${total === 1 ? 'y' : 'ies'}` : filtered ? 'No companies match the filters.' : 'No companies are available.'} search={<Stack gap={1.25}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(220px, 1fr) repeat(2, minmax(150px, 190px))' }, gap: 1 }}>
         <EnterpriseFilterSearch label="Search companies" placeholder="Company name or code" value={search} onChange={(value) => { setSearch(value); setPage(0); }} loading={query.isFetching} />
@@ -79,6 +65,20 @@ export default function UsageSeatsPage() {
       </Box>
     </Stack>} />
     {plans.isError ? <Alert severity="warning" action={<Button color="inherit" onClick={() => void plans.refetch()}>Retry</Button>}>Plan filter options could not be loaded. Other filters remain available.</Alert> : null}
+    {summary ? <Stack gap={1}>
+      <SummaryCardsContainer minCardWidth={175}>
+        <StatCard label="Effective Trials" value={String(summary.effectiveTrialCompanies)} helper="Temporary allowances" icon={TicketCheck} tone="#2563EB" />
+        <StatCard label="Active Subscriptions" value={String(summary.activeSubscriptionCompanies)} helper="Allocation enabled" icon={Building2} tone="#16A34A" />
+        <StatCard label="Suspended" value={String(summary.suspendedSubscriptionCompanies)} helper="Capacity visible" icon={ShieldAlert} tone="#D97706" />
+        <StatCard label="No Access" value={String(summary.noCommercialAccessCompanies)} helper="No seat allowance" icon={ShieldAlert} tone="#64748B" />
+        <StatCard label="At Capacity" value={String(summary.atCapacityCompanies)} helper="No seats remaining" icon={CircleGauge} tone="#D97706" />
+        <StatCard label="Over Limit" value={String(summary.overLimitCompanies)} helper="Positive deltas blocked" icon={ShieldAlert} tone="#DC2626" />
+        <StatCard label="Trial Allowance" value={String(summary.totalTrialAllowance)} helper="Effective Trials only" icon={Users} tone="#7C3AED" />
+        <StatCard label="Subscription Capacity" value={String(summary.totalSubscriptionCapacity)} helper="Active + suspended" icon={Users} tone="#0891B2" />
+        <StatCard label="Used Workforce Seats" value={String(summary.currentUsedWorkforceSeats)} helper="ACTIVE Employees" icon={Users} tone="#0F766E" />
+      </SummaryCardsContainer>
+      <Typography variant="caption" color="text.secondary">Scope: {summary.scope === 'FILTERED' ? 'current filters' : 'all non-archived companies'} · As of {response ? new Date(response.asOf).toLocaleString() : '—'}</Typography>
+    </Stack> : query.isLoading ? <LoadingSkeleton rows={3} /> : null}
     {query.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void query.refetch()}>Retry</Button>}>Usage and seat data could not be loaded.</Alert> : query.isLoading ? <LoadingSkeleton rows={7} /> : rows.length === 0 ? <Card><EmptyState title={filtered ? 'No matching companies' : 'No company usage found'} description={filtered ? 'Adjust or reset the server-side filters.' : 'Current company seat usage will appear here.'} /></Card> : <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>{rows.map((row) => <UsageCard key={row.company.id} value={row} />)}</Box>}
     <TablePagination component="div" count={total} page={page} rowsPerPage={limit} onPageChange={(_, next) => setPage(next)} onRowsPerPageChange={(event) => { setLimit(Number(event.target.value)); setPage(0); }} rowsPerPageOptions={[10, 20, 50]} />
   </PageLayout>;
