@@ -26,6 +26,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { ShiftAssignmentsModule } from './modules/shift-assignments/shift-assignments.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
+import { StorageUsageModule } from './modules/storage-usage/storage-usage.module';
 import { UsersModule } from './modules/users/users.module';
 import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
 
@@ -62,6 +63,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     SchedulingModule,
     ShiftAssignmentsModule,
     ShiftsModule,
+    StorageUsageModule,
     UsersModule,
     UsageSeatsModule,
     RolesModule,

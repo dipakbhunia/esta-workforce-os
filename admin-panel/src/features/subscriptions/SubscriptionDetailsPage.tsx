@@ -10,6 +10,8 @@ import { SectionCard } from '@/components/section-card';
 import { StatusChip } from '@/components/status-chip';
 import { SeatUsageSummary } from '@/features/usage-seats/SeatUsageSummary';
 import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
+import { getCompanyStorageUsage } from '@/features/storage-usage/storage-usage-api';
+import { StorageUsageSummary } from '@/features/storage-usage/StorageUsageSummary';
 import { getSubscription, runSubscriptionAction } from './subscriptions-api';
 import type { OverLimitOverride, SubscriptionStatus } from './subscription.types';
 import { subscriptionDate, subscriptionMoney, subscriptionTone } from './subscription-utils';
@@ -40,6 +42,13 @@ export default function SubscriptionDetailsPage() {
     refetchInterval: 60_000,
   });
   const usage = usageQuery.data?.data;
+  const storageQuery = useQuery({
+    queryKey: ['storage-usage', 'company', value?.company.id],
+    queryFn: () => getCompanyStorageUsage(value!.company.id),
+    enabled: Boolean(value?.company.id && (value.status === 'ACTIVE' || value.status === 'SUSPENDED')),
+    refetchInterval: 60_000,
+  });
+  const storageUsage = storageQuery.data?.data;
   const mutation = useMutation({
     mutationFn: ({ next, payload }: { next: Action; payload?: OverLimitOverride }) => runSubscriptionAction(id!, next, payload),
     onSuccess: async ({ data }) => {
@@ -49,6 +58,7 @@ export default function SubscriptionDetailsPage() {
         client.invalidateQueries({ queryKey: ['subscriptions'] }),
         client.invalidateQueries({ queryKey: ['usage-seats', 'company', data.companyId] }),
         client.invalidateQueries({ queryKey: ['usage-seats'] }),
+        client.invalidateQueries({ queryKey: ['storage-usage'] }),
       ]);
     },
     onError: (cause: unknown) => {
@@ -62,6 +72,7 @@ export default function SubscriptionDetailsPage() {
   const availableActions = value ? actions[value.status].filter((next) => next !== 'expire' || Boolean(value.currentPeriodEnd && new Date(value.currentPeriodEnd) <= new Date())) : [];
   const mayShowCurrentUsage = value?.status === 'ACTIVE' || value?.status === 'SUSPENDED';
   const isCurrentAgreement = Boolean(value && usage && (value.status === 'ACTIVE' || value.status === 'SUSPENDED') && usage.commercial.source === 'SUBSCRIPTION' && usage.commercial.referenceId === value.id);
+  const isCurrentStorageAgreement = Boolean(value && storageUsage && (value.status === 'ACTIVE' || value.status === 'SUSPENDED') && storageUsage.commercial.source === 'SUBSCRIPTION' && storageUsage.commercial.referenceId === value.id);
   const activationNeedsOverride = Boolean(action === 'activate' && value && usage && value.seatQuantity < usage.seats.used);
   const activationReady = action !== 'activate' || (!usageQuery.isLoading && !usageQuery.isError && (!activationNeedsOverride || (allowOverLimit && Boolean(overrideReason.trim()))));
 
@@ -84,6 +95,7 @@ export default function SubscriptionDetailsPage() {
       </Stack>
       <SectionCard title="Agreement" description="Plan lineage and immutable effective terms."><Box sx={grid}><Fact label="Company" value={value.company.name} /><Fact label="Plan snapshot" value={value.planNameSnapshot} /><Fact label="Plan code snapshot" value={value.planCodeSnapshot} /><Fact label="Billing model" value={value.billingModelSnapshot} /><Fact label="Billing interval" value={value.billingInterval} /><Fact label="Activation source" value={value.activationSource} /><Fact label="Contracted seats" value={String(value.seatQuantity)} /><Fact label="Effective price" value={subscriptionMoney(price, value.currency)} /></Box></SectionCard>
       {mayShowCurrentUsage && usageQuery.isLoading ? <LoadingSkeleton rows={3} /> : mayShowCurrentUsage && usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current Company seat usage could not be loaded.</Alert> : isCurrentAgreement && usage ? <SeatUsageSummary value={usage} title="Current Company Seat Usage" description="Today's canonical Company usage for this current Subscription. This is not a historical agreement snapshot." /> : null}
+      {mayShowCurrentUsage && storageQuery.isLoading ? <LoadingSkeleton rows={3} /> : mayShowCurrentUsage && storageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void storageQuery.refetch()}>Retry</Button>}>Current Company storage usage could not be loaded.</Alert> : isCurrentStorageAgreement && storageUsage ? <StorageUsageSummary value={storageUsage} title="Current Company Storage Usage" description="Today's canonical screenshot storage for this current Subscription. This is not a historical agreement measurement." /> : null}
       <SectionCard title="Entitlements & Limits" description="These snapshots do not change when the catalog plan changes."><Typography variant="caption" color="text.secondary">Entitlements</Typography><Stack direction="row" flexWrap="wrap" gap={1} my={1}>{value.entitlementsSnapshot.length ? value.entitlementsSnapshot.map((key) => <Chip key={key} label={key} />) : <Typography>None</Typography>}</Stack><Typography variant="caption" color="text.secondary">Limits</Typography><Box sx={grid}>{Object.entries(value.limitsSnapshot).length ? Object.entries(value.limitsSnapshot).map(([key, amount]) => <Fact key={key} label={key} value={String(amount)} />) : <Typography>No limits configured</Typography>}</Box></SectionCard>
       <SectionCard title="Dates & Lineage" description="Lifecycle dates and retained amendment references."><Box sx={grid}><Fact label="Starts" value={subscriptionDate(value.startsAt)} /><Fact label="Period start" value={subscriptionDate(value.currentPeriodStart)} /><Fact label="Period end" value={subscriptionDate(value.currentPeriodEnd)} /><Fact label="Suspended" value={subscriptionDate(value.suspendedAt)} /><Fact label="Cancelled" value={subscriptionDate(value.cancelledAt)} /><Fact label="Ended" value={subscriptionDate(value.endedAt)} /><Fact label="Created" value={subscriptionDate(value.createdAt)} /><Fact label="Updated" value={subscriptionDate(value.updatedAt)} /><Fact label="Supersedes" value={value.supersedes ? `${value.supersedes.planNameSnapshot} (${value.supersedes.status})` : 'None'} /><Fact label="Successor" value={value.successors[0] ? `${value.successors[0].planNameSnapshot} (${value.successors[0].status})` : 'None'} /></Box>{value.successors[0] ? <Button component={Link} to={`/saas/subscriptions/${value.successors[0].id}`} sx={{ mt: 2 }}>View successor</Button> : null}</SectionCard>
       <Button component={Link} to={`/organization/companies/${value.company.id}`} variant="outlined">View company</Button>

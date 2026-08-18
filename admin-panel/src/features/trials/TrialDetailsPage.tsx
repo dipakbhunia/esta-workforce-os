@@ -11,6 +11,8 @@ import { getEntitlementCatalog } from '@/features/plans/plans-api';
 import type { EntitlementCatalogItem } from '@/features/plans/plan.types';
 import { SeatUsageSummary } from '@/features/usage-seats/SeatUsageSummary';
 import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
+import { getCompanyStorageUsage } from '@/features/storage-usage/storage-usage-api';
+import { StorageUsageSummary } from '@/features/storage-usage/StorageUsageSummary';
 import { cancelTrial, extendTrial, getTrial } from './trials-api';
 import { isEffectiveTrial, trialDate, trialError, trialRemaining, trialTone } from './trial-utils';
 
@@ -28,7 +30,9 @@ export default function TrialDetailsPage() {
   const query = useQuery({ queryKey: ['trial', id], queryFn: () => getTrial(id), enabled: Boolean(id), refetchInterval: 60_000 });
   const catalog = useQuery({ queryKey: ['plans', 'entitlement-catalog'], queryFn: getEntitlementCatalog });
   const trial = query.data?.data;
+  const effective = trial ? isEffectiveTrial(trial) : false;
   const usageQuery = useQuery({ queryKey: ['usage-seats', 'company', trial?.companyId, { summary: true }], queryFn: () => getCompanySeatUsage(trial!.companyId, { page: 1, limit: 1 }), enabled: Boolean(trial?.companyId), refetchInterval: 60_000 });
+  const storageQuery = useQuery({ queryKey: ['storage-usage', 'company', trial?.companyId], queryFn: () => getCompanyStorageUsage(trial!.companyId), enabled: Boolean(trial?.companyId && effective), refetchInterval: 60_000 });
   const refreshCommercialQueries = async (companyId: string) => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ['trial', id] }),
@@ -36,6 +40,7 @@ export default function TrialDetailsPage() {
       client.invalidateQueries({ queryKey: ['company', companyId] }),
       client.invalidateQueries({ queryKey: ['subscriptions', 'company-live', companyId] }),
       client.invalidateQueries({ queryKey: ['usage-seats'] }),
+      client.invalidateQueries({ queryKey: ['storage-usage'] }),
     ]);
   };
   const extendMutation = useMutation({
@@ -48,9 +53,10 @@ export default function TrialDetailsPage() {
     onSuccess: async ({ data }) => { setCancelOpen(false); setCancelReason(''); await refreshCommercialQueries(data.companyId); },
     onError: (cause) => setError(trialError(cause, 'Trial could not be cancelled.')),
   });
-  const effective = trial ? isEffectiveTrial(trial) : false;
   const usage = usageQuery.data?.data;
   const showsCurrentUsage = Boolean(effective && usage?.commercial.source === 'TRIAL' && usage.commercial.referenceId === trial?.id);
+  const storageUsage = storageQuery.data?.data;
+  const showsCurrentStorageUsage = Boolean(effective && storageUsage?.commercial.source === 'TRIAL' && storageUsage.commercial.referenceId === trial?.id);
   const extension = Number(extensionHours);
   const validExtension = Number.isInteger(extension) && extension >= 1 && extension <= MAX_DURATION_HOURS && Boolean(extensionReason.trim());
   const projectedEnd = trial && Number.isInteger(extension) && extension > 0 ? new Date(new Date(trial.endsAt).getTime() + extension * 3_600_000).toISOString() : null;
@@ -66,6 +72,7 @@ export default function TrialDetailsPage() {
       {trial.status === 'ACTIVE' && !effective ? <Alert severity="info">This Trial is not currently effective. Refresh to reconcile a passed end time with backend lifecycle state.</Alert> : null}
       <SectionCard title="Trial Access" description="Current Trial window and temporary access allowance."><Box sx={detailGrid}><Fact label="Company" value={trial.company.name} /><Fact label="Company code" value={trial.company.slug} /><Box><Typography variant="caption" color="text.secondary">Status</Typography><div><StatusChip label={trial.status} tone={trialTone(trial.status)} /></div></Box><Fact label="Starts" value={trialDate(trial.startsAt)} /><Fact label="Ends" value={trialDate(trial.endsAt)} /><Fact label="Remaining" value={effective ? trialRemaining(trial.endsAt) : 'Not applicable'} /><Fact label="Trial seat limit" value={String(trial.seatLimit)} /><Fact label="Entitlement count" value={String(trial.entitlementsSnapshot.length)} /></Box></SectionCard>
       {effective && usageQuery.isLoading ? <LoadingSkeleton rows={3} /> : effective && usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current Company seat usage could not be loaded.</Alert> : showsCurrentUsage && usage ? <SeatUsageSummary value={usage} title="Current Company Seat Usage" description="Today's canonical Company usage for this effective Trial. This is not a historical Trial snapshot." /> : null}
+      {effective && storageQuery.isLoading ? <LoadingSkeleton rows={3} /> : effective && storageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void storageQuery.refetch()}>Retry</Button>}>Current Company storage usage could not be loaded.</Alert> : showsCurrentStorageUsage && storageUsage ? <StorageUsageSummary value={storageUsage} title="Current Company Storage Usage" description="Today's canonical screenshot storage for this effective Trial. This is not a historical Trial measurement." /> : null}
       <SectionCard title="Entitlement Snapshot" description="Immutable Trial access resolved from backend policy when the Trial started."><EntitlementSnapshot keys={trial.entitlementsSnapshot} catalog={catalog.data?.data} loading={catalog.isLoading} error={catalog.isError} retry={() => void catalog.refetch()} /></SectionCard>
       <SectionCard title="Limits Snapshot" description="Immutable Trial-specific limit policy.">{Object.keys(trial.limitsSnapshot).length ? <Stack divider={<Divider flexItem />}>{Object.entries(trial.limitsSnapshot).map(([key, value]) => <Fact key={key} label={key} value={formatValue(value)} />)}</Stack> : <Typography color="text.secondary">No trial-specific limits configured.</Typography>}</SectionCard>
       <SectionCard title="Lifecycle & Lineage" description="Terminal timestamps and converted Subscription reference are retained permanently."><Box sx={detailGrid}><Fact label="Cancelled" value={trialDate(trial.cancelledAt)} /><Fact label="Expired" value={trialDate(trial.expiredAt)} /><Fact label="Converted" value={trialDate(trial.convertedAt)} /><Fact label="Created" value={trialDate(trial.createdAt)} /><Fact label="Updated" value={trialDate(trial.updatedAt)} /><Fact label="Trial ID" value={trial.id} /><Fact label="Converted Subscription" value={trial.convertedSubscription ? `${trial.convertedSubscription.planNameSnapshot} (${trial.convertedSubscription.status})` : 'Not applicable'} /></Box>{trial.convertedSubscription ? <Button component={Link} to={`/saas/subscriptions/${trial.convertedSubscription.id}`} variant="outlined" sx={{ mt: 2 }}>View converted Subscription</Button> : null}</SectionCard>

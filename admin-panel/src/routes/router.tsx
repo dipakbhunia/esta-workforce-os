@@ -24,6 +24,8 @@ const TrialDetailsPage = lazy(() => import('@/features/trials/TrialDetailsPage')
 const TrialConvertPage = lazy(() => import('@/features/trials/TrialConvertPage'));
 const UsageSeatsPage = lazy(() => import('@/features/usage-seats/UsageSeatsPage'));
 const CompanySeatDetailsPage = lazy(() => import('@/features/usage-seats/CompanySeatDetailsPage'));
+const StorageUsagePage = lazy(() => import('@/features/storage-usage/StorageUsagePage'));
+const CompanyStorageDetailsPage = lazy(() => import('@/features/storage-usage/CompanyStorageDetailsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -168,7 +170,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'saas/storage', title: 'Storage Usage', moduleName: 'SaaS Management', description: 'Review tenant storage consumption, allowances, usage percentage, and over-limit status when metering is available.', plannedPhase: 'SaaS Core', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/payments', title: 'Payments', moduleName: 'Billing', description: 'Review provider-neutral tenant payment records after payment gateway integration is available.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/invoices', title: 'Invoices', moduleName: 'Billing', description: 'Manage SaaS subscription invoices and payment records.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/gst-invoices', title: 'GST Invoices', moduleName: 'Billing', description: 'Manage GST-compliant subscription invoices and tax records.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
@@ -272,6 +273,8 @@ export const router = createBrowserRouter([
           { path: 'saas/trials/:id', element: protectedElement(<TrialDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/usage-seats', element: protectedElement(<UsageSeatsPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/usage-seats/:companyId', element: protectedElement(<CompanySeatDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/storage', element: protectedElement(<StorageUsagePage />, 'settings:view', superAdminRoles) },
+          { path: 'saas/storage/:companyId', element: protectedElement(<CompanyStorageDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

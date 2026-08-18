@@ -16,6 +16,8 @@ import type { CompanyStatus } from '../types/company.types';
 import { companyErrorMessage, formatDateTime } from '../utils/company-form';
 import { SeatUsageSummary } from '@/features/usage-seats/SeatUsageSummary';
 import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
+import { getCompanyStorageUsage } from '@/features/storage-usage/storage-usage-api';
+import { StorageUsageSummary } from '@/features/storage-usage/StorageUsageSummary';
 
 interface LocationState {
   success?: string;
@@ -30,6 +32,7 @@ export default function CompanyDetailsPage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const companyQuery = useQuery({ queryKey: ['company', id], queryFn: () => getCompany(id!), enabled: Boolean(id) });
   const usageQuery = useQuery({ queryKey: ['usage-seats', 'company', id, { summary: true }], queryFn: () => getCompanySeatUsage(id!, { page: 1, limit: 1 }), enabled: Boolean(id), refetchInterval: 60_000 });
+  const storageQuery = useQuery({ queryKey: ['storage-usage', 'company', id], queryFn: () => getCompanyStorageUsage(id!), enabled: Boolean(id), refetchInterval: 60_000 });
   const archiveMutation = useMutation({
     mutationFn: () => deleteCompany(id!),
     onSuccess: async () => {
@@ -46,6 +49,7 @@ export default function CompanyDetailsPage() {
 
   const company = companyQuery.data?.data;
   const seatUsage = usageQuery.data?.data;
+  const storageUsage = storageQuery.data?.data;
 
   return (
     <PageLayout>
@@ -86,6 +90,8 @@ export default function CompanyDetailsPage() {
         </SectionCard>
 
         {usageQuery.isLoading ? <LoadingSkeleton rows={3} /> : usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current commercial seat usage could not be loaded.</Alert> : seatUsage ? <SeatUsageSummary value={seatUsage} title="Seat Usage" description="Canonical current commercial source and workforce-seat usage. Company operational status remains separate." /> : null}
+
+        {storageQuery.isLoading ? <LoadingSkeleton rows={3} /> : storageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void storageQuery.refetch()}>Retry</Button>}>Current screenshot storage usage could not be loaded.</Alert> : storageUsage ? <StorageUsageSummary value={storageUsage} title="Storage Usage" description="Canonical screenshot metadata measurement and commercial snapshot capacity. Company operational status remains separate." /> : null}
 
         <SectionCard title="Record Information" description="Company record creation and last update timestamps.">
           <Box sx={detailGrid}><Detail label="Created" value={formatDateTime(company.createdAt)} /><Detail label="Last Updated" value={formatDateTime(company.updatedAt)} /><Detail label="Company ID" value={company.id} /></Box>
