@@ -8,18 +8,19 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { ActivateSubscriptionDto, AmendSubscriptionDto, CreateSubscriptionDto, SubscriptionQueryDto } from './dto/subscription.dto';
 import { SubscriptionsService } from './subscriptions.service';
+import { serializeBigInts } from '../../common/utils/bigint-response.util';
 
 @ApiTags('Subscriptions') @ApiBearerAuth() @UseGuards(JwtAuthGuard, RolesGuard) @Roles(RoleName.SUPER_ADMIN)
 @Controller('subscriptions')
 export class SubscriptionsController {
   constructor(private readonly subscriptions: SubscriptionsService) {}
-  @Get() findAll(@Query() query: SubscriptionQueryDto) { return this.subscriptions.findAll(query); }
-  @Post() create(@Body() dto: CreateSubscriptionDto, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.create(dto, user); }
-  @Get(':id') findOne(@Param('id', ParseUUIDPipe) id: string) { return this.subscriptions.findOne(id); }
-  @Post(':id/activate') activate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ActivateSubscriptionDto, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.activate(id, dto, user); }
-  @Post(':id/suspend') suspend(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.suspend(id, user); }
-  @Post(':id/resume') resume(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.resume(id, user); }
-  @Post(':id/cancel') cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.cancel(id, user); }
-  @Post(':id/expire') expire(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.expire(id, user); }
-  @Post(':id/amend') amend(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AmendSubscriptionDto, @CurrentUser() user: AuthenticatedUser) { return this.subscriptions.amend(id, dto, user); }
+  @Get() async findAll(@Query() query: SubscriptionQueryDto) { return serializeBigInts(await this.subscriptions.findAll(query)); }
+  @Post() async create(@Body() dto: CreateSubscriptionDto, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.create(dto, user)); }
+  @Get(':id') async findOne(@Param('id', ParseUUIDPipe) id: string) { return serializeBigInts(await this.subscriptions.findOne(id)); }
+  @Post(':id/activate') async activate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ActivateSubscriptionDto, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.activate(id, dto, user)); }
+  @Post(':id/suspend') async suspend(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.suspend(id, user)); }
+  @Post(':id/resume') async resume(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.resume(id, user)); }
+  @Post(':id/cancel') async cancel(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.cancel(id, user)); }
+  @Post(':id/expire') async expire(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.expire(id, user)); }
+  @Post(':id/amend') async amend(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AmendSubscriptionDto, @CurrentUser() user: AuthenticatedUser) { return serializeBigInts(await this.subscriptions.amend(id, dto, user)); }
 }

@@ -270,6 +270,11 @@ enum BillingInterval {
   CUSTOM
 }
 
+enum RecurringPriceBasis {
+  PER_USER_UNIT
+  FIXED_TOTAL
+}
+
 enum SubscriptionActivationSource {
   MANUAL
   PAYMENT
@@ -304,6 +309,48 @@ enum PaymentProviderMode {
   LIVE
 }
 
+enum PaymentPurpose {
+  SUBSCRIPTION_ACTIVATION
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+}
+
+enum PaymentProviderOrderStatus {
+  CREATED
+  PAID
+  CLOSED
+}
+
+enum PaymentAttemptOperation {
+  ORDER_CREATE
+  CHECKOUT_CONFIRMATION
+  PROVIDER_PAYMENT
+  PROVIDER_FETCH
+  CAPTURE
+  WEBHOOK
+  RECONCILIATION
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+}
+
+enum PaymentProviderEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
 model Plan {
   id                       String                @id @default(uuid()) @db.Uuid
   code                     String                @unique
@@ -324,10 +371,26 @@ model Plan {
   updatedAt                DateTime              @updatedAt
   archivedAt               DateTime?
   subscriptions            CompanySubscription[]
+  recurringPrices          PlanRecurringPrice[]
 
   @@index([status, isPublic, sortOrder])
   @@index([billingModel])
   @@index([archivedAt])
+}
+
+model PlanRecurringPrice {
+  id              String              @id @default(uuid()) @db.Uuid
+  planId          String              @db.Uuid
+  billingInterval BillingInterval
+  basis           RecurringPriceBasis
+  amountMinor     BigInt
+  currency        String
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  plan            Plan                @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([planId, billingInterval])
+  @@index([billingInterval])
 }
 
 model Company {
@@ -386,6 +449,7 @@ model Company {
   auditLogs                    AuditLog[]
   subscriptions                CompanySubscription[]
   trials                       CompanyTrial[]
+  payments                     Payment[]
 
   @@index([status])
   @@index([slug])
@@ -405,6 +469,12 @@ model CompanySubscription {
   currency                  String
   pricePerSeatMinor         Int?
   customRecurringPriceMinor Int?
+  recurringPriceBasis       RecurringPriceBasis?
+  recurringUnitPriceMinor   BigInt?
+  recurringTotalPriceMinor  BigInt?
+  recurringCurrency         String?
+  pricingInterval           BillingInterval?
+  pricingResolvedAt         DateTime?
   seatQuantity              Int
   entitlementsSnapshot      String[]                     @default([])
   limitsSnapshot            Json                         @default("{}")
@@ -415,6 +485,7 @@ model CompanySubscription {
   cancelledAt               DateTime?
   endedAt                   DateTime?
   supersedesSubscriptionId  String?                      @db.Uuid
+  activatedByPaymentId      String?                      @unique @db.Uuid
   createdAt                 DateTime                     @default(now())
   updatedAt                 DateTime                     @updatedAt
   company                   Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -422,7 +493,11 @@ model CompanySubscription {
   supersedes                CompanySubscription?         @relation("SubscriptionLineage", fields: [supersedesSubscriptionId], references: [id], onDelete: Restrict)
   successors                CompanySubscription[]        @relation("SubscriptionLineage")
   convertedTrial            CompanyTrial?
+  payments                  Payment[]                    @relation("SubscriptionPayments")
+  activatedByPayment        Payment?                     @relation("SubscriptionActivationPayment", fields: [activatedByPaymentId, id, companyId], references: [id, subscriptionId, companyId], onDelete: Restrict)
 
+  @@unique([id, companyId])
+  @@unique([activatedByPaymentId, id, companyId])
   @@index([companyId, status])
   @@index([planId, status])
   @@index([status, currentPeriodEnd])
@@ -487,20 +562,198 @@ model BillingSettings {
 }
 
 model BillingProviderConfiguration {
-  id               String              @id @default(uuid()) @db.Uuid
-  provider         PaymentProviderType @unique
-  mode             PaymentProviderMode @default(TEST)
+  id               String                      @id @default(uuid()) @db.Uuid
+  provider         PaymentProviderType
+  mode             PaymentProviderMode         @default(TEST)
   displayName      String?
   accountReference String?
-  enabled          Boolean             @default(false)
-  isDefault        Boolean             @default(false)
-  updatedById      String?             @db.Uuid
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  updatedBy        User?               @relation("BillingProviderConfigurationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  enabled          Boolean                     @default(false)
+  isDefault        Boolean                     @default(false)
+  updatedById      String?                     @db.Uuid
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+  updatedBy        User?                       @relation("BillingProviderConfigurationUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  credentials      BillingProviderCredential[]
+  payments         Payment[]
+  providerOrders   PaymentProviderOrder[]
+  providerEvents   PaymentProviderEvent[]
 
+  @@unique([provider, mode])
+  @@unique([id, provider, mode])
   @@index([enabled, isDefault])
   @@index([updatedById])
+}
+
+model BillingProviderCredential {
+  id                      String                       @id @default(uuid()) @db.Uuid
+  providerConfigurationId String                       @db.Uuid
+  version                 Int
+  encryptedPayload        Bytes
+  encryptionKeyVersion    String
+  credentialFingerprint   String
+  activeFrom              DateTime                     @default(now())
+  retiredAt               DateTime?
+  webhookValidUntil       DateTime?
+  createdByUserId         String?                      @db.Uuid
+  createdAt               DateTime                     @default(now())
+  providerConfiguration   BillingProviderConfiguration @relation(fields: [providerConfigurationId], references: [id], onDelete: Restrict)
+  createdBy               User?                        @relation("BillingProviderCredentialCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  verifiedEvents          PaymentProviderEvent[]
+
+  @@unique([providerConfigurationId, version])
+  @@unique([id, providerConfigurationId])
+  @@index([providerConfigurationId, activeFrom])
+  @@index([providerConfigurationId, retiredAt, webhookValidUntil])
+  @@index([createdByUserId])
+}
+
+model Payment {
+  id                        String                       @id @default(uuid()) @db.Uuid
+  companyId                 String                       @db.Uuid
+  subscriptionId            String                       @db.Uuid
+  providerConfigurationId   String                       @db.Uuid
+  purpose                   PaymentPurpose
+  status                    PaymentStatus                @default(PENDING)
+  provider                  PaymentProviderType
+  providerMode              PaymentProviderMode
+  amountMinor               BigInt
+  currency                  String
+  idempotencyKey            String
+  businessReference         String                       @unique
+  capturedProviderPaymentId String?
+  providerStatus            String?
+  failureCode               String?
+  safeFailureMessage        String?
+  authorizedAt              DateTime?
+  capturedAt                DateTime?
+  failedAt                  DateTime?
+  createdByUserId           String?                      @db.Uuid
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
+  company                   Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  subscription              CompanySubscription          @relation("SubscriptionPayments", fields: [subscriptionId, companyId], references: [id, companyId], onDelete: Restrict)
+  providerConfiguration     BillingProviderConfiguration @relation(fields: [providerConfigurationId, provider, providerMode], references: [id, provider, mode], onDelete: Restrict)
+  createdBy                 User?                        @relation("PaymentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  orders                    PaymentProviderOrder[]
+  attempts                  PaymentAttempt[]
+  providerEvents            PaymentProviderEvent[]
+  activatedSubscription     CompanySubscription?         @relation("SubscriptionActivationPayment")
+
+  @@unique([companyId, idempotencyKey])
+  @@unique([providerConfigurationId, capturedProviderPaymentId])
+  @@unique([id, subscriptionId, companyId])
+  @@unique([id, providerConfigurationId])
+  @@index([companyId, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@index([status, createdAt])
+  @@index([provider, providerMode, status])
+  @@index([providerConfigurationId])
+  @@index([createdByUserId])
+}
+
+model PaymentProviderOrder {
+  id                      String                       @id @default(uuid()) @db.Uuid
+  paymentId               String                       @db.Uuid
+  providerConfigurationId String                       @db.Uuid
+  sequence                Int
+  status                  PaymentProviderOrderStatus   @default(CREATED)
+  providerOrderId         String
+  providerStatus          String
+  providerReceipt         String
+  amountMinor             BigInt
+  currency                String
+  providerCreatedAt       DateTime?
+  usableUntil             DateTime?
+  closedAt                DateTime?
+  safeMetadata            Json?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  payment                 Payment                      @relation(fields: [paymentId, providerConfigurationId], references: [id, providerConfigurationId], onDelete: Restrict)
+  providerConfiguration   BillingProviderConfiguration @relation(fields: [providerConfigurationId], references: [id], onDelete: Restrict)
+  attempts                PaymentAttempt[]
+  providerEvents          PaymentProviderEvent[]       @relation("EventOrderConfiguration")
+  paymentCoherentEvents   PaymentProviderEvent[]       @relation("EventOrderPayment")
+
+  @@unique([paymentId, sequence])
+  @@unique([id, paymentId])
+  @@unique([id, providerConfigurationId])
+  @@unique([providerConfigurationId, providerOrderId])
+  @@unique([providerConfigurationId, providerReceipt])
+  @@index([paymentId, createdAt])
+  @@index([providerConfigurationId, status])
+  @@index([status, usableUntil])
+}
+
+model PaymentAttempt {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  paymentId             String                  @db.Uuid
+  providerOrderRecordId String?                 @db.Uuid
+  sequence              Int
+  operation             PaymentAttemptOperation
+  status                PaymentAttemptStatus    @default(PENDING)
+  providerOrderId       String?
+  providerPaymentId     String?
+  providerStatus        String?
+  amountMinor           BigInt
+  currency              String
+  requestReference      String
+  failureCode           String?
+  safeFailureMessage    String?
+  safeMetadata          Json?
+  startedAt             DateTime                @default(now())
+  completedAt           DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  payment               Payment                 @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  providerOrder         PaymentProviderOrder?   @relation(fields: [providerOrderRecordId, paymentId], references: [id, paymentId], onDelete: Restrict)
+
+  @@unique([paymentId, sequence])
+  @@unique([paymentId, requestReference])
+  @@index([paymentId, createdAt])
+  @@index([providerOrderRecordId, createdAt])
+  @@index([providerPaymentId])
+  @@index([status, createdAt])
+}
+
+model PaymentProviderEvent {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  paymentId                String?                      @db.Uuid
+  providerOrderRecordId    String?                      @db.Uuid
+  providerConfigurationId  String                       @db.Uuid
+  credentialVersionId      String                       @db.Uuid
+  provider                 PaymentProviderType
+  providerMode             PaymentProviderMode
+  providerEventId          String?
+  eventType                String
+  primaryEntityType        String?
+  primaryEntityId          String?
+  providerOrderId          String?
+  providerPaymentId        String?
+  providerRefundId         String?
+  providerCreatedAt        DateTime?
+  status                   PaymentProviderEventStatus   @default(RECEIVED)
+  payloadHash              String
+  normalizedPayloadVersion Int                          @default(1)
+  normalizedPayload        Json
+  signatureVerifiedAt      DateTime
+  attemptCount             Int                          @default(0)
+  receivedAt               DateTime                     @default(now())
+  processingStartedAt      DateTime?
+  processedAt              DateTime?
+  nextRetryAt              DateTime?
+  safeErrorMessage         String?
+  payment                  Payment?                     @relation(fields: [paymentId, providerConfigurationId], references: [id, providerConfigurationId], onDelete: Restrict)
+  providerOrder            PaymentProviderOrder?        @relation("EventOrderConfiguration", fields: [providerOrderRecordId, providerConfigurationId], references: [id, providerConfigurationId], onDelete: Restrict)
+  paymentCoherentOrder     PaymentProviderOrder?        @relation("EventOrderPayment", fields: [providerOrderRecordId, paymentId], references: [id, paymentId], onDelete: Restrict)
+  providerConfiguration    BillingProviderConfiguration @relation(fields: [providerConfigurationId, provider, providerMode], references: [id, provider, mode], onDelete: Restrict)
+  credentialVersion        BillingProviderCredential    @relation(fields: [credentialVersionId, providerConfigurationId], references: [id, providerConfigurationId], onDelete: Restrict)
+
+  @@index([status, nextRetryAt, receivedAt])
+  @@index([paymentId, receivedAt])
+  @@index([providerOrderRecordId, receivedAt])
+  @@index([provider, providerMode, eventType])
+  @@index([providerPaymentId])
+  @@index([providerRefundId])
 }
 
 model Branch {
@@ -659,6 +912,8 @@ model User {
   notificationPreference       NotificationPreference?
   billingSettingsUpdates       BillingSettings[]              @relation("BillingSettingsUpdatedBy")
   billingProviderUpdates       BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
+  billingProviderCredentials   BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
+  createdPayments              Payment[]                      @relation("PaymentCreatedBy")
 
   @@index([companyId])
   @@index([branchId])

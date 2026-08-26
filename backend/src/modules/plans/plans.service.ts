@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Plan, PlanBillingModel, PlanStatus, Prisma } from '@prisma/client';
+import { BillingInterval, Plan, PlanBillingModel, PlanStatus, Prisma, RecurringPriceBasis } from '@prisma/client';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { paginatedResult, paginationArgs } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
@@ -7,6 +7,10 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { CreatePlanDto, PlanQueryDto, UpdatePlanDto } from './dto/plan.dto';
 import { PlanResponseDto } from './dto/plan-response.dto';
 import { CURRENT_ENTITLEMENTS, ENTITLEMENT_CATALOG, PLAN_LIMIT_KEYS, PlanLimits, isAssignableEntitlement } from './plan-catalog.registry';
+import { MAX_PAYMENT_AMOUNT_MINOR } from '../payments/payment-money.util';
+
+const planWithPrices = { recurringPrices: { orderBy: { billingInterval: 'asc' as const } } } satisfies Prisma.PlanInclude;
+type PlanWithPrices = Prisma.PlanGetPayload<{ include: typeof planWithPrices }>;
 
 const transitions: Record<PlanStatus, readonly PlanStatus[]> = {
   DRAFT: [PlanStatus.ACTIVE, PlanStatus.ARCHIVED],
@@ -28,8 +32,9 @@ export class PlansService {
     try {
       const plan = await this.prisma.$transaction(async (tx) => {
         const created = await tx.plan.create({ data });
+        const recurringPrices = await this.replaceRecurringPrices(tx, created, dto);
         await this.audit(tx, actor.id, created.id, 'PLAN_CREATED', { code: created.code });
-        return created;
+        return { ...created, recurringPrices };
       });
       return this.toResponse(plan);
     } catch (error) {
@@ -50,7 +55,7 @@ export class PlansService {
       ...(query.isPublic !== undefined ? { isPublic: query.isPublic } : {}),
     };
     const [plans, total] = await this.prisma.$transaction([
-      this.prisma.plan.findMany({ where, ...paginationArgs(query), orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
+      this.prisma.plan.findMany({ where, ...paginationArgs(query), include: planWithPrices, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
       this.prisma.plan.count({ where }),
     ]);
     return paginatedResult(plans.map((plan) => this.toResponse(plan)), total, query);
@@ -67,17 +72,22 @@ export class PlansService {
       throw new BadRequestException('Plan code is immutable');
     }
     if (current.status === PlanStatus.ARCHIVED) throw new BadRequestException('Archived plans cannot be edited');
+    if (dto.recurringPrices === undefined && (dto.billingModel !== undefined || dto.currency !== undefined)) {
+      throw new BadRequestException('Recurring prices are required when changing the billing model or currency');
+    }
     const data = this.updateData(dto, current);
-    const changed = Object.keys(data);
+    const recurringPricesChanged = dto.recurringPrices !== undefined;
+    const changed = [...Object.keys(data), ...(recurringPricesChanged ? ['recurringPrices'] : [])];
     if (!changed.length) throw new BadRequestException('No plan changes were provided');
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const plan = await tx.plan.update({ where: { id }, data });
+      const recurringPrices = recurringPricesChanged ? await this.replaceRecurringPrices(tx, plan, dto) : current.recurringPrices;
       await this.audit(tx, actor.id, id, 'PLAN_UPDATED', { changedFields: changed });
       if (data.monthlyPricePerSeatMinor !== undefined && data.monthlyPricePerSeatMinor !== current.monthlyPricePerSeatMinor) await this.audit(tx, actor.id, id, 'PLAN_PRICE_CHANGED', { from: current.monthlyPricePerSeatMinor, to: data.monthlyPricePerSeatMinor });
       if (data.entitlements !== undefined && !this.equalJson(current.entitlements, data.entitlements)) await this.audit(tx, actor.id, id, 'PLAN_ENTITLEMENTS_CHANGED', { from: current.entitlements, to: data.entitlements });
       if (data.limits !== undefined && !this.equalJson(current.limits, data.limits)) await this.audit(tx, actor.id, id, 'PLAN_LIMITS_CHANGED', { from: JSON.stringify(current.limits), to: JSON.stringify(data.limits) });
-      return plan;
+      return { ...plan, recurringPrices };
     });
     return this.toResponse(updated);
   }
@@ -91,7 +101,7 @@ export class PlansService {
     const updated = await this.prisma.$transaction(async (tx) => {
       const plan = await tx.plan.update({ where: { id }, data: { status, archivedAt: status === PlanStatus.ARCHIVED ? new Date() : null } });
       await this.audit(tx, actor.id, id, action, { from: current.status, to: status });
-      return plan;
+      return { ...plan, recurringPrices: current.recurringPrices };
     });
     return this.toResponse(updated);
   }
@@ -137,6 +147,45 @@ export class PlansService {
     return data;
   }
 
+  private async replaceRecurringPrices(
+    tx: Prisma.TransactionClient,
+    plan: Plan,
+    dto: Pick<CreatePlanDto, 'recurringPrices' | 'monthlyPricePerSeatMinor'>,
+  ) {
+    const submitted = dto.recurringPrices ?? (
+      plan.billingModel === PlanBillingModel.PER_USER && dto.monthlyPricePerSeatMinor !== null && dto.monthlyPricePerSeatMinor !== undefined
+        ? [{ billingInterval: BillingInterval.MONTHLY, amountMinor: String(dto.monthlyPricePerSeatMinor) }]
+        : []
+    );
+    const seen = new Set<BillingInterval>();
+    const rows = submitted.map((value) => {
+      if (value.billingInterval === BillingInterval.CUSTOM) throw new BadRequestException('CUSTOM billing interval pricing is not configured');
+      if (seen.has(value.billingInterval)) throw new BadRequestException(`Duplicate ${value.billingInterval} recurring price`);
+      seen.add(value.billingInterval);
+      const amountMinor = this.bigintAmount(value.amountMinor, `${value.billingInterval} recurring price`);
+      return {
+        planId: plan.id,
+        billingInterval: value.billingInterval,
+        basis: plan.billingModel === PlanBillingModel.PER_USER ? RecurringPriceBasis.PER_USER_UNIT : RecurringPriceBasis.FIXED_TOTAL,
+        amountMinor,
+        currency: plan.currency,
+      };
+    });
+    if (plan.billingModel === PlanBillingModel.PER_USER && !seen.has(BillingInterval.MONTHLY)) {
+      throw new BadRequestException('MONTHLY per-user pricing is not configured');
+    }
+    await tx.planRecurringPrice.deleteMany({ where: { planId: plan.id } });
+    if (rows.length) await tx.planRecurringPrice.createMany({ data: rows });
+    return rows.map((row) => ({ ...row, id: '', createdAt: new Date(), updatedAt: new Date() }));
+  }
+
+  private bigintAmount(value: unknown, field: string): bigint {
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new BadRequestException(`${field} must be integer minor units`);
+    const amount = BigInt(value);
+    if (amount < 0n || amount > MAX_PAYMENT_AMOUNT_MINOR) throw new BadRequestException(`${field} exceeds the supported money boundary`);
+    return amount;
+  }
+
   private required(value: unknown, field: string): string { if (typeof value !== 'string' || !value.trim()) throw new BadRequestException(`${field} is required`); return value.trim(); }
   private optionalText(value: unknown): string | null { if (value === null || value === undefined || value === '') return null; if (typeof value !== 'string') throw new BadRequestException('Description is invalid'); return value.trim() || null; }
   private currency(value: unknown): string { const normalized = this.required(value, 'Currency').toUpperCase(); if (normalized !== 'INR') throw new BadRequestException('Currency must be a supported ISO 4217 code (INR is currently supported)'); return normalized; }
@@ -147,8 +196,8 @@ export class PlansService {
   private seats(min: unknown, max: unknown): { minSeats: number | null; maxSeats: number | null } { const minSeats = min === null || min === undefined ? null : this.integer(min, 'Minimum seats', 0); const maxSeats = max === null || max === undefined ? null : this.integer(max, 'Maximum seats', 0); if (minSeats !== null && maxSeats !== null && minSeats > maxSeats) throw new BadRequestException('Minimum seats cannot exceed maximum seats'); return { minSeats, maxSeats }; }
   private entitlements(value: unknown): string[] { if (!Array.isArray(value) || value.some((key) => typeof key !== 'string' || !isAssignableEntitlement(key))) throw new BadRequestException(`Entitlements must be assignable, available catalog keys: ${CURRENT_ENTITLEMENTS.join(', ')}`); return [...new Set(value as string[])].sort(); }
   private limits(value: unknown): Prisma.InputJsonObject { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('Limits must be an object'); const result: PlanLimits = {}; for (const [key, amount] of Object.entries(value)) { if (!(PLAN_LIMIT_KEYS as readonly string[]).includes(key)) throw new BadRequestException(`Unsupported plan limit: ${key}`); result[key as keyof PlanLimits] = this.integer(amount, `Limit ${key}`, 0); } return result; }
-  private async getPlan(id: string): Promise<Plan> { const plan = await this.prisma.plan.findUnique({ where: { id } }); if (!plan) throw new NotFoundException('Plan not found'); return plan; }
+  private async getPlan(id: string): Promise<PlanWithPrices> { const plan = await this.prisma.plan.findUnique({ where: { id }, include: planWithPrices }); if (!plan) throw new NotFoundException('Plan not found'); return plan; }
   private audit(tx: Prisma.TransactionClient, actorUserId: string, entityId: string, action: string, metadata: Prisma.InputJsonObject) { return tx.auditLog.create({ data: { actorUserId, action, entityType: 'Plan', entityId, metadata } }); }
   private equalJson(a: unknown, b: unknown): boolean { return JSON.stringify(a) === JSON.stringify(b); }
-  private toResponse(plan: Plan): PlanResponseDto { return { ...plan, limits: plan.limits as Record<string, number> }; }
+  private toResponse(plan: PlanWithPrices): PlanResponseDto { return { ...plan, recurringPrices: plan.recurringPrices.map((price) => ({ ...price, amountMinor: price.amountMinor.toString(10) })), limits: plan.limits as Record<string, number> }; }
 }

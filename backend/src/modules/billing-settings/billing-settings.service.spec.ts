@@ -20,6 +20,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { BillingSettingsController } from './billing-settings.controller';
 import { BillingSettingsService } from './billing-settings.service';
 import {
+  ConfigureBillingProviderCredentialDto,
   CreateBillingProviderConfigurationDto,
   UpdateBillingSettingsDto,
 } from './dto/billing-settings.dto';
@@ -128,14 +129,16 @@ function harness(
       },
     },
     billingProviderConfiguration: providerStore,
+    billingProviderCredential: { count: async () => { events.push('count-credentials'); return 1; } },
+    payment: { count: async () => { events.push('count-payments'); return 0; } },
     auditLog: {
       create: async ({ data }: { data: { action: string; metadata: unknown } }) => {
         audits.push({ action: data.action, metadata: data.metadata });
         return { id: String(audits.length) };
       },
     },
-    $queryRaw: async () => {
-      events.push('lock-settings');
+    $queryRaw: async (query: { strings?: string[] }) => {
+      events.push(query.strings?.join('').includes('BillingProviderConfiguration') ? 'lock-provider' : 'lock-settings');
       return [{ id: settings.id }];
     },
   };
@@ -145,6 +148,8 @@ function harness(
       upsert: async () => settings,
     },
     billingProviderConfiguration: providerStore,
+    billingProviderCredential: { count: async () => 1 },
+    payment: { count: async () => 0 },
     $transaction: async (callback: (client: typeof tx) => unknown) => {
       transactions += 1;
       return callback(tx);
@@ -152,7 +157,7 @@ function harness(
   };
 
   return {
-    service: new BillingSettingsService(prisma as never),
+    service: new BillingSettingsService(prisma as never, { validateForEnable: async () => undefined } as never),
     settings: () => settings,
     providers: () => providers,
     audits,
@@ -179,6 +184,28 @@ describe('BillingSettingsService', () => {
       switchToHttp: () => ({ getRequest: () => ({ user: actor }) }),
     };
     assert.equal(guard.canActivate(allowed as never), true);
+  });
+
+  it('protects the credential endpoints and allows the Super Admin success path', async () => {
+    const roles = new Reflector().get<RoleName[]>('roles', BillingSettingsController);
+    const guard = new RolesGuard({ getAllAndOverride: () => roles } as never);
+    for (const handler of [BillingSettingsController.prototype.configureCredentials, BillingSettingsController.prototype.testConnection]) {
+      const context = (user: typeof actor) => ({
+        getHandler: () => handler,
+        getClass: () => BillingSettingsController,
+        switchToHttp: () => ({ getRequest: () => ({ user }) }),
+      });
+      assert.equal(guard.canActivate(context(actor) as never), true);
+      assert.throws(() => guard.canActivate(context({ ...actor, roles: [RoleName.COMPANY_ADMIN] }) as never), ForbiddenException);
+    }
+    const credentialService = {
+      configure: async () => ({ credentialsConfigured: true, credentialVersion: 1, credentialUpdatedAt: now, credentialFingerprint: 'abcdef123456' }),
+      testConnection: async () => ({ validationType: 'STRUCTURAL', networkConnectivityTested: false }),
+    };
+    const controller = new BillingSettingsController({} as never, credentialService as never);
+    const configured = await controller.configureCredentials(razorpay.id, { keyId: 'rzp_test_public', keySecret: 'secret', webhookSecret: 'webhook' }, actor);
+    assert.equal(JSON.stringify(configured).includes('secret'), false);
+    assert.deepEqual(await controller.testConnection(razorpay.id, actor), { validationType: 'STRUCTURAL', networkConnectivityTested: false });
   });
 
   it('retrieves the durable platform singleton with safe defaults', async () => {
@@ -344,6 +371,33 @@ describe('BillingSettingsService', () => {
     );
   });
 
+  it('rejects unexpected credential DTO properties', async () => {
+    const pipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
+    await assert.rejects(
+      () => pipe.transform(
+        { keyId: 'rzp_test_public', keySecret: 'secret', webhookSecret: 'webhook', unexpected: 'rejected' },
+        { type: 'body', metatype: ConfigureBillingProviderCredentialDto },
+      ),
+      BadRequestException,
+    );
+  });
+
+  it('lists only redacted effective credential metadata', async () => {
+    const fullFingerprint = 'f'.repeat(64);
+    const service = new BillingSettingsService({
+      billingProviderConfiguration: {
+        findMany: async () => [{ ...razorpay, credentials: [{ version: 3, createdAt: now, credentialFingerprint: fullFingerprint }] }],
+      },
+    } as never, {} as never);
+    const [result] = await service.listProviders();
+    assert.equal(result.credentialsConfigured, true);
+    assert.equal(result.credentialVersion, 3);
+    assert.equal(result.credentialFingerprint, 'f'.repeat(12));
+    assert.equal('credentials' in result, false);
+    assert.equal(JSON.stringify(result).includes(fullFingerprint), false);
+    assert.equal(JSON.stringify(result).includes('encryptedPayload'), false);
+  });
+
   it('creates only safe, disabled provider metadata and audits creation', async () => {
     const value = harness();
     const result = await value.service.createProvider(
@@ -413,5 +467,17 @@ describe('BillingSettingsService', () => {
     assert.deepEqual(value.audits.map((entry) => entry.action), [
       'BILLING_DEFAULT_PROVIDER_CHANGED',
     ]);
+  });
+
+  it('locks the provider before checking history for a mode mutation', async () => {
+    const value = harness(initialSettings, [razorpay]);
+    await assert.rejects(
+      () => value.service.updateProvider(razorpay.id, { mode: PaymentProviderMode.LIVE }, actor),
+      BadRequestException,
+    );
+    assert.equal(value.events[0], 'lock-provider');
+    assert.ok(value.events.indexOf('count-credentials') > value.events.indexOf('lock-provider'));
+    assert.equal(value.providers()[0].mode, PaymentProviderMode.TEST);
+    assert.equal(value.audits.length, 0);
   });
 });

@@ -7,6 +7,10 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { CURRENT_ENTITLEMENTS, PLAN_LIMIT_KEYS, PlanLimits, isAssignableEntitlement } from '../plans/plan-catalog.registry';
 import { ApprovedOverLimit, SeatUsageService } from '../usage-seats/seat-usage.service';
 import { ActivateSubscriptionDto, AmendSubscriptionDto, CreateSubscriptionDto, SubscriptionQueryDto } from './dto/subscription.dto';
+import { CommercialPricingError, resolveRecurringPricing } from './commercial-pricing.util';
+
+const planPricingInclude = { recurringPrices: true } satisfies Prisma.PlanInclude;
+type PlanWithRecurringPrices = Prisma.PlanGetPayload<{ include: typeof planPricingInclude }>;
 
 const detailInclude = {
   company: { select: { id: true, name: true, slug: true, status: true } },
@@ -25,7 +29,7 @@ export class SubscriptionsService {
   async create(dto: CreateSubscriptionDto, actor: AuthenticatedUser) {
     const [company, plan] = await Promise.all([
       this.prisma.company.findFirst({ where: { id: dto.companyId, deletedAt: null } }),
-      this.prisma.plan.findUnique({ where: { id: dto.planId } }),
+      this.prisma.plan.findUnique({ where: { id: dto.planId }, include: planPricingInclude }),
     ]);
     if (!company) throw new NotFoundException('Company not found');
     if (!plan) throw new NotFoundException('Plan not found');
@@ -108,7 +112,7 @@ export class SubscriptionsService {
     const source = await this.get(id);
     if (source.status !== SubscriptionStatus.ACTIVE && source.status !== SubscriptionStatus.SUSPENDED) throw new BadRequestException(`Cannot amend a ${source.status} subscription`);
     const planChanged = dto.planId !== undefined && dto.planId !== source.planId;
-    const plan = await this.prisma.plan.findUnique({ where: { id: planChanged ? dto.planId : source.planId } });
+    const plan = await this.prisma.plan.findUnique({ where: { id: planChanged ? dto.planId : source.planId }, include: planPricingInclude });
     if (!plan) throw new NotFoundException('Plan not found');
     if (planChanged && (plan.status !== PlanStatus.ACTIVE || plan.archivedAt)) throw new BadRequestException('Only active plans can be selected for an amendment');
     const resolved = this.amendmentData(source, plan, dto, planChanged);
@@ -133,7 +137,7 @@ export class SubscriptionsService {
   }
 
   async createActiveInTransaction(tx: Prisma.TransactionClient, dto: CreateSubscriptionDto, actor: AuthenticatedUser, overLimitApproval: ApprovedOverLimit | null = null) {
-    const plan = await tx.plan.findUnique({ where: { id: dto.planId } });
+    const plan = await tx.plan.findUnique({ where: { id: dto.planId }, include: planPricingInclude });
     if (!plan) throw new NotFoundException('Plan not found');
     if (plan.status !== PlanStatus.ACTIVE || plan.archivedAt) throw new BadRequestException('Only active plans can be selected for Trial conversion');
     const data = this.createData(dto, plan);
@@ -145,21 +149,23 @@ export class SubscriptionsService {
 
   async assertNoLiveSubscription(tx: Prisma.TransactionClient, companyId: string, excludeId?: string) { return this.assertNoLive(tx, companyId, excludeId); }
 
-  private createData(dto: CreateSubscriptionDto, plan: Plan): Prisma.CompanySubscriptionCreateInput {
+  private createData(dto: CreateSubscriptionDto, plan: PlanWithRecurringPrices): Prisma.CompanySubscriptionCreateInput {
     this.validateSeats(dto.seatQuantity, plan);
     this.validatePeriod(dto.currentPeriodStart, dto.currentPeriodEnd);
     const complimentary = dto.activationSource === SubscriptionActivationSource.COMPLIMENTARY;
     const isCustom = plan.billingModel === PlanBillingModel.CUSTOM;
     if (!isCustom && (dto.entitlements !== undefined || dto.limits !== undefined || dto.customRecurringPriceMinor !== undefined)) throw new BadRequestException('Negotiated entitlements, limits, and recurring price are only allowed for CUSTOM plans');
     if (isCustom && dto.pricePerSeatMinor !== undefined) throw new BadRequestException('Per-seat price is not valid for CUSTOM plans');
-    const customPrice = isCustom ? (complimentary ? 0 : this.integer(dto.customRecurringPriceMinor, 'Custom recurring price', 0)) : null;
-    const perSeatPrice = isCustom ? null : (complimentary ? 0 : dto.pricePerSeatMinor === undefined ? plan.monthlyPricePerSeatMinor : this.integer(dto.pricePerSeatMinor, 'Per-seat price', 0));
-    if (!isCustom && perSeatPrice === null) throw new BadRequestException('PER_USER plan does not have a valid per-seat price');
+    if (dto.pricePerSeatMinor !== undefined || dto.customRecurringPriceMinor !== undefined) throw new BadRequestException('Subscription pricing is resolved from explicit Plan interval pricing');
+    const pricing = this.resolvePricing(plan, dto.billingInterval, dto.seatQuantity, complimentary);
+    const perSeatPrice = isCustom ? null : this.legacyInteger(pricing.recurringUnitPriceMinor);
+    const customPrice = isCustom ? this.legacyInteger(pricing.recurringTotalPriceMinor) : null;
     return {
       company: { connect: { id: dto.companyId } }, plan: { connect: { id: plan.id } },
       activationSource: dto.activationSource, billingInterval: dto.billingInterval,
       planCodeSnapshot: plan.code, planNameSnapshot: plan.name, billingModelSnapshot: plan.billingModel,
       currency: this.currency(plan.currency), pricePerSeatMinor: perSeatPrice, customRecurringPriceMinor: customPrice,
+      ...pricing,
       seatQuantity: dto.seatQuantity,
       entitlementsSnapshot: isCustom ? this.entitlements(dto.entitlements ?? plan.entitlements) : plan.entitlements,
       limitsSnapshot: this.limits(isCustom ? dto.limits ?? plan.limits : plan.limits),
@@ -167,21 +173,16 @@ export class SubscriptionsService {
     };
   }
 
-  private amendmentData(source: CompanySubscription, plan: Plan, dto: AmendSubscriptionDto, planChanged: boolean) {
+  private amendmentData(source: CompanySubscription, plan: PlanWithRecurringPrices, dto: AmendSubscriptionDto, planChanged: boolean) {
     const billingModel = planChanged ? plan.billingModel : source.billingModelSnapshot;
     const seatQuantity = dto.seatQuantity ?? source.seatQuantity;
     this.validateSeats(seatQuantity, plan);
-    if (billingModel !== PlanBillingModel.CUSTOM && (dto.entitlements !== undefined || dto.limits !== undefined || dto.customRecurringPriceMinor !== undefined)) throw new BadRequestException('Negotiated entitlements, limits, and recurring price are only allowed for CUSTOM subscriptions');
-    if (billingModel === PlanBillingModel.CUSTOM && dto.pricePerSeatMinor !== undefined) throw new BadRequestException('Per-seat price is not valid for CUSTOM subscriptions');
+    if (billingModel !== PlanBillingModel.CUSTOM && (dto.entitlements !== undefined || dto.limits !== undefined)) throw new BadRequestException('Negotiated entitlements and limits are only allowed for CUSTOM subscriptions');
+    if (dto.pricePerSeatMinor !== undefined || dto.customRecurringPriceMinor !== undefined) throw new BadRequestException('Subscription pricing is resolved from explicit Plan interval pricing');
     const complimentary = source.activationSource === SubscriptionActivationSource.COMPLIMENTARY;
-    const pricePerSeatMinor = billingModel === PlanBillingModel.PER_USER
-      ? complimentary ? 0 : dto.pricePerSeatMinor === undefined ? (planChanged ? plan.monthlyPricePerSeatMinor : source.pricePerSeatMinor) : this.integer(dto.pricePerSeatMinor, 'Per-seat price', 0)
-      : null;
-    if (billingModel === PlanBillingModel.PER_USER && pricePerSeatMinor === null) throw new BadRequestException('PER_USER subscription requires a per-seat price');
-    const customRecurringPriceMinor = billingModel === PlanBillingModel.CUSTOM
-      ? complimentary ? 0 : dto.customRecurringPriceMinor === undefined ? (planChanged ? null : source.customRecurringPriceMinor) : this.integer(dto.customRecurringPriceMinor, 'Custom recurring price', 0)
-      : null;
-    if (billingModel === PlanBillingModel.CUSTOM && customRecurringPriceMinor === null) throw new BadRequestException('CUSTOM subscription requires a negotiated recurring price');
+    const pricing = this.resolvePricing(plan, dto.billingInterval ?? source.billingInterval, seatQuantity, complimentary);
+    const pricePerSeatMinor = billingModel === PlanBillingModel.PER_USER ? this.legacyInteger(pricing.recurringUnitPriceMinor) : null;
+    const customRecurringPriceMinor = billingModel === PlanBillingModel.CUSTOM ? this.legacyInteger(pricing.recurringTotalPriceMinor) : null;
     const entitlementsSnapshot = billingModel === PlanBillingModel.CUSTOM
       ? this.entitlements(dto.entitlements ?? (planChanged ? plan.entitlements : source.entitlementsSnapshot))
       : planChanged ? [...plan.entitlements] : [...source.entitlementsSnapshot];
@@ -192,6 +193,7 @@ export class SubscriptionsService {
       planCodeSnapshot: planChanged ? plan.code : source.planCodeSnapshot, planNameSnapshot: planChanged ? plan.name : source.planNameSnapshot,
       billingModelSnapshot: billingModel, currency: planChanged ? this.currency(plan.currency) : source.currency,
       pricePerSeatMinor, customRecurringPriceMinor, seatQuantity, entitlementsSnapshot, limitsSnapshot,
+      ...pricing,
       startsAt: source.startsAt, currentPeriodStart: source.currentPeriodStart, currentPeriodEnd: source.currentPeriodEnd,
       suspendedAt: source.status === SubscriptionStatus.SUSPENDED ? source.suspendedAt ?? new Date() : null,
     };
@@ -248,6 +250,8 @@ export class SubscriptionsService {
   }
   private async assertNoLive(tx: Prisma.TransactionClient, companyId: string, excludeId?: string) { const live = await tx.companySubscription.findFirst({ where: { companyId, ...(excludeId ? { id: { not: excludeId } } : {}), status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED] } } }); if (live) throw new ConflictException('Company already has an active or suspended subscription'); }
   private async assertNoEffectiveTrial(tx: Prisma.TransactionClient, companyId: string) { const now = new Date(); const trial = await tx.companyTrial.findFirst({ where: { companyId, status: 'ACTIVE', startsAt: { lte: now }, endsAt: { gt: now } } }); if (trial) throw new ConflictException('Company already has an effective active Trial'); }
+  private resolvePricing(plan: PlanWithRecurringPrices, billingInterval: BillingInterval, seatQuantity: number, complimentary: boolean) { try { return resolveRecurringPricing({ billingModel: plan.billingModel, billingInterval, seatQuantity, planCurrency: plan.currency, recurringPrices: plan.recurringPrices, complimentary }); } catch (error) { if (error instanceof CommercialPricingError || error instanceof Error && error.name === 'PaymentMoneyError') throw new BadRequestException(error.message); throw error; } }
+  private legacyInteger(value: bigint | null): number | null { if (value === null || value > 2_147_483_647n) return null; return Number(value); }
   private async get(id: string) { const value = await this.prisma.companySubscription.findUnique({ where: { id } }); if (!value) throw new NotFoundException('Subscription not found'); return value; }
   private validateSeats(value: number, plan: Plan) { this.integer(value, 'Seat quantity', 1); if (plan.minSeats !== null && value < plan.minSeats) throw new BadRequestException(`Seat quantity must be at least ${plan.minSeats}`); if (plan.maxSeats !== null && value > plan.maxSeats) throw new BadRequestException(`Seat quantity cannot exceed ${plan.maxSeats}`); }
   private validatePeriod(start?: Date | null, end?: Date | null) { if (Boolean(start) !== Boolean(end)) throw new BadRequestException('Current period start and end must both be provided or both omitted'); if (start && end && start >= end) throw new BadRequestException('Current period start must be before current period end'); }

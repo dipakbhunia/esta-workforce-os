@@ -52,8 +52,6 @@ export interface ConvertTrialPayload {
   planId: string;
   billingInterval: BillingInterval;
   seatQuantity: number;
-  pricePerSeatMinor?: number;
-  customRecurringPriceMinor?: number;
   entitlements?: string[];
   limits?: Record<string, number>;
   allowOverLimit?: boolean;

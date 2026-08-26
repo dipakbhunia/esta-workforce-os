@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { BillingProviderCredentialsService } from './billing-provider-credentials.service';
 import {
   CreateBillingProviderConfigurationDto,
   UpdateBillingProviderConfigurationDto,
@@ -21,7 +22,7 @@ const PLATFORM_SCOPE = 'PLATFORM';
 
 @Injectable()
 export class BillingSettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService) {}
 
   getSettings(): Promise<BillingSettings> {
     return this.prisma.billingSettings.upsert({
@@ -62,10 +63,12 @@ export class BillingSettingsService {
     });
   }
 
-  listProviders(): Promise<BillingProviderConfiguration[]> {
-    return this.prisma.billingProviderConfiguration.findMany({
+  async listProviders() {
+    const providers = await this.prisma.billingProviderConfiguration.findMany({
       orderBy: [{ isDefault: 'desc' }, { provider: 'asc' }],
+      include: { credentials: { where: { retiredAt: null }, orderBy: { version: 'desc' }, take: 1, select: { version: true, createdAt: true, credentialFingerprint: true } } },
     });
+    return providers.map(({ credentials, ...provider }) => ({ ...provider, credentialsConfigured: credentials.length === 1, credentialVersion: credentials[0]?.version ?? null, credentialUpdatedAt: credentials[0]?.createdAt ?? null, credentialFingerprint: credentials[0]?.credentialFingerprint.slice(-12) ?? null }));
   }
 
   async createProvider(
@@ -107,8 +110,18 @@ export class BillingSettingsService {
     if (!changedFields.length) {
       throw new BadRequestException('No provider configuration changes were provided');
     }
-    await this.getProvider(id);
     return this.prisma.$transaction(async (tx) => {
+      await this.lockProviderConfiguration(tx, id);
+      const current = await this.getProvider(id, tx);
+      if (dto.mode !== undefined && dto.mode !== current.mode) {
+        const [credentialCount, paymentCount] = await Promise.all([
+          tx.billingProviderCredential.count({ where: { providerConfigurationId: id } }),
+          tx.payment.count({ where: { providerConfigurationId: id } }),
+        ]);
+        if (credentialCount || paymentCount) {
+          throw new BadRequestException('Provider mode cannot change after credentials or payment history exist');
+        }
+      }
       const updated = await tx.billingProviderConfiguration.update({
         where: { id },
         data: { ...dto, updatedById: actor.id },
@@ -131,6 +144,7 @@ export class BillingSettingsService {
   ): Promise<BillingProviderConfiguration> {
     const current = await this.getProvider(id);
     if (current.enabled) throw new BadRequestException('Payment provider is already enabled');
+    await this.credentials.validateForEnable(id, current.provider, current.mode);
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.billingProviderConfiguration.update({
         where: { id },
@@ -244,6 +258,13 @@ export class BillingSettingsService {
       Prisma.sql`SELECT "id" FROM "BillingSettings" WHERE "scope" = ${PLATFORM_SCOPE} FOR UPDATE`,
     );
     if (!rows.length) throw new ConflictException('Platform Billing Settings are unavailable');
+  }
+
+  private async lockProviderConfiguration(tx: Prisma.TransactionClient, id: string): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT "id" FROM "BillingProviderConfiguration" WHERE "id" = ${id}::uuid FOR UPDATE`,
+    );
+    if (!rows.length) throw new NotFoundException('Payment provider configuration not found');
   }
 
   private async getProvider(

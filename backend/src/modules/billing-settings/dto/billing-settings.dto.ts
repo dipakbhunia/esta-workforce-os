@@ -21,6 +21,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  IsNotEmpty,
   ValidateIf,
 } from 'class-validator';
 
@@ -232,4 +233,10 @@ export class UpdateBillingProviderConfigurationDto {
   @IsString()
   @MaxLength(255)
   accountReference?: string | null;
+}
+
+export class ConfigureBillingProviderCredentialDto {
+  @ApiProperty({ minLength: 1, writeOnly: true }) @IsString() @IsNotEmpty() @MaxLength(255) keyId!: string;
+  @ApiProperty({ minLength: 1, writeOnly: true }) @IsString() @IsNotEmpty() @MaxLength(512) keySecret!: string;
+  @ApiProperty({ minLength: 1, writeOnly: true }) @IsString() @IsNotEmpty() @MaxLength(512) webhookSecret!: string;
 }

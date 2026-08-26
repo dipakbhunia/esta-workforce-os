@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PlanBillingModel, PlanStatus } from '@prisma/client';
+import { BillingInterval, PlanBillingModel, PlanStatus, RecurringPriceBasis } from '@prisma/client';
+
+export class PlanRecurringPriceResponseDto {
+  @ApiProperty({ enum: BillingInterval }) billingInterval!: BillingInterval;
+  @ApiProperty({ enum: RecurringPriceBasis }) basis!: RecurringPriceBasis;
+  @ApiProperty({ description: 'Integer minor units as a decimal string' }) amountMinor!: string;
+  @ApiProperty() currency!: string;
+}
 
 export class PlanResponseDto {
   @ApiProperty() id!: string;
@@ -9,6 +16,7 @@ export class PlanResponseDto {
   @ApiProperty({ enum: PlanStatus }) status!: PlanStatus;
   @ApiProperty({ enum: PlanBillingModel }) billingModel!: PlanBillingModel;
   @ApiPropertyOptional({ nullable: true }) monthlyPricePerSeatMinor!: number | null;
+  @ApiProperty({ type: [PlanRecurringPriceResponseDto] }) recurringPrices!: PlanRecurringPriceResponseDto[];
   @ApiProperty() currency!: string;
   @ApiPropertyOptional({ nullable: true }) minSeats!: number | null;
   @ApiPropertyOptional({ nullable: true }) maxSeats!: number | null;

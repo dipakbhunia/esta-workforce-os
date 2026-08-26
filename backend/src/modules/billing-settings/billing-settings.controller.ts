@@ -20,7 +20,9 @@ import {
   CreateBillingProviderConfigurationDto,
   UpdateBillingProviderConfigurationDto,
   UpdateBillingSettingsDto,
+  ConfigureBillingProviderCredentialDto,
 } from './dto/billing-settings.dto';
+import { BillingProviderCredentialsService } from './billing-provider-credentials.service';
 
 @ApiTags('Billing Settings')
 @ApiBearerAuth()
@@ -28,7 +30,7 @@ import {
 @Roles(RoleName.SUPER_ADMIN)
 @Controller('billing-settings')
 export class BillingSettingsController {
-  constructor(private readonly billingSettings: BillingSettingsService) {}
+  constructor(private readonly billingSettings: BillingSettingsService, private readonly credentials: BillingProviderCredentialsService) {}
 
   @Get()
   getSettings() {
@@ -87,5 +89,15 @@ export class BillingSettingsController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.billingSettings.setDefaultProvider(id, actor);
+  }
+
+  @Patch('providers/:id/credentials')
+  configureCredentials(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ConfigureBillingProviderCredentialDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.credentials.configure(id, { keyId: dto.keyId, keySecret: dto.keySecret, webhookSecret: dto.webhookSecret }, actor);
+  }
+
+  @Post('providers/:id/test-connection')
+  testConnection(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.credentials.testConnection(id, actor);
   }
 }

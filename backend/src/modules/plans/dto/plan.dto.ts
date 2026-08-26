@@ -1,10 +1,22 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { PlanBillingModel, PlanStatus } from '@prisma/client';
+import { BillingInterval, PlanBillingModel, PlanStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 
 const requiredString = ({ value }: { value: unknown }) => value === null ? '' : value;
+
+export class PlanRecurringPriceDto {
+  @ApiProperty({ enum: [BillingInterval.MONTHLY, BillingInterval.YEARLY] })
+  @IsEnum(BillingInterval)
+  billingInterval!: BillingInterval;
+
+  @ApiProperty({ description: 'Integer minor units as a decimal string', example: '9900' })
+  @Transform(requiredString)
+  @IsString()
+  @Matches(/^\d+$/)
+  amountMinor!: string;
+}
 
 export class CreatePlanDto {
   @ApiProperty({ example: 'STARTER' })
@@ -28,6 +40,11 @@ export class CreatePlanDto {
   @ApiPropertyOptional({ example: 9900, nullable: true })
   @IsOptional() @IsInt() @Min(0)
   monthlyPricePerSeatMinor?: number | null;
+
+  @ApiPropertyOptional({ type: [PlanRecurringPriceDto] })
+  @IsOptional() @IsArray() @ValidateNested({ each: true })
+  @Type(() => PlanRecurringPriceDto)
+  recurringPrices?: PlanRecurringPriceDto[];
 
   @ApiProperty({ example: 'INR' })
   @Transform(requiredString) @IsString() @Matches(/^[A-Z]{3}$/)

@@ -21,6 +21,7 @@ import { MonitoringAlertsModule } from './modules/monitoring-alerts/monitoring-a
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ProductivityModule } from './modules/productivity/productivity.module';
 import { PlansModule } from './modules/plans/plans.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { TrialsModule } from './modules/trials/trials.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -60,6 +61,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     NotificationsModule,
     ProductivityModule,
     PlansModule,
+    PaymentsModule,
     SubscriptionsModule,
     TrialsModule,
     SchedulingModule,

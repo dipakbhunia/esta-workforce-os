@@ -2,26 +2,27 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PlanBillingModel, PlanStatus, RoleName, UserStatus } from '@prisma/client';
+import { BillingInterval, PlanBillingModel, PlanStatus, RecurringPriceBasis, RoleName, UserStatus } from '@prisma/client';
 import { PlansService } from './plans.service';
 import { PlansController } from './plans.controller';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ENTITLEMENT_CATALOG, EntitlementAvailability, TRIAL_ELIGIBLE_ENTITLEMENTS, isAssignableEntitlement } from './plan-catalog.registry';
 
 const actor = { id: 'actor-1', companyId: null, email: 'admin@example.com', firstName: 'Super', lastName: 'Admin', status: UserStatus.ACTIVE, roles: [RoleName.SUPER_ADMIN] };
-const plan = { id: 'plan-1', code: 'STARTER', name: 'Starter', description: null, status: PlanStatus.DRAFT, billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 9900, currency: 'INR', minSeats: null, maxSeats: null, sortOrder: 10, isPublic: true, isRecommended: false, entitlements: ['workforce.attendance'], limits: {}, createdAt: new Date(), updatedAt: new Date(), archivedAt: null };
+const recurringPrices = [{ id: 'price-1', planId: 'plan-1', billingInterval: BillingInterval.MONTHLY, basis: RecurringPriceBasis.PER_USER_UNIT, amountMinor: 9900n, currency: 'INR', createdAt: new Date(), updatedAt: new Date() }];
+const plan = { id: 'plan-1', code: 'STARTER', name: 'Starter', description: null, status: PlanStatus.DRAFT, billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 9900, currency: 'INR', minSeats: null, maxSeats: null, sortOrder: 10, isPublic: true, isRecommended: false, entitlements: ['workforce.attendance'], limits: {}, createdAt: new Date(), updatedAt: new Date(), archivedAt: null, recurringPrices };
 const valid = { code: 'STARTER', name: 'Starter', billingModel: PlanBillingModel.PER_USER, monthlyPricePerSeatMinor: 9900, currency: 'INR', entitlements: ['workforce.attendance'] };
 const serviceWith = (prisma: Record<string, unknown>) => new PlansService(prisma as never);
 
 function createHarness() {
   const audits: string[] = []; let data: Record<string, unknown> = {};
-  const tx = { plan: { create: async (args: { data: Record<string, unknown> }) => { data = args.data; return { ...plan, ...args.data }; } }, auditLog: { create: async (args: { data: { action: string } }) => { audits.push(args.data.action); return {}; } } };
+  const tx = { plan: { create: async (args: { data: Record<string, unknown> }) => { data = args.data; return { ...plan, ...args.data }; } }, planRecurringPrice: { deleteMany: async () => ({}), createMany: async () => ({ count: 1 }) }, auditLog: { create: async (args: { data: { action: string } }) => { audits.push(args.data.action); return {}; } } };
   return { service: serviceWith({ $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx) }), audits, data: () => data };
 }
 
 function updateHarness(current = plan) {
   const audits: string[] = []; let data: Record<string, unknown> = {};
-  const tx = { plan: { update: async (args: { data: Record<string, unknown> }) => { data = args.data; return { ...current, ...args.data }; } }, auditLog: { create: async (args: { data: { action: string } }) => { audits.push(args.data.action); return {}; } } };
+  const tx = { plan: { update: async (args: { data: Record<string, unknown> }) => { data = args.data; return { ...current, ...args.data }; } }, planRecurringPrice: { deleteMany: async () => ({}), createMany: async () => ({ count: 1 }) }, auditLog: { create: async (args: { data: { action: string } }) => { audits.push(args.data.action); return {}; } } };
   return { service: serviceWith({ plan: { findUnique: async () => current }, $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx) }), audits, data: () => data };
 }
 
@@ -39,6 +40,7 @@ describe('PlansService', () => {
   it('rejects unsupported currency, seat bounds, entitlements, and limit keys', async () => { const invalid = [{ currency: 'USD' }, { minSeats: -1 }, { minSeats: 10, maxSeats: 2 }, { entitlements: ['mobile.app'] }, { limits: { arbitrary: 1 } }]; for (const patch of invalid) { const h = createHarness(); await assert.rejects(() => h.service.create({ ...valid, ...patch } as never, actor), BadRequestException); } });
   it('rejects manually submitted Coming Soon and unknown entitlements', async () => { for (const key of ['crm.core', 'unknown.feature']) { const h = createHarness(); await assert.rejects(() => h.service.create({ ...valid, entitlements: [key] }, actor), BadRequestException); } });
   it('keeps code immutable and rejects malformed null updates', async () => { for (const patch of [{ code: 'OTHER' }, { name: null }, { currency: null }]) { const h = updateHarness(); await assert.rejects(() => h.service.update(plan.id, patch as never, actor), BadRequestException); } });
+  it('requires explicit recurring prices when billing semantics or currency changes', async () => { for (const patch of [{ billingModel: PlanBillingModel.CUSTOM }, { currency: 'INR' }]) { const h = updateHarness(); await assert.rejects(() => h.service.update(plan.id, patch as never, actor), BadRequestException); } });
   it('writes focused update, price, entitlement, and limit audits', async () => { const h = updateHarness(); await h.service.update(plan.id, { monthlyPricePerSeatMinor: 12900, entitlements: ['workforce.leave'], limits: { screenshotRetentionDays: 30 } }, actor); assert.deepEqual(h.audits, ['PLAN_UPDATED', 'PLAN_PRICE_CHANGED', 'PLAN_ENTITLEMENTS_CHANGED', 'PLAN_LIMITS_CHANGED']); });
   it('allows approved transitions and archives without deleting', async () => { const h = updateHarness(); const result = await h.service.updateStatus(plan.id, PlanStatus.ARCHIVED, actor); assert.equal(result.status, PlanStatus.ARCHIVED); assert.deepEqual(h.audits, ['PLAN_ARCHIVED']); assert.ok(h.data().archivedAt); });
   it('rejects no-op and invalid lifecycle transitions', async () => { await assert.rejects(() => updateHarness().service.updateStatus(plan.id, PlanStatus.DRAFT, actor), BadRequestException); const archived = { ...plan, status: PlanStatus.ARCHIVED }; await assert.rejects(() => updateHarness(archived).service.updateStatus(plan.id, PlanStatus.ACTIVE, actor), BadRequestException); });

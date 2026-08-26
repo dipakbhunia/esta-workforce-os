@@ -25,7 +25,6 @@ export default function TrialConvertPage() {
   const [planId, setPlanId] = useState('');
   const [billingInterval, setBillingInterval] = useState<BillingInterval>('MONTHLY');
   const [seats, setSeats] = useState('');
-  const [price, setPrice] = useState('');
   const [entitlements, setEntitlements] = useState<string[]>([]);
   const [maxStorageBytes, setMaxStorageBytes] = useState('');
   const [screenshotRetentionDays, setScreenshotRetentionDays] = useState('');
@@ -67,7 +66,6 @@ export default function TrialConvertPage() {
     const minimum = plan.minSeats ?? 1;
     const maximum = plan.maxSeats ?? Number.MAX_SAFE_INTEGER;
     setSeats(String(Math.min(maximum, Math.max(minimum, trial.seatLimit))));
-    setPrice(plan.monthlyPricePerSeatMinor === null ? '' : String(plan.monthlyPricePerSeatMinor / 100));
     setEntitlements([...plan.entitlements]);
     setMaxStorageBytes(plan.limits.maxStorageBytes?.toString() ?? '');
     setScreenshotRetentionDays(plan.limits.screenshotRetentionDays?.toString() ?? '');
@@ -80,11 +78,11 @@ export default function TrialConvertPage() {
       setError('Choose an active Plan and enter a whole-number seat quantity within its bounds.');
       return;
     }
-    if (!/^\d+(\.\d{1,2})?$/.test(price)) {
-      setError('Enter a non-negative price with no more than two decimal places.');
+    const configured = selectedPlan.recurringPrices.some((price) => price.billingInterval === billingInterval);
+    if (billingInterval === 'CUSTOM' || !configured) {
+      setError('Choose a configured MONTHLY or YEARLY Plan price.');
       return;
     }
-    const priceMinor = Math.round(Number(price) * 100);
     const limitValues = [maxStorageBytes, screenshotRetentionDays].filter(Boolean);
     if (custom && (catalogQuery.isError || limitValues.some((value) => !Number.isInteger(Number(value)) || Number(value) < 0))) {
       setError(catalogQuery.isError ? 'Reload the entitlement catalog before converting a CUSTOM Plan.' : 'CUSTOM limits must be non-negative whole numbers.');
@@ -105,7 +103,7 @@ export default function TrialConvertPage() {
       planId: selectedPlan.id,
       billingInterval,
       seatQuantity,
-      ...(custom ? { customRecurringPriceMinor: priceMinor, entitlements, limits } : priceMinor !== selectedPlan.monthlyPricePerSeatMinor ? { pricePerSeatMinor: priceMinor } : {}),
+      ...(custom ? { entitlements, limits } : {}),
       ...(seatQuantity < usedSeats ? { allowOverLimit: true, reason: overrideReason.trim() } : {}),
     };
     mutation.mutate(payload);
@@ -122,9 +120,9 @@ export default function TrialConvertPage() {
         <Box sx={formGrid}>
           <TextField label="Company" value={trial.company.name} disabled helperText="Company is fixed by the Trial." />
           <TextField select required label="Target Plan" value={planId} onChange={(event) => changePlan(event.target.value)} helperText="Only ACTIVE Plans are available."><MenuItem value="" disabled>Select a Plan</MenuItem>{plans.map((plan) => <MenuItem key={plan.id} value={plan.id}>{plan.name} ({plan.code})</MenuItem>)}</TextField>
-          <TextField select label="Billing interval" value={billingInterval} onChange={(event) => setBillingInterval(event.target.value as BillingInterval)}>{(['MONTHLY', 'YEARLY', 'CUSTOM'] as BillingInterval[]).map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</TextField>
+          <TextField select label="Billing interval" value={billingInterval} onChange={(event) => setBillingInterval(event.target.value as BillingInterval)}>{(['MONTHLY', 'YEARLY'] as BillingInterval[]).map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</TextField>
           <TextField required type="number" label="Contracted seats" value={seats} disabled={!selectedPlan} inputProps={{ min: selectedPlan?.minSeats ?? 1, max: selectedPlan?.maxSeats ?? undefined, step: 1 }} onChange={(event) => setSeats(event.target.value)} helperText={selectedPlan ? `Plan bounds: ${selectedPlan.minSeats ?? 1}–${selectedPlan.maxSeats ?? 'unlimited'}. This replaces the temporary Trial allowance.` : 'Choose a Plan to set contracted seats.'} />
-          <TextField required type="number" label={custom ? 'Negotiated recurring price' : 'Agreed per-seat price'} value={price} disabled={!selectedPlan} inputProps={{ min: 0, step: '0.01' }} onChange={(event) => setPrice(event.target.value)} helperText={selectedPlan ? `Amount in ${selectedPlan.currency}. ${custom ? 'Required for CUSTOM conversion.' : 'Defaults to the selected Plan price; changes are negotiated overrides.'}` : 'Choose a Plan to resolve pricing.'} />
+          <TextField label={custom ? 'Authoritative recurring total' : 'Authoritative per-user price'} value={selectedPlan ? money(selectedPlan.recurringPrices.find((price) => price.billingInterval === billingInterval)?.amountMinor ?? null, selectedPlan.currency) : ''} disabled helperText="Resolved from the exact Plan interval price and snapshotted by the backend." />
           <TextField label="Activation source" value="TRIAL CONVERSION" disabled helperText="Set by the backend and cannot be changed." />
         </Box>
         {selectedPlan ? <PlanPreview plan={selectedPlan} /> : <Alert severity="info">Choose a target Plan to preview the Subscription commercial snapshot.</Alert>}
@@ -138,7 +136,7 @@ export default function TrialConvertPage() {
 }
 
 function PlanPreview({ plan }: { plan: Plan }) {
-  return <SectionCard title="Target Plan Commercial Preview" description="Current Plan terms will become the Subscription snapshot at conversion."><Box sx={detailGrid}><Fact label="Plan" value={`${plan.name} (${plan.code})`} /><Fact label="Billing model" value={plan.billingModel.replace('_', ' ')} /><Fact label="Catalog price" value={money(plan.monthlyPricePerSeatMinor, plan.currency)} /><Fact label="Currency" value={plan.currency} /><Fact label="Seat bounds" value={`${plan.minSeats ?? 1}–${plan.maxSeats ?? 'Unlimited'}`} /><Fact label="Plan entitlements" value={String(plan.entitlements.length)} /><Fact label="Plan limits" value={String(Object.keys(plan.limits).length)} /></Box></SectionCard>;
+  return <SectionCard title="Target Plan Commercial Preview" description="Current Plan terms will become the Subscription snapshot at conversion."><Box sx={detailGrid}><Fact label="Plan" value={`${plan.name} (${plan.code})`} /><Fact label="Billing model" value={plan.billingModel.replace('_', ' ')} /><Fact label="Monthly price" value={money(plan.recurringPrices.find((price) => price.billingInterval === 'MONTHLY')?.amountMinor ?? null, plan.currency)} /><Fact label="Yearly price" value={money(plan.recurringPrices.find((price) => price.billingInterval === 'YEARLY')?.amountMinor ?? null, plan.currency)} /><Fact label="Currency" value={plan.currency} /><Fact label="Seat bounds" value={`${plan.minSeats ?? 1}–${plan.maxSeats ?? 'Unlimited'}`} /><Fact label="Plan entitlements" value={String(plan.entitlements.length)} /><Fact label="Plan limits" value={String(Object.keys(plan.limits).length)} /></Box></SectionCard>;
 }
 
 function CustomTerms({ catalogLoading, catalogError, retryCatalog, catalog, entitlements, setEntitlements, maxStorageBytes, setMaxStorageBytes, screenshotRetentionDays, setScreenshotRetentionDays }: { catalogLoading: boolean; catalogError: boolean; retryCatalog: () => void; catalog: Array<{ key: string; name: string; availability: string; assignable: boolean }>; entitlements: string[]; setEntitlements: React.Dispatch<React.SetStateAction<string[]>>; maxStorageBytes: string; setMaxStorageBytes: (value: string) => void; screenshotRetentionDays: string; setScreenshotRetentionDays: (value: string) => void }) {

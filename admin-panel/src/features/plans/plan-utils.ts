@@ -18,5 +18,6 @@ export function planCodeError(value: string) {
   return null;
 }
 
-export const money = (minor: number | null, currency: string) => minor === null ? 'Custom' : new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(minor / 100);
+export const money = (minor: number | string | null, currency: string) => minor === null ? 'Not configured' : typeof minor === 'string' ? moneyMinorString(minor, currency) : new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(minor / 100);
+export const moneyMinorString = (minor: string, currency: string) => { const amount = BigInt(minor); return `${currency} ${amount / 100n}.${(amount % 100n).toString().padStart(2, '0')}`; };
 export const apiError = (error: unknown, fallback: string) => axios.isAxiosError(error) ? ((error.response?.data as { message?: string | string[] })?.message instanceof Array ? (error.response?.data as { message: string[] }).message.join(', ') : (error.response?.data as { message?: string })?.message) ?? fallback : fallback;

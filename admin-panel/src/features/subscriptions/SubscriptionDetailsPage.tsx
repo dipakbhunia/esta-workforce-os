@@ -14,7 +14,7 @@ import { getCompanyStorageUsage } from '@/features/storage-usage/storage-usage-a
 import { StorageUsageSummary } from '@/features/storage-usage/StorageUsageSummary';
 import { getSubscription, runSubscriptionAction } from './subscriptions-api';
 import type { OverLimitOverride, SubscriptionStatus } from './subscription.types';
-import { subscriptionDate, subscriptionMoney, subscriptionTone } from './subscription-utils';
+import { recurringMoney, subscriptionDate, subscriptionTone } from './subscription-utils';
 
 type Action = 'activate' | 'suspend' | 'resume' | 'cancel' | 'expire';
 const actions: Record<SubscriptionStatus, Action[]> = {
@@ -68,7 +68,6 @@ export default function SubscriptionDetailsPage() {
       closeAction();
     },
   });
-  const price = value?.billingModelSnapshot === 'PER_USER' ? value.pricePerSeatMinor : value?.customRecurringPriceMinor ?? null;
   const availableActions = value ? actions[value.status].filter((next) => next !== 'expire' || Boolean(value.currentPeriodEnd && new Date(value.currentPeriodEnd) <= new Date())) : [];
   const mayShowCurrentUsage = value?.status === 'ACTIVE' || value?.status === 'SUSPENDED';
   const isCurrentAgreement = Boolean(value && usage && (value.status === 'ACTIVE' || value.status === 'SUSPENDED') && usage.commercial.source === 'SUBSCRIPTION' && usage.commercial.referenceId === value.id);
@@ -93,7 +92,7 @@ export default function SubscriptionDetailsPage() {
           {availableActions.map((next) => <Button key={next} variant={next === 'cancel' || next === 'expire' ? 'outlined' : 'contained'} color={next === 'cancel' || next === 'expire' ? 'error' : 'primary'} onClick={() => { setError(''); closeAction(); setAction(next); }}>{next}</Button>)}
         </Stack>
       </Stack>
-      <SectionCard title="Agreement" description="Plan lineage and immutable effective terms."><Box sx={grid}><Fact label="Company" value={value.company.name} /><Fact label="Plan snapshot" value={value.planNameSnapshot} /><Fact label="Plan code snapshot" value={value.planCodeSnapshot} /><Fact label="Billing model" value={value.billingModelSnapshot} /><Fact label="Billing interval" value={value.billingInterval} /><Fact label="Activation source" value={value.activationSource} /><Fact label="Contracted seats" value={String(value.seatQuantity)} /><Fact label="Effective price" value={subscriptionMoney(price, value.currency)} /></Box></SectionCard>
+      <SectionCard title="Agreement" description="Plan lineage and immutable effective terms."><Box sx={grid}><Fact label="Company" value={value.company.name} /><Fact label="Plan snapshot" value={value.planNameSnapshot} /><Fact label="Plan code snapshot" value={value.planCodeSnapshot} /><Fact label="Billing model" value={value.billingModelSnapshot} /><Fact label="Pricing interval" value={value.pricingInterval ?? 'Unresolved'} /><Fact label="Activation source" value={value.activationSource} /><Fact label="Contracted seats" value={String(value.seatQuantity)} /><Fact label="Authoritative recurring total" value={recurringMoney(value.recurringTotalPriceMinor, value.recurringCurrency)} /><Fact label="Pricing resolved" value={subscriptionDate(value.pricingResolvedAt)} /></Box></SectionCard>
       {mayShowCurrentUsage && usageQuery.isLoading ? <LoadingSkeleton rows={3} /> : mayShowCurrentUsage && usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current Company seat usage could not be loaded.</Alert> : isCurrentAgreement && usage ? <SeatUsageSummary value={usage} title="Current Company Seat Usage" description="Today's canonical Company usage for this current Subscription. This is not a historical agreement snapshot." /> : null}
       {mayShowCurrentUsage && storageQuery.isLoading ? <LoadingSkeleton rows={3} /> : mayShowCurrentUsage && storageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void storageQuery.refetch()}>Retry</Button>}>Current Company storage usage could not be loaded.</Alert> : isCurrentStorageAgreement && storageUsage ? <StorageUsageSummary value={storageUsage} title="Current Company Storage Usage" description="Today's canonical screenshot storage for this current Subscription. This is not a historical agreement measurement." /> : null}
       <SectionCard title="Entitlements & Limits" description="These snapshots do not change when the catalog plan changes."><Typography variant="caption" color="text.secondary">Entitlements</Typography><Stack direction="row" flexWrap="wrap" gap={1} my={1}>{value.entitlementsSnapshot.length ? value.entitlementsSnapshot.map((key) => <Chip key={key} label={key} />) : <Typography>None</Typography>}</Stack><Typography variant="caption" color="text.secondary">Limits</Typography><Box sx={grid}>{Object.entries(value.limitsSnapshot).length ? Object.entries(value.limitsSnapshot).map(([key, amount]) => <Fact key={key} label={key} value={String(amount)} />) : <Typography>No limits configured</Typography>}</Box></SectionCard>
