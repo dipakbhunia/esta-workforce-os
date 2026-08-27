@@ -72,6 +72,33 @@ export class BillingProviderCredentialsService {
     return { providerConfigurationId: configuration.id, provider: configuration.provider, mode: configuration.mode, credentialVersionId: credential.id, credentialVersion: credential.version, material: normalized };
   }
 
+  async resolveBoundCredentialForRecovery(
+    configurationId: string,
+    credentialVersionId: string,
+    expectedProvider: PaymentProviderType,
+    expectedMode: PaymentProviderMode,
+  ): Promise<EffectiveProviderCredential> {
+    const configuration = await this.prisma.billingProviderConfiguration.findUnique({ where: { id: configurationId } });
+    if (!configuration) throw new ConflictException('Payment provider configuration is unavailable');
+    if (configuration.provider !== expectedProvider || configuration.mode !== expectedMode) {
+      throw new ConflictException('Payment provider configuration mismatch');
+    }
+    const credential = await this.prisma.billingProviderCredential.findFirst({
+      where: { id: credentialVersionId, providerConfigurationId: configurationId },
+    });
+    if (!credential) throw new ConflictException('Bound payment provider credential is unavailable');
+    const material = this.encryption.decrypt(credential.encryptedPayload, credential.encryptionKeyVersion);
+    const normalized = this.registry.normalizeCredentialInput(configuration.provider, configuration.mode, material);
+    return {
+      providerConfigurationId: configuration.id,
+      provider: configuration.provider,
+      mode: configuration.mode,
+      credentialVersionId: credential.id,
+      credentialVersion: credential.version,
+      material: normalized,
+    };
+  }
+
   async validateForEnable(configurationId: string, expectedProvider: PaymentProviderType, expectedMode: PaymentProviderMode): Promise<void> {
     const credential = await this.prisma.billingProviderCredential.findFirst({ where: { providerConfigurationId: configurationId, retiredAt: null }, orderBy: { version: 'desc' } });
     if (!credential) throw new ConflictException('Effective payment provider credential is unavailable');
