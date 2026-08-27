@@ -4,7 +4,7 @@ import { BadRequestException, ConflictException, ServiceUnavailableException } f
 import { PaymentProviderMode, PaymentProviderType, RoleName, UserStatus } from '@prisma/client';
 import { BillingProviderCredentialsService } from './billing-provider-credentials.service';
 import { ProviderRegistryService } from '../payments/providers/provider-registry.service';
-import { RazorpayPlaceholderProvider } from '../payments/providers/razorpay-placeholder.provider';
+import { RazorpayProvider } from '../payments/providers/razorpay.provider';
 
 const configuration = { id: '00000000-0000-4000-8000-000000000010', provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST, enabled: true };
 const actor = { id: '00000000-0000-4000-8000-000000000001', companyId: null, email: 'admin@example.com', firstName: 'Super', lastName: 'Admin', status: UserStatus.ACTIVE, roles: [RoleName.SUPER_ADMIN] };
@@ -38,7 +38,7 @@ function harness(config = configuration) {
     billingProviderConfiguration: { findUnique: async ({ where }: { where: { id: string } }) => where.id === config.id ? config : null }, billingProviderCredential: credentialStore,
     auditLog: tx.auditLog,
   };
-  const registry = new ProviderRegistryService(); registry.register(new RazorpayPlaceholderProvider());
+  const registry = new ProviderRegistryService(); registry.register(new RazorpayProvider());
   return { service: new BillingProviderCredentialsService(prisma as never, encryption as never, registry), credentials, audits, events, encryption };
 }
 

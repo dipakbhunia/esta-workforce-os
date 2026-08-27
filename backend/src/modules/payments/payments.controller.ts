@@ -9,6 +9,9 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentResponseDto } from './dto/payment-response.dto';
 import { PaymentsService } from './payments.service';
+import { PaymentProviderOrdersService } from './payment-provider-orders.service';
+import { CreateProviderOrderDto } from './dto/create-provider-order.dto';
+import { ProviderOrderResponseDto } from './dto/provider-order-response.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
@@ -16,7 +19,7 @@ import { PaymentsService } from './payments.service';
 @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN)
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly payments: PaymentsService) {}
+  constructor(private readonly payments: PaymentsService, private readonly providerOrders: PaymentProviderOrdersService) {}
 
   @Post('subscriptions/:subscriptionId')
   @ApiCreatedResponse({ type: PaymentResponseDto })
@@ -32,5 +35,15 @@ export class PaymentsController {
   @ApiOkResponse({ type: PaymentResponseDto })
   findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.payments.findOne(id, actor);
+  }
+
+  @Post(':id/provider-order')
+  @ApiCreatedResponse({ type: ProviderOrderResponseDto })
+  prepareProviderOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() _dto: CreateProviderOrderDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.providerOrders.prepare(id, actor);
   }
 }

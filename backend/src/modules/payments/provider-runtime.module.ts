@@ -2,17 +2,19 @@ import { Module } from '@nestjs/common';
 import { BillingProviderCredentialsService } from '../billing-settings/billing-provider-credentials.service';
 import { CredentialEncryptionService } from '../billing-settings/credential-encryption.service';
 import { ProviderRegistryService } from './providers/provider-registry.service';
-import { RazorpayPlaceholderProvider } from './providers/razorpay-placeholder.provider';
+import { RazorpayHttpTransport } from './providers/razorpay-http.transport';
+import { RazorpayProvider } from './providers/razorpay.provider';
 
 @Module({
   providers: [
     CredentialEncryptionService,
     BillingProviderCredentialsService,
-    RazorpayPlaceholderProvider,
+    RazorpayHttpTransport,
+    RazorpayProvider,
     {
       provide: ProviderRegistryService,
-      inject: [RazorpayPlaceholderProvider],
-      useFactory: (razorpay: RazorpayPlaceholderProvider) => {
+      inject: [RazorpayProvider],
+      useFactory: (razorpay: RazorpayProvider) => {
         const registry = new ProviderRegistryService();
         registry.register(razorpay);
         return registry;

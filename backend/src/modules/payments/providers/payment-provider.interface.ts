@@ -52,6 +52,7 @@ export interface PaymentProvider {
 
   createOrder(context: PaymentProviderContext, input: CreateProviderOrderInput): Promise<ProviderOrder>;
   fetchOrder(context: PaymentProviderContext, providerOrderId: string): Promise<ProviderOrder>;
+  findOrdersByReceipt(context: PaymentProviderContext, receipt: string): Promise<ProviderOrder[]>;
   fetchPayment(context: PaymentProviderContext, providerPaymentId: string): Promise<ProviderPayment>;
   listOrderPayments(context: PaymentProviderContext, providerOrderId: string): Promise<ProviderPayment[]>;
   verifyCheckoutSignature(context: PaymentProviderContext, input: CheckoutSignatureInput): Promise<boolean>;
