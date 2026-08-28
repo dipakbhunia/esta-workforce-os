@@ -8,6 +8,7 @@ interface ComingSoonPageProps {
   title?: string;
   description?: string;
   plannedPhase?: string;
+  availabilityMessage?: string;
   icon?: LucideIcon;
 }
 
@@ -88,7 +89,7 @@ export default function ComingSoonPage(props: ComingSoonPageProps) {
               {config.plannedPhase && <Chip size="small" label={config.plannedPhase} color="primary" variant="outlined" />}
             </Stack>
             <Typography color="text.secondary" sx={{ maxWidth: 560 }}>
-              This workspace is planned for a future release. Configuration and actions are not available yet.
+              {config.availabilityMessage ?? 'This workspace is planned for a future release. Configuration and actions are not available yet.'}
             </Typography>
             <Button component={RouterLink} to="/" variant="contained">Back to dashboard</Button>
           </Stack>

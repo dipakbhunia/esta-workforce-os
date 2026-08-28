@@ -49,7 +49,15 @@ export interface BillingProviderConfiguration {
   updatedById: string | null;
   createdAt: string;
   updatedAt: string;
+  credentialsConfigured: boolean;
+  credentialVersion: number | null;
+  credentialUpdatedAt: string | null;
+  credentialFingerprint: string | null;
 }
+
+export interface BillingCredentialPayload { keyId: string; keySecret: string; webhookSecret: string }
+export interface BillingCredentialMetadata { credentialsConfigured: boolean; credentialVersion: number | null; credentialUpdatedAt: string | null; credentialFingerprint: string | null }
+export interface CredentialValidationResult { provider: PaymentProviderType; mode: PaymentProviderMode; credentialVersion: number; success: boolean; category: string; validationType: 'STRUCTURAL'; networkConnectivityTested: false }
 
 export interface BillingProviderPayload {
   provider: PaymentProviderType;

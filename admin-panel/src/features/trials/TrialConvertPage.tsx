@@ -10,6 +10,7 @@ import { getEntitlementCatalog, getPlans } from '@/features/plans/plans-api';
 import type { Plan } from '@/features/plans/plan.types';
 import { money } from '@/features/plans/plan-utils';
 import type { BillingInterval } from '@/features/subscriptions/subscription.types';
+import { recurringPreview } from '@/features/subscriptions/subscription-utils';
 import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
 import type { ConvertTrialPayload } from './trial.types';
 import { convertTrial, getTrial } from './trials-api';
@@ -39,6 +40,7 @@ export default function TrialConvertPage() {
   const parsedSeats = Number(seats);
   const needsOverLimitOverride = usedSeats !== undefined && Number.isInteger(parsedSeats) && parsedSeats >= 1 && parsedSeats < usedSeats;
   const custom = selectedPlan?.billingModel === 'CUSTOM';
+  const selectedPrice = selectedPlan?.recurringPrices.find((price) => price.billingInterval === billingInterval)?.amountMinor ?? null;
   const catalog = useMemo(() => catalogQuery.data?.data ?? [], [catalogQuery.data]);
   const mutation = useMutation({
     mutationFn: (payload: ConvertTrialPayload) => convertTrial(id, payload),
@@ -123,7 +125,8 @@ export default function TrialConvertPage() {
           <TextField select label="Billing interval" value={billingInterval} onChange={(event) => setBillingInterval(event.target.value as BillingInterval)}>{(['MONTHLY', 'YEARLY'] as BillingInterval[]).map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}</TextField>
           <TextField required type="number" label="Contracted seats" value={seats} disabled={!selectedPlan} inputProps={{ min: selectedPlan?.minSeats ?? 1, max: selectedPlan?.maxSeats ?? undefined, step: 1 }} onChange={(event) => setSeats(event.target.value)} helperText={selectedPlan ? `Plan bounds: ${selectedPlan.minSeats ?? 1}–${selectedPlan.maxSeats ?? 'unlimited'}. This replaces the temporary Trial allowance.` : 'Choose a Plan to set contracted seats.'} />
           <TextField label={custom ? 'Authoritative recurring total' : 'Authoritative per-user price'} value={selectedPlan ? money(selectedPlan.recurringPrices.find((price) => price.billingInterval === billingInterval)?.amountMinor ?? null, selectedPlan.currency) : ''} disabled helperText="Resolved from the exact Plan interval price and snapshotted by the backend." />
-          <TextField label="Activation source" value="TRIAL CONVERSION" disabled helperText="Set by the backend and cannot be changed." />
+          <TextField label="Informational recurring total" value={selectedPlan ? recurringPreview(selectedPrice, seats, custom ? 'FIXED_TOTAL' : 'PER_USER_UNIT', selectedPlan.currency) : ''} disabled helperText={custom ? 'Fixed total; contracted seats do not multiply this amount.' : 'Plan unit price × contracted seats. The server resolves and snapshots the authoritative final amount.'} />
+          <TextField label="Activation source" value="Trial conversion" disabled helperText="Set by the backend and cannot be changed." />
         </Box>
         {selectedPlan ? <PlanPreview plan={selectedPlan} /> : <Alert severity="info">Choose a target Plan to preview the Subscription commercial snapshot.</Alert>}
         {custom ? <CustomTerms catalogLoading={catalogQuery.isLoading} catalogError={catalogQuery.isError} retryCatalog={() => void catalogQuery.refetch()} catalog={catalog} entitlements={entitlements} setEntitlements={setEntitlements} maxStorageBytes={maxStorageBytes} setMaxStorageBytes={setMaxStorageBytes} screenshotRetentionDays={screenshotRetentionDays} setScreenshotRetentionDays={setScreenshotRetentionDays} /> : selectedPlan ? <Alert severity="info">Entitlements and limits will be snapshotted from the selected current Plan. Trial snapshot values are not submitted.</Alert> : null}

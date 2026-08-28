@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { BillingInterval, CompanySubscription, Plan, PlanBillingModel, PlanStatus, Prisma, SubscriptionActivationSource, SubscriptionStatus } from '@prisma/client';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { paginatedResult, paginationArgs } from '../../common/utils/pagination.util';
@@ -149,7 +150,7 @@ export class SubscriptionsService {
 
   async assertNoLiveSubscription(tx: Prisma.TransactionClient, companyId: string, excludeId?: string) { return this.assertNoLive(tx, companyId, excludeId); }
 
-  private createData(dto: CreateSubscriptionDto, plan: PlanWithRecurringPrices): Prisma.CompanySubscriptionCreateInput {
+  private createData(dto: CreateSubscriptionDto, plan: PlanWithRecurringPrices): Prisma.CompanySubscriptionUncheckedCreateInput {
     this.validateSeats(dto.seatQuantity, plan);
     this.validatePeriod(dto.currentPeriodStart, dto.currentPeriodEnd);
     const complimentary = dto.activationSource === SubscriptionActivationSource.COMPLIMENTARY;
@@ -161,7 +162,7 @@ export class SubscriptionsService {
     const perSeatPrice = isCustom ? null : this.legacyInteger(pricing.recurringUnitPriceMinor);
     const customPrice = isCustom ? this.legacyInteger(pricing.recurringTotalPriceMinor) : null;
     return {
-      company: { connect: { id: dto.companyId } }, plan: { connect: { id: plan.id } },
+      id: randomUUID(), companyId: dto.companyId, planId: plan.id,
       activationSource: dto.activationSource, billingInterval: dto.billingInterval,
       planCodeSnapshot: plan.code, planNameSnapshot: plan.name, billingModelSnapshot: plan.billingModel,
       currency: this.currency(plan.currency), pricePerSeatMinor: perSeatPrice, customRecurringPriceMinor: customPrice,
@@ -188,7 +189,7 @@ export class SubscriptionsService {
       : planChanged ? [...plan.entitlements] : [...source.entitlementsSnapshot];
     const limitsSnapshot = this.limits(billingModel === PlanBillingModel.CUSTOM ? dto.limits ?? (planChanged ? plan.limits : source.limitsSnapshot) : planChanged ? plan.limits : source.limitsSnapshot);
     const data: Prisma.CompanySubscriptionUncheckedCreateInput = {
-      companyId: source.companyId, planId: planChanged ? plan.id : source.planId, status: source.status,
+      id: randomUUID(), companyId: source.companyId, planId: planChanged ? plan.id : source.planId, status: source.status,
       activationSource: source.activationSource, billingInterval: dto.billingInterval ?? source.billingInterval,
       planCodeSnapshot: planChanged ? plan.code : source.planCodeSnapshot, planNameSnapshot: planChanged ? plan.name : source.planNameSnapshot,
       billingModelSnapshot: billingModel, currency: planChanged ? this.currency(plan.currency) : source.currency,

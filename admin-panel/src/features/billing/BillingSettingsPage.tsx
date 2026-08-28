@@ -2,6 +2,11 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   MenuItem,
   Snackbar,
@@ -21,11 +26,13 @@ import { SectionCard } from '@/components/section-card';
 import { StatusChip } from '@/components/status-chip';
 import {
   createBillingProvider,
+  configureBillingProviderCredentials,
   getBillingProviders,
   getBillingSettings,
   runBillingProviderAction,
   updateBillingProvider,
   updateBillingSettings,
+  validateBillingProviderCredentials,
 } from './billing-settings-api';
 import type {
   BillingProviderConfiguration,
@@ -207,7 +214,7 @@ export default function BillingSettingsPage() {
       <Button variant="contained" startIcon={<Save size={18} />} disabled={settingsMutation.isPending} onClick={submitSettings}>{settingsMutation.isPending ? 'Saving…' : 'Save Billing Settings'}</Button>
     </Stack>
 
-    <SectionCard title="Payment Providers" description="Provider-neutral, non-secret metadata. No connectivity, payment collection, orders, or webhooks are active in B1.">
+    <SectionCard title="Payment Providers" description="Payment intents and backend provider-order preparation are implemented. Browser checkout, confirmation, webhooks, capture synchronization, automatic activation, refunds, invoices, GST, and renewals are not implemented.">
       {providersQuery.isError ? <Alert severity="error" action={<Button onClick={() => void providersQuery.refetch()}>Retry</Button>}>Payment provider configurations could not be loaded.</Alert> : providersQuery.isLoading ? <LoadingSkeleton rows={3} /> : <ProviderSettings providers={providersQuery.data?.data ?? []} busy={providerMutation.isPending} run={(command) => providerMutation.mutate(command)} />}
     </SectionCard>
 
@@ -240,6 +247,7 @@ function ProviderCard({ provider, busy, run }: { provider: BillingProviderConfig
   const [mode, setMode] = useState(provider.mode);
   const [displayName, setDisplayName] = useState(provider.displayName ?? '');
   const [accountReference, setAccountReference] = useState(provider.accountReference ?? '');
+  const [credentialOpen, setCredentialOpen] = useState(false);
   useEffect(() => { setMode(provider.mode); setDisplayName(provider.displayName ?? ''); setAccountReference(provider.accountReference ?? ''); }, [provider]);
   return <Stack gap={2} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: { xs: 2, md: 2.5 } }}>
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1}>
@@ -251,12 +259,25 @@ function ProviderCard({ provider, busy, run }: { provider: BillingProviderConfig
       <TextField label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} inputProps={{ maxLength: 120 }} />
       <TextField label="Account/reference metadata" value={accountReference} onChange={(event) => setAccountReference(event.target.value)} helperText="Non-secret metadata only." inputProps={{ maxLength: 255 }} />
     </Box>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1} sx={{ p: 2, border: '1px solid', borderColor: provider.mode === 'LIVE' ? 'warning.main' : 'info.main', borderRadius: 2 }}>
+      <Box><Typography fontWeight={800}>{provider.mode} credentials: {provider.credentialsConfigured ? 'Configured' : 'Not configured'}</Typography><Typography variant="body2" color="text.secondary">{provider.credentialsConfigured ? `Version ${provider.credentialVersion} · fingerprint suffix ${provider.credentialFingerprint ?? 'unavailable'} · updated ${provider.credentialUpdatedAt ? new Date(provider.credentialUpdatedAt).toLocaleString('en-IN') : 'unknown'}` : 'No effective write-only credential is available.'}</Typography></Box>
+      <Button variant="outlined" disabled={busy} onClick={() => setCredentialOpen(true)}>{provider.credentialsConfigured ? 'Rotate credentials' : 'Configure credentials'}</Button>
+    </Stack>
     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end" gap={1}>
       <Button variant="outlined" disabled={busy} onClick={() => run({ kind: 'update', id: provider.id, payload: { mode, displayName: nullable(displayName), accountReference: nullable(accountReference) } })}>Save Metadata</Button>
       {provider.enabled ? <Button color="warning" disabled={busy} onClick={() => run({ kind: 'action', id: provider.id, action: 'disable' })}>Disable</Button> : <Button disabled={busy} onClick={() => run({ kind: 'action', id: provider.id, action: 'enable' })}>Enable</Button>}
       <Button variant="contained" disabled={busy || !provider.enabled || provider.isDefault} onClick={() => run({ kind: 'action', id: provider.id, action: 'default' })}>{provider.isDefault ? 'Current Default' : 'Make Default'}</Button>
     </Stack>
+    <CredentialDialog provider={provider} open={credentialOpen} onClose={() => setCredentialOpen(false)} />
   </Stack>;
+}
+
+function CredentialDialog({ provider, open, onClose }: { provider: BillingProviderConfiguration; open: boolean; onClose: () => void }) {
+  const client = useQueryClient(); const [keyId, setKeyId] = useState(''); const [keySecret, setKeySecret] = useState(''); const [webhookSecret, setWebhookSecret] = useState(''); const [confirmed, setConfirmed] = useState(false); const [message, setMessage] = useState('');
+  const save = useMutation({ mutationFn: () => configureBillingProviderCredentials(provider.id, { keyId, keySecret, webhookSecret }), onSuccess: async () => { setKeyId(''); setKeySecret(''); setWebhookSecret(''); setConfirmed(false); setMessage('Credentials saved. Secret values were cleared and will not be redisplayed.'); await client.invalidateQueries({ queryKey: ['billing-settings', 'providers'] }); }, onError: (cause) => setMessage(apiError(cause, 'Credentials could not be saved.')) });
+  const validate = useMutation({ mutationFn: () => validateBillingProviderCredentials(provider.id), onSuccess: ({ data }) => setMessage(data.success ? `Structural validation passed for version ${data.credentialVersion}. Network connectivity was not tested.` : 'Structural validation failed. Network connectivity was not tested.'), onError: (cause) => setMessage(apiError(cause, 'Structural validation failed. Network connectivity was not tested.')) });
+  const close = () => { if (save.isPending || validate.isPending) return; setKeyId(''); setKeySecret(''); setWebhookSecret(''); setConfirmed(false); setMessage(''); onClose(); };
+  return <Dialog open={open} onClose={close} fullWidth maxWidth="sm"><DialogTitle>{provider.credentialsConfigured ? 'Rotate' : 'Configure'} {provider.mode} credentials</DialogTitle><DialogContent><Stack gap={2} sx={{ pt: 1 }}><Alert severity={provider.mode === 'LIVE' ? 'warning' : 'info'}><strong>{provider.mode} mode.</strong> Secrets are write-only and never redisplayed. Structural validation only; network connectivity not tested.</Alert>{message ? <Alert severity="info">{message}</Alert> : null}<TextField required label="Key ID" value={keyId} onChange={(event) => setKeyId(event.target.value)} autoComplete="off" /><TextField required type="password" label="Key Secret" value={keySecret} onChange={(event) => setKeySecret(event.target.value)} autoComplete="new-password" /><TextField required type="password" label="Webhook Secret" value={webhookSecret} onChange={(event) => setWebhookSecret(event.target.value)} autoComplete="new-password" />{provider.credentialsConfigured ? <FormControlLabel control={<Checkbox checked={confirmed} onChange={(_, value) => setConfirmed(value)} />} label="I understand rotation replaces the effective credential and old secrets cannot be recovered from this UI." /> : null}</Stack></DialogContent><DialogActions><Button onClick={close}>Close</Button>{provider.credentialsConfigured ? <Button variant="outlined" disabled={validate.isPending} onClick={() => validate.mutate()}>Validate credentials</Button> : null}<Button variant="contained" disabled={!keyId.trim() || !keySecret.trim() || !webhookSecret.trim() || (provider.credentialsConfigured && !confirmed) || save.isPending} onClick={() => save.mutate()}>{provider.credentialsConfigured ? 'Rotate credentials' : 'Configure credentials'}</Button></DialogActions></Dialog>;
 }
 
 function toForm(value: BillingSettings): SettingsFormValue {

@@ -132,6 +132,7 @@ interface ComingSoonRoute extends Omit<AppRoute, 'element'> {
   moduleName: string;
   description: string;
   plannedPhase?: string;
+  availabilityMessage?: string;
 }
 
 const adminRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'];
@@ -153,7 +154,7 @@ function comingSoon(route: ComingSoonRoute) {
   return {
     path: route.path,
     element: protectedElement(
-      <ComingSoonPage title={route.title} moduleName={route.moduleName} description={route.description} plannedPhase={route.plannedPhase} />,
+      <ComingSoonPage title={route.title} moduleName={route.moduleName} description={route.description} plannedPhase={route.plannedPhase} availabilityMessage={route.availabilityMessage} />,
       route.permission,
       route.roles,
     ),
@@ -171,10 +172,10 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'billing/payments', title: 'Payments', moduleName: 'Billing', description: 'Review provider-neutral tenant payment records after payment gateway integration is available.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
-  { path: 'billing/invoices', title: 'Invoices', moduleName: 'Billing', description: 'Manage SaaS subscription invoices and payment records.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
-  { path: 'billing/gst-invoices', title: 'GST Invoices', moduleName: 'Billing', description: 'Manage GST-compliant subscription invoices and tax records.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
-  { path: 'billing/renewals', title: 'Renewals', moduleName: 'Billing', description: 'Track upcoming renewals and tenant subscription continuity.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
+  { path: 'billing/payments', title: 'Payments', moduleName: 'Billing', description: 'Payment intents, secure provider runtime, and backend provider-order preparation are implemented. Browser checkout, confirmation, capture synchronization, webhooks, automatic activation, and refunds are not yet available.', availabilityMessage: 'Payment management UI is planned for a future release. No checkout, confirmation, capture, or refund actions are available here yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
+  { path: 'billing/invoices', title: 'Invoices', moduleName: 'Billing', description: 'Subscription invoice management is planned for a future billing release.', availabilityMessage: 'Invoice generation, records, downloads, payment marking, and numbering runtime are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
+  { path: 'billing/gst-invoices', title: 'GST Invoices', moduleName: 'Billing', description: 'GST invoice and tax-record management is planned for a future billing release.', availabilityMessage: 'GST invoice generation, tax calculations, and compliance workflows are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
+  { path: 'billing/renewals', title: 'Renewals', moduleName: 'Billing', description: 'Subscription renewal management is planned for a future billing release.', availabilityMessage: 'Renewal tracking, orchestration, dunning, and collection are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-configuration', title: 'Email Configuration', moduleName: 'Platform Communication', description: 'Configure the platform email delivery service for SaaS communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-templates', title: 'Email Templates', moduleName: 'Platform Communication', description: 'Manage reusable platform email templates for tenant and billing communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-delivery-logs', title: 'Email Delivery Logs', moduleName: 'Platform Communication', description: 'Review platform email delivery outcomes and failures.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },

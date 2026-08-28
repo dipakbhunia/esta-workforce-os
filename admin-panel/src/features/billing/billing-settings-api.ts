@@ -5,6 +5,9 @@ import type {
   BillingProviderUpdatePayload,
   BillingSettings,
   BillingSettingsPayload,
+  BillingCredentialMetadata,
+  BillingCredentialPayload,
+  CredentialValidationResult,
 } from './billing-settings.types';
 
 export const getBillingSettings = () =>
@@ -28,3 +31,9 @@ export const runBillingProviderAction = (
   id: string,
   action: 'enable' | 'disable' | 'default',
 ) => http.post<BillingProviderConfiguration>(`/billing-settings/providers/${id}/${action}`, {});
+
+export const configureBillingProviderCredentials = (id: string, payload: BillingCredentialPayload) =>
+  http.patch<BillingCredentialMetadata>(`/billing-settings/providers/${id}/credentials`, payload);
+
+export const validateBillingProviderCredentials = (id: string) =>
+  http.post<CredentialValidationResult>(`/billing-settings/providers/${id}/test-connection`, {});
