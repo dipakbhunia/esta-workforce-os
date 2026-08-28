@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { PaymentProviderMode, PaymentProviderType } from '@prisma/client';
+import { createHmac } from 'node:crypto';
 import { ProviderOperationError } from './provider-operation.error';
 import { RazorpayProvider } from './razorpay.provider';
 import type { RazorpayHttpRequest, RazorpayHttpResponse, RazorpayTransport } from './razorpay-http.transport';
@@ -25,6 +26,27 @@ class FakeTransport implements RazorpayTransport {
 }
 
 describe('RazorpayProvider E1.4 orders', () => {
+  it('verifies checkout signatures offline from the stored order ID and keySecret only', async () => {
+    const transport = new FakeTransport([]);
+    const provider = new RazorpayProvider(transport);
+    const providerPaymentId = 'pay_ABC123';
+    const signature = createHmac('sha256', context.credentials.keySecret).update(`order_STORED|${providerPaymentId}`).digest('hex');
+    assert.equal(await provider.verifyCheckoutSignature(context, { storedProviderOrderId: 'order_STORED', providerPaymentId, signature }), true);
+    assert.equal(await provider.verifyCheckoutSignature(context, { storedProviderOrderId: 'order_CLIENT', providerPaymentId, signature }), false);
+    const webhookSignature = createHmac('sha256', context.credentials.webhookSecret).update(`order_STORED|${providerPaymentId}`).digest('hex');
+    assert.equal(await provider.verifyCheckoutSignature(context, { storedProviderOrderId: 'order_STORED', providerPaymentId, signature: webhookSignature }), false);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  it('rejects malformed and noncanonical checkout signatures without transport', async () => {
+    const transport = new FakeTransport([]);
+    const provider = new RazorpayProvider(transport);
+    for (const signature of ['', 'A'.repeat(64), 'g'.repeat(64), '0'.repeat(63), '0'.repeat(66)]) {
+      assert.equal(await provider.verifyCheckoutSignature(context, { storedProviderOrderId: 'order_STORED', providerPaymentId: 'pay_ABC123', signature }), false);
+    }
+    assert.equal(transport.calls.length, 0);
+  });
+
   it('creates an order through one HTTPS POST with exact safe integer money and Basic auth', async () => {
     const transport = new FakeTransport([{ status: 200, body: rawOrder }]);
     const provider = new RazorpayProvider(transport);

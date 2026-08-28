@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PaymentProviderMode, PaymentProviderType } from '@prisma/client';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { ProviderCredentialMaterial } from '../../billing-settings/provider-credential.types';
 import type {
   CheckoutSignatureInput, CreateProviderOrderInput, PaymentProviderContext, ProviderOrder,
@@ -77,7 +78,15 @@ export class RazorpayProvider implements SecurePaymentProvider {
 
   fetchPayment(_context: PaymentProviderContext, _providerPaymentId: string): Promise<ProviderPayment> { return this.deferred(); }
   listOrderPayments(_context: PaymentProviderContext, _providerOrderId: string): Promise<ProviderPayment[]> { return this.deferred(); }
-  verifyCheckoutSignature(_context: PaymentProviderContext, _input: CheckoutSignatureInput): Promise<boolean> { return this.deferred(); }
+  async verifyCheckoutSignature(context: PaymentProviderContext, input: CheckoutSignatureInput): Promise<boolean> {
+    this.assertContext(context);
+    const orderId = this.required(input.storedProviderOrderId);
+    const paymentId = this.required(input.providerPaymentId);
+    if (!/^order_[A-Za-z0-9]+$/.test(orderId) || !/^pay_[A-Za-z0-9]+$/.test(paymentId) || !/^[a-f0-9]{64}$/.test(input.signature)) return false;
+    const expected = createHmac('sha256', context.credentials.keySecret).update(`${orderId}|${paymentId}`, 'utf8').digest();
+    const submitted = Buffer.from(input.signature, 'hex');
+    return submitted.length === expected.length && timingSafeEqual(submitted, expected);
+  }
   verifyAndNormalizeWebhook(_context: PaymentProviderContext, _rawBody: Buffer, _signature: string, _providerEventId?: string): Promise<VerifiedProviderWebhook> { return this.deferred(); }
 
   private async request(context: PaymentProviderContext, method: 'GET' | 'POST', path: string, body?: Readonly<Record<string, unknown>>): Promise<unknown> {
@@ -121,6 +130,10 @@ export class RazorpayProvider implements SecurePaymentProvider {
     if (context.provider !== this.type || context.mode !== PaymentProviderMode.TEST) {
       throw new ProviderOperationError('DEFINITE_FAILURE', 'PROVIDER_MODE_UNSUPPORTED', 'Provider order execution is not available');
     }
+    this.validateCredentials(context.mode, context.credentials);
+  }
+  private assertContext(context: PaymentProviderContext): void {
+    if (context.provider !== this.type) throw new Error('Provider context mismatch');
     this.validateCredentials(context.mode, context.credentials);
   }
   private invalidResponse(): ProviderOperationError { return new ProviderOperationError('AMBIGUOUS', 'PROVIDER_INVALID_RESPONSE', 'Payment provider response could not be verified'); }

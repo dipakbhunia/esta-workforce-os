@@ -12,6 +12,9 @@ import { PaymentsService } from './payments.service';
 import { PaymentProviderOrdersService } from './payment-provider-orders.service';
 import { CreateProviderOrderDto } from './dto/create-provider-order.dto';
 import { ProviderOrderResponseDto } from './dto/provider-order-response.dto';
+import { ConfirmCheckoutDto } from './dto/confirm-checkout.dto';
+import { CheckoutConfirmationResponseDto } from './dto/checkout-confirmation-response.dto';
+import { PaymentCheckoutConfirmationsService } from './payment-checkout-confirmations.service';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
@@ -19,7 +22,11 @@ import { ProviderOrderResponseDto } from './dto/provider-order-response.dto';
 @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN)
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly payments: PaymentsService, private readonly providerOrders: PaymentProviderOrdersService) {}
+  constructor(
+    private readonly payments: PaymentsService,
+    private readonly providerOrders: PaymentProviderOrdersService,
+    private readonly checkoutConfirmations: PaymentCheckoutConfirmationsService,
+  ) {}
 
   @Post('subscriptions/:subscriptionId')
   @ApiCreatedResponse({ type: PaymentResponseDto })
@@ -45,5 +52,15 @@ export class PaymentsController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.providerOrders.prepare(id, actor);
+  }
+
+  @Post(':paymentId/checkout-confirmation')
+  @ApiOkResponse({ type: CheckoutConfirmationResponseDto })
+  confirmCheckout(
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: ConfirmCheckoutDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.checkoutConfirmations.confirm(paymentId, dto, actor);
   }
 }
