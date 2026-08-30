@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PaymentProviderMode, PaymentProviderType } from '@prisma/client';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { ProviderCredentialMaterial } from '../../billing-settings/provider-credential.types';
 import type {
   CheckoutSignatureInput, CreateProviderOrderInput, PaymentProviderContext, ProviderOrder,
@@ -87,7 +87,73 @@ export class RazorpayProvider implements SecurePaymentProvider {
     const submitted = Buffer.from(input.signature, 'hex');
     return submitted.length === expected.length && timingSafeEqual(submitted, expected);
   }
-  verifyAndNormalizeWebhook(_context: PaymentProviderContext, _rawBody: Buffer, _signature: string, _providerEventId?: string): Promise<VerifiedProviderWebhook> { return this.deferred(); }
+  verifyWebhookSignature(context: PaymentProviderContext, rawBody: Buffer, signature: string): boolean {
+    this.assertContext(context);
+    if (!/^[a-f0-9]{64}$/.test(signature)) return false;
+    const expected = createHmac('sha256', context.credentials.webhookSecret).update(rawBody).digest();
+    const submitted = Buffer.from(signature, 'hex');
+    return submitted.length === expected.length && timingSafeEqual(submitted, expected);
+  }
+
+  normalizeWebhookEvent(rawBody: Buffer, providerEventId?: string, normalizationTime = new Date()): VerifiedProviderWebhook {
+    let value: unknown;
+    try { value = JSON.parse(rawBody.toString('utf8')); } catch { throw new Error('Webhook payload is malformed'); }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Webhook payload is malformed');
+    const envelope = value as Record<string, unknown>;
+    const sourceEventType = typeof envelope.event === 'string' ? envelope.event : '';
+    if (!sourceEventType || envelope.entity !== 'event') throw new Error('Webhook payload is malformed');
+    const payloadHash = createHash('sha256').update(rawBody).digest('hex');
+    const supported = ['payment.authorized', 'payment.captured', 'payment.failed'].includes(sourceEventType);
+    if (!supported) {
+      return {
+        providerEventId: this.optionalEventId(providerEventId), sourceEventType, truth: 'IGNORED',
+        providerOrderId: null, providerPaymentId: null, providerPaymentStatus: null, captured: null,
+        amountMinor: null, currency: null, occurredAt: this.optionalTimestamp(envelope.created_at, normalizationTime),
+        safeFailureCode: null, safeFailureMessage: null, payloadHash, normalizedPayloadVersion: 1,
+        normalizedPayload: { sourceEventType, truth: 'IGNORED' },
+      };
+    }
+    const payload = envelope.payload;
+    const payment = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).payment : null;
+    const entity = payment && typeof payment === 'object' && !Array.isArray(payment)
+      ? (payment as Record<string, unknown>).entity : null;
+    if (!entity || typeof entity !== 'object' || Array.isArray(entity)) throw new Error('Webhook payment evidence is malformed');
+    const p = entity as Record<string, unknown>;
+    const providerPaymentId = this.providerId(p.id, /^pay_[A-Za-z0-9]+$/);
+    const providerOrderId = this.providerId(p.order_id, /^order_[A-Za-z0-9]+$/);
+    if (!Number.isSafeInteger(p.amount) || (p.amount as number) <= 0) throw new Error('Webhook payment amount is invalid');
+    const amountMinor = BigInt(p.amount as number);
+    const currency = typeof p.currency === 'string' ? p.currency : '';
+    if (!/^[A-Z]{3}$/.test(currency)) throw new Error('Webhook payment currency is invalid');
+    const status = typeof p.status === 'string' ? p.status : '';
+    const captured = p.captured;
+    let truth: VerifiedProviderWebhook['truth'];
+    if (sourceEventType === 'payment.authorized') {
+      if (status !== 'authorized' || typeof captured !== 'boolean') throw new Error('Webhook authorization evidence is invalid');
+      truth = 'PAYMENT_AUTHORIZED';
+    } else if (sourceEventType === 'payment.captured') {
+      if (status !== 'captured' || captured !== true) throw new Error('Webhook capture evidence is invalid');
+      truth = 'PAYMENT_CAPTURED';
+    } else {
+      if (status !== 'failed' || captured !== false) throw new Error('Webhook failure evidence is invalid');
+      truth = 'PAYMENT_FAILED';
+    }
+    const safeFailureCode = truth === 'PAYMENT_FAILED' ? this.safeText(p.error_code, 80) : null;
+    const safeFailureMessage = truth === 'PAYMENT_FAILED' ? this.safeText(p.error_description, 240) : null;
+    const occurredAt = this.optionalTimestamp(envelope.created_at, normalizationTime);
+    return {
+      providerEventId: this.optionalEventId(providerEventId), sourceEventType, truth,
+      providerOrderId, providerPaymentId, providerPaymentStatus: status, captured,
+      amountMinor, currency, occurredAt, safeFailureCode, safeFailureMessage,
+      payloadHash, normalizedPayloadVersion: 1,
+      normalizedPayload: {
+        sourceEventType, truth, providerOrderId, providerPaymentId, providerPaymentStatus: status,
+        captured, amountMinor: amountMinor.toString(), currency,
+        occurredAt: occurredAt?.toISOString() ?? null, safeFailureCode, safeFailureMessage,
+      },
+    };
+  }
 
   private async request(context: PaymentProviderContext, method: 'GET' | 'POST', path: string, body?: Readonly<Record<string, unknown>>): Promise<unknown> {
     try {
@@ -138,5 +204,16 @@ export class RazorpayProvider implements SecurePaymentProvider {
   }
   private invalidResponse(): ProviderOperationError { return new ProviderOperationError('AMBIGUOUS', 'PROVIDER_INVALID_RESPONSE', 'Payment provider response could not be verified'); }
   private required(value: string | undefined): string { if (typeof value !== 'string' || !value.trim()) throw new Error('Missing credential'); return value.trim(); }
+  private providerId(value: unknown, pattern: RegExp): string { if (typeof value !== 'string' || !pattern.test(value)) throw new Error('Webhook provider identity is invalid'); return value; }
+  private optionalEventId(value?: string): string | null { if (value === undefined) return null; const result = value.trim(); if (!result || result.length > 255) throw new Error('Webhook event identity is invalid'); return result; }
+  private optionalTimestamp(value: unknown, normalizationTime: Date): Date | null {
+    if (value === undefined || value === null) return null;
+    if (!Number.isSafeInteger(value) || (value as number) <= 0 || !Number.isFinite(normalizationTime.getTime())) throw new Error('Webhook timestamp is invalid');
+    const timestampMs = (value as number) * 1000;
+    const result = new Date(timestampMs);
+    if (!Number.isFinite(result.getTime()) || result.getTime() > normalizationTime.getTime() + 5 * 60_000) throw new Error('Webhook timestamp is invalid');
+    return result;
+  }
+  private safeText(value: unknown, max: number): string | null { if (typeof value !== 'string') return null; const result = value.trim().replace(/[\r\n\t]+/g, ' ').slice(0, max); return result || null; }
   private deferred<T>(): Promise<T> { return Promise.reject(new Error('Provider operation is outside the E1.4 scope')); }
 }

@@ -26,6 +26,53 @@ class FakeTransport implements RazorpayTransport {
 }
 
 describe('RazorpayProvider E1.4 orders', () => {
+  it('verifies E1.6 webhook signatures over exact raw bytes using webhookSecret only', () => {
+    const transport = new FakeTransport([]); const provider = new RazorpayProvider(transport);
+    const raw = Buffer.from('{"event":"payment.captured","entity":"event"}');
+    const signature = createHmac('sha256', context.credentials.webhookSecret).update(raw).digest('hex');
+    assert.equal(provider.verifyWebhookSignature(context, raw, signature), true);
+    assert.equal(provider.verifyWebhookSignature(context, Buffer.from('{ "event":"payment.captured","entity":"event"}'), signature), false);
+    assert.equal(provider.verifyWebhookSignature(context, Buffer.from('{"entity":"event","event":"payment.captured"}'), signature), false);
+    assert.equal(provider.verifyWebhookSignature(context, raw, createHmac('sha256', context.credentials.keySecret).update(raw).digest('hex')), false);
+    for (const malformed of ['', 'A'.repeat(64), '0'.repeat(63), 'g'.repeat(64)]) assert.equal(provider.verifyWebhookSignature(context, raw, malformed), false);
+    assert.equal(transport.calls.length, 0);
+  });
+
+  it('rejects provider timestamps beyond five minutes of deterministic clock skew', () => {
+    const provider = new RazorpayProvider(new FakeTransport([])); const clock = new Date('2026-08-30T10:00:00.000Z');
+    const payload = (createdAt: number) => Buffer.from(JSON.stringify({ entity: 'event', event: 'payment.captured', created_at: createdAt, payload: { payment: { entity: { id: 'pay_ABC', order_id: 'order_ABC', amount: 100, currency: 'INR', status: 'captured', captured: true } } } }));
+    assert.doesNotThrow(() => provider.normalizeWebhookEvent(payload(Math.floor(clock.getTime() / 1000) + 300), undefined, clock));
+    assert.throws(() => provider.normalizeWebhookEvent(payload(Math.floor(clock.getTime() / 1000) + 301), undefined, clock), /timestamp/i);
+    assert.throws(() => provider.normalizeWebhookEvent(payload(Number.MAX_SAFE_INTEGER), undefined, clock), /timestamp/i);
+  });
+
+  it('strictly normalizes only safe payment truth without provider PII', () => {
+    const provider = new RazorpayProvider(new FakeTransport([]));
+    for (const [event, status, captured, truth] of [
+      ['payment.authorized', 'authorized', false, 'PAYMENT_AUTHORIZED'],
+      ['payment.captured', 'captured', true, 'PAYMENT_CAPTURED'],
+      ['payment.failed', 'failed', false, 'PAYMENT_FAILED'],
+    ] as const) {
+      const raw = Buffer.from(JSON.stringify({ entity: 'event', event, created_at: 1_700_000_001, payload: { payment: { entity: {
+        entity: 'payment', id: 'pay_ABC123', order_id: 'order_ABC123', amount: 49500, currency: 'INR', status, captured,
+        email: 'secret@example.com', contact: '+910000000000', card: { last4: '1234' }, vpa: 'secret@upi',
+        error_code: event === 'payment.failed' ? 'BAD_PIN' : null, error_description: event === 'payment.failed' ? 'Payment failed' : null,
+      } } } }));
+      const result = provider.normalizeWebhookEvent(raw, 'evt-1');
+      assert.equal(result.truth, truth); assert.equal(result.amountMinor, 49500n); assert.equal(result.providerOrderId, 'order_ABC123');
+      const persisted = JSON.stringify(result.normalizedPayload);
+      for (const forbidden of ['secret@example.com', '+910000000000', '1234', 'secret@upi']) assert.equal(persisted.includes(forbidden), false);
+    }
+  });
+
+  it('rejects malformed event semantics and normalizes unsupported authentic events as ignored', () => {
+    const provider = new RazorpayProvider(new FakeTransport([]));
+    const base = { entity: 'event', event: 'payment.captured', payload: { payment: { entity: { id: 'pay_ABC', order_id: 'order_ABC', amount: 100, currency: 'INR', status: 'captured', captured: true } } } };
+    for (const value of [Buffer.from('{'), Buffer.from(JSON.stringify({ ...base, entity: 'wrong' })), Buffer.from(JSON.stringify({ ...base, payload: { payment: { entity: { ...base.payload.payment.entity, captured: false } } } }))]) assert.throws(() => provider.normalizeWebhookEvent(value));
+    const ignored = provider.normalizeWebhookEvent(Buffer.from(JSON.stringify({ entity: 'event', event: 'refund.created' })));
+    assert.equal(ignored.truth, 'IGNORED'); assert.equal(ignored.providerPaymentId, null);
+  });
+
   it('verifies checkout signatures offline from the stored order ID and keySecret only', async () => {
     const transport = new FakeTransport([]);
     const provider = new RazorpayProvider(transport);

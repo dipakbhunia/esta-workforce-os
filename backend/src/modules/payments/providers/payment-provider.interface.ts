@@ -41,7 +41,17 @@ export interface CheckoutSignatureInput {
 
 export interface VerifiedProviderWebhook {
   providerEventId: string | null;
-  eventType: string;
+  sourceEventType: string;
+  truth: 'PAYMENT_AUTHORIZED' | 'PAYMENT_CAPTURED' | 'PAYMENT_FAILED' | 'IGNORED';
+  providerOrderId: string | null;
+  providerPaymentId: string | null;
+  providerPaymentStatus: string | null;
+  captured: boolean | null;
+  amountMinor: bigint | null;
+  currency: string | null;
+  occurredAt: Date | null;
+  safeFailureCode: string | null;
+  safeFailureMessage: string | null;
   payloadHash: string;
   normalizedPayloadVersion: number;
   normalizedPayload: Record<string, unknown>;
@@ -56,10 +66,10 @@ export interface PaymentProvider {
   fetchPayment(context: PaymentProviderContext, providerPaymentId: string): Promise<ProviderPayment>;
   listOrderPayments(context: PaymentProviderContext, providerOrderId: string): Promise<ProviderPayment[]>;
   verifyCheckoutSignature(context: PaymentProviderContext, input: CheckoutSignatureInput): Promise<boolean>;
-  verifyAndNormalizeWebhook(
+  verifyWebhookSignature(
     context: PaymentProviderContext,
     rawBody: Buffer,
     signature: string,
-    providerEventId?: string,
-  ): Promise<VerifiedProviderWebhook>;
+  ): boolean;
+  normalizeWebhookEvent(rawBody: Buffer, providerEventId?: string, normalizationTime?: Date): VerifiedProviderWebhook;
 }

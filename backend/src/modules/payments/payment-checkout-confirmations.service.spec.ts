@@ -114,6 +114,12 @@ describe('PaymentCheckoutConfirmationsService E1.5', () => {
     await assert.rejects(() => harness({ competing: successfulAttempt() }).service.confirm(paymentId, dto, actor), ConflictException);
   });
 
+  it('preserves authoritative webhook capture when the browser confirmation arrives later', async () => {
+    const captured = { ...payment, status: PaymentStatus.CAPTURED, capturedProviderPaymentId: dto.providerPaymentId, capturedAt: new Date(), providerStatus: 'captured' };
+    await assert.rejects(() => harness({ payment: captured as typeof payment }).service.confirm(paymentId, dto, actor), ConflictException);
+    assert.equal(captured.status, PaymentStatus.CAPTURED); assert.equal(captured.capturedProviderPaymentId, dto.providerPaymentId);
+  });
+
   it('uses a retired order-bound credential and propagates sanitized historical decryption failure', async () => {
     const h = harness(); await h.service.confirm(paymentId, dto, actor); assert.deepEqual(h.resolvedCredentialIds, [credentialId]);
     const unavailable = harness({ credentialError: new ServiceUnavailableException('Payment credential decryption failed') });

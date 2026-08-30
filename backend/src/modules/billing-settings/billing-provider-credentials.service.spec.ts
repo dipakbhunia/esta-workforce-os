@@ -20,11 +20,14 @@ function harness(config = configuration) {
     fingerprint: () => 'a'.repeat(64), encryptionKeyVersion: () => 'key-v1',
   };
   const credentialStore = {
-    findFirst: async ({ where }: { where: { id?: string; providerConfigurationId?: string; retiredAt?: null } }) => credentials.filter((value) =>
+    findFirst: async ({ where }: { where: { id?: string; providerConfigurationId?: string; retiredAt?: unknown; webhookValidUntil?: { gt?: Date; gte?: Date } } }) => credentials.filter((value) =>
       (where.id === undefined || value.id === where.id) &&
       (where.providerConfigurationId === undefined || value.providerConfigurationId === where.providerConfigurationId) &&
-      (where.retiredAt !== null || value.retiredAt === null)
+      (where.retiredAt === undefined || (where.retiredAt === null ? value.retiredAt === null : value.retiredAt instanceof Date)) &&
+      (!where.webhookValidUntil?.gt || value.webhookValidUntil instanceof Date && value.webhookValidUntil > where.webhookValidUntil.gt) &&
+      (!where.webhookValidUntil?.gte || value.webhookValidUntil instanceof Date && value.webhookValidUntil >= where.webhookValidUntil.gte)
     ).sort((a, b) => Number(b.version) - Number(a.version))[0] ?? null,
+    findMany: async ({ where, take }: { where: { providerConfigurationId: string }; take: number }) => credentials.filter((value) => value.providerConfigurationId === where.providerConfigurationId && (value.retiredAt === null || value.webhookValidUntil instanceof Date && value.webhookValidUntil >= new Date())).sort((a, b) => valueCurrentFirst(a, b)).slice(0, take),
     create: async ({ data }: { data: Record<string, unknown> }) => { events.push('create'); const value = { ...data, id: `credential-${String(data.version)}`, createdAt: new Date(), retiredAt: null }; credentials.push(value); return value; },
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => { events.push('retire'); const value = credentials.find((item) => item.id === where.id)!; Object.assign(value, data); return value; },
   };
@@ -55,9 +58,25 @@ describe('BillingProviderCredentialsService', () => {
   it('rotates under the configuration lock, increments version, and retires the previous credential', async () => {
     const h = harness(); await h.service.configure(configuration.id, material, actor); await h.service.configure(configuration.id, { ...material, keySecret: 'rotated-secret' }, actor);
     assert.equal(h.credentials.length, 2); assert.equal(h.credentials.filter((value) => value.retiredAt === null).length, 1);
-    assert.equal(h.credentials[1].version, 2); assert.ok(h.credentials[0].retiredAt instanceof Date);
+    assert.equal(h.credentials[1].version, 2); assert.ok(h.credentials[0].retiredAt instanceof Date); assert.ok(h.credentials[0].webhookValidUntil instanceof Date);
+    assert.equal((h.credentials[0].webhookValidUntil as Date).getTime() - (h.credentials[0].retiredAt as Date).getTime(), 25 * 60 * 60 * 1000);
     assert.equal(h.audits[1].action, 'BILLING_PROVIDER_CREDENTIAL_ROTATED');
     assert.deepEqual(h.events, ['lock', 'create', 'lock', 'retire', 'create']);
+  });
+
+  it('bounds webhook rotation to current plus one grace-valid predecessor', async () => {
+    const h = harness(); await h.service.configure(configuration.id, material, actor); await h.service.configure(configuration.id, { ...material, webhookSecret: 'rotated-webhook-secret' }, actor);
+    const candidates = await h.service.resolveWebhookCandidates(configuration.id, configuration.provider);
+    assert.deepEqual(candidates.map((value) => value.credentialVersion), [2, 1]);
+    await assert.rejects(() => h.service.configure(configuration.id, { ...material, webhookSecret: 'third-secret' }, actor), ConflictException);
+  });
+
+  it('orders current before predecessor and rejects expired or cross-configuration webhook candidates', async () => {
+    const h = harness(); await h.service.configure(configuration.id, material, actor); await h.service.configure(configuration.id, { ...material, webhookSecret: 'rotated-webhook-secret' }, actor);
+    assert.deepEqual((await h.service.resolveWebhookCandidates(configuration.id, configuration.provider)).map((value) => value.credentialVersion), [2, 1]);
+    h.credentials[0].webhookValidUntil = new Date(Date.now() - 1);
+    assert.deepEqual((await h.service.resolveWebhookCandidates(configuration.id, configuration.provider)).map((value) => value.credentialVersion), [2]);
+    await assert.rejects(() => h.service.resolveWebhookCandidates('00000000-0000-4000-8000-000000000099', configuration.provider));
   });
 
   it('enforces TEST/LIVE credential separation', async () => {
@@ -138,3 +157,9 @@ describe('BillingProviderCredentialsService', () => {
     );
   });
 });
+
+function valueCurrentFirst(a: Record<string, unknown>, b: Record<string, unknown>): number {
+  if (a.retiredAt === null && b.retiredAt !== null) return -1;
+  if (a.retiredAt !== null && b.retiredAt === null) return 1;
+  return Number(b.version) - Number(a.version);
+}

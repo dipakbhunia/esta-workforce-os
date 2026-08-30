@@ -4,6 +4,9 @@ import { PaymentsService } from './payments.service';
 import { ProviderRuntimeModule } from './provider-runtime.module';
 import { PaymentProviderOrdersService } from './payment-provider-orders.service';
 import { PaymentCheckoutConfirmationsService } from './payment-checkout-confirmations.service';
+import { PaymentProviderEventsService } from './payment-provider-events.service';
+import { PaymentProviderEventRecoveryScheduler } from './payment-provider-event-recovery.scheduler';
+import { PaymentWebhooksController } from './payment-webhooks.controller';
 
-@Module({ imports: [ProviderRuntimeModule], controllers: [PaymentsController], providers: [PaymentsService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService], exports: [PaymentsService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService] })
+@Module({ imports: [ProviderRuntimeModule], controllers: [PaymentsController, PaymentWebhooksController], providers: [PaymentsService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService, PaymentProviderEventRecoveryScheduler], exports: [PaymentsService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService] })
 export class PaymentsModule {}

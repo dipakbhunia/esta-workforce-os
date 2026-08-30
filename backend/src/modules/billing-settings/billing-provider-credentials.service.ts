@@ -6,6 +6,8 @@ import { ProviderRegistryService } from '../payments/providers/provider-registry
 import { CredentialEncryptionService } from './credential-encryption.service';
 import type { EffectiveProviderCredential, ProviderCredentialMaterial, ProviderCredentialMetadata } from './provider-credential.types';
 
+const WEBHOOK_GRACE_MS = 25 * 60 * 60 * 1000;
+
 @Injectable()
 export class BillingProviderCredentialsService {
   constructor(
@@ -28,7 +30,12 @@ export class BillingProviderCredentialsService {
         where: { providerConfigurationId: configurationId }, orderBy: { version: 'desc' }, select: { version: true },
       });
       const now = new Date();
-      if (current) await tx.billingProviderCredential.update({ where: { id: current.id }, data: { retiredAt: now } });
+      const graceCredential = await tx.billingProviderCredential.findFirst({
+        where: { providerConfigurationId: configurationId, retiredAt: { not: null }, webhookValidUntil: { gt: now } },
+        orderBy: { version: 'desc' }, select: { id: true },
+      });
+      if (current && graceCredential) throw new ConflictException('Payment provider credential rotation is temporarily unavailable');
+      if (current) await tx.billingProviderCredential.update({ where: { id: current.id }, data: { retiredAt: now, webhookValidUntil: new Date(now.getTime() + WEBHOOK_GRACE_MS) } });
       const fingerprint = this.encryption.fingerprint(configuration.provider, configuration.mode, normalized);
       const created = await tx.billingProviderCredential.create({
         data: {
@@ -97,6 +104,33 @@ export class BillingProviderCredentialsService {
       credentialVersion: credential.version,
       material: normalized,
     };
+  }
+
+  async resolveWebhookCandidates(configurationId: string, expectedProvider: PaymentProviderType): Promise<EffectiveProviderCredential[]> {
+    const configuration = await this.prisma.billingProviderConfiguration.findUnique({ where: { id: configurationId } });
+    if (!configuration || configuration.provider !== expectedProvider) throw new NotFoundException('Payment provider webhook is unavailable');
+    const now = new Date();
+    const [current, previous] = await Promise.all([
+      this.prisma.billingProviderCredential.findFirst({ where: { providerConfigurationId: configurationId, retiredAt: null }, orderBy: { version: 'desc' } }),
+      this.prisma.billingProviderCredential.findFirst({ where: { providerConfigurationId: configurationId, retiredAt: { not: null }, webhookValidUntil: { gte: now } }, orderBy: { version: 'desc' } }),
+    ]);
+    const rows = [current, previous].filter((value): value is NonNullable<typeof value> => value !== null);
+    if (!rows.length) throw new ConflictException('Payment provider webhook is unavailable');
+    const resolve = (credential: NonNullable<typeof current>): EffectiveProviderCredential => {
+      const material = this.encryption.decrypt(credential.encryptedPayload, credential.encryptionKeyVersion);
+      return {
+        providerConfigurationId: configuration.id, provider: configuration.provider, mode: configuration.mode,
+        credentialVersionId: credential.id, credentialVersion: credential.version,
+        material: this.registry.normalizeCredentialInput(configuration.provider, configuration.mode, material),
+      };
+    };
+    const result: EffectiveProviderCredential[] = [];
+    if (current) result.push(resolve(current));
+    if (previous) {
+      try { result.push(resolve(previous)); }
+      catch (error) { if (!current) throw error; }
+    }
+    return result;
   }
 
   async validateForEnable(configurationId: string, expectedProvider: PaymentProviderType, expectedMode: PaymentProviderMode): Promise<void> {
