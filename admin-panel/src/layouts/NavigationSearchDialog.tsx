@@ -1,85 +1,16 @@
 ﻿import { Box, Chip, Dialog, DialogContent, Divider, IconButton, InputAdornment, List, ListItemButton, ListItemIcon, ListItemText, Stack, TextField, Typography } from '@mui/material';
-import { Download, Search, X } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth, type Permission, type RoleName } from '@/features/auth';
-import { hasAnyRole, hasPermission } from '@/features/auth/utils/permissions';
+import { useAuth } from '@/features/auth';
 import { navigation } from '@/routes/navigation';
-import { getRouteMeta } from '@/routes/routeMeta';
-import type { NavGroup, NavItem } from '@/types/navigation';
+import { buildNavigationSearchEntries, searchNavigationEntries, type NavigationSearchEntry } from '@/routes/navigation-search';
 
 interface NavigationSearchDialogProps {
   open: boolean;
   onClose: () => void;
 }
-
-interface SearchEntry {
-  id: string;
-  label: string;
-  moduleName: string;
-  path: string;
-  icon?: LucideIcon;
-  keywords: string[];
-  context: string;
-  comingSoon?: boolean;
-  permission?: Permission;
-  roles?: RoleName[];
-}
-
-const implementedNavPaths = new Set([
-  '/',
-  '/organization/companies',
-  '/organization/branches',
-  '/organization/departments',
-  '/organization/designations',
-  '/scheduling/shifts',
-  '/people/employees',
-  '/attendance',
-  '/attendance/corrections',
-  '/attendance/policies',
-  '/attendance/break-policies',
-  '/leave/requests',
-  '/leave/types',
-  '/leave/balances',
-  '/monitoring/live-status',
-  '/monitoring/timeline',
-  '/monitoring/activity',
-  '/monitoring/screenshots',
-  '/monitoring/applications',
-  '/monitoring/websites',
-  '/monitoring/devices',
-  '/monitoring/idle-time',
-  '/monitoring/alerts',
-  '/monitoring/alert-policies',
-  '/monitoring/operations',
-  '/monitoring/productivity/analytics',
-  '/monitoring/productivity/trends',
-  '/monitoring/productivity/coverage',
-  '/monitoring/productivity/applications',
-  '/monitoring/productivity/websites',
-  '/notifications',
-  '/notifications/preferences',
-  '/billing/settings',
-  '/settings/users',
-  '/settings/roles',
-  '/settings/permissions',
-]);
-
-const extraEntries: SearchEntry[] = [
-  {
-    id: 'downloads',
-    label: 'Download Apps',
-    moduleName: 'Downloads',
-    path: '/downloads',
-    icon: Download,
-    keywords: ['desktop agent', 'windows installer', 'macos', 'download apps', 'apps'],
-    context: getRouteMeta('/downloads').breadcrumbs.join(' / '),
-    permission: 'dashboard:view',
-    roles: ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'],
-  },
-];
 
 export function NavigationSearchDialog({ open, onClose }: NavigationSearchDialogProps) {
   const navigate = useNavigate();
@@ -89,10 +20,10 @@ export function NavigationSearchDialog({ open, onClose }: NavigationSearchDialog
   const [activeIndex, setActiveIndex] = useState(0);
 
   const entries = useMemo(
-    () => [...navigationEntries(navigation, permissions, roles), ...extraEntries.filter((entry) => isAllowed(entry, permissions, roles))],
+    () => buildNavigationSearchEntries(navigation, permissions, roles),
     [permissions, roles],
   );
-  const results = useMemo(() => searchEntries(entries, query).slice(0, 10), [entries, query]);
+  const results = useMemo(() => searchNavigationEntries(entries, query).slice(0, 10), [entries, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -111,7 +42,7 @@ export function NavigationSearchDialog({ open, onClose }: NavigationSearchDialog
     onClose();
   }
 
-  function openEntry(entry: SearchEntry) {
+  function openEntry(entry: NavigationSearchEntry) {
     navigate(entry.path);
     closeDialog();
   }
@@ -193,84 +124,4 @@ export function NavigationSearchDialog({ open, onClose }: NavigationSearchDialog
       </DialogContent>
     </Dialog>
   );
-}
-
-function navigationEntries(groups: NavGroup[], permissions: Permission[], roles: RoleName[]): SearchEntry[] {
-  return groups.flatMap((group) => {
-    if (group.children?.length) {
-      return group.children.filter((item) => isAllowed(item, permissions, roles)).map((item) => ({
-        id: item.path,
-        label: item.label,
-        moduleName: group.label,
-        path: item.path,
-        icon: item.icon ?? group.icon,
-        comingSoon: !implementedNavPaths.has(item.path),
-        keywords: keywordsFor(group.label, item.label, item.path),
-        context: getRouteMeta(item.path).breadcrumbs.join(' / '),
-      }));
-    }
-
-    if (group.path && isAllowed(group, permissions, roles)) {
-      return [{
-        id: group.path,
-        label: group.label,
-        moduleName: group.label,
-        path: group.path,
-        icon: group.icon,
-        comingSoon: !implementedNavPaths.has(group.path),
-        keywords: keywordsFor(group.label, group.label, group.path),
-        context: getRouteMeta(group.path).breadcrumbs.join(' / '),
-      }];
-    }
-
-    return [];
-  });
-}
-
-function searchEntries(entries: SearchEntry[], query: string) {
-  const normalizedQuery = normalize(query);
-  if (!normalizedQuery) return entries.slice(0, 8);
-
-  return entries
-    .map((entry) => ({ entry, score: scoreEntry(entry, normalizedQuery) }))
-    .filter((result) => result.score > 0)
-    .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label))
-    .map((result) => result.entry);
-}
-
-function scoreEntry(entry: SearchEntry, query: string) {
-  const label = normalize(entry.label);
-  const moduleName = normalize(entry.moduleName);
-  const haystack = [label, moduleName, ...entry.keywords.map(normalize)].join(' ');
-
-  if (label === query) return 100;
-  if (label.startsWith(query)) return 80;
-  if (moduleName === query) return 70;
-  if (moduleName.startsWith(query)) return 55;
-  if (haystack.includes(query)) return 35;
-  return 0;
-}
-
-function keywordsFor(moduleName: string, label: string, path: string) {
-  const pathKeywords = path.split('/').filter(Boolean).map((part) => part.replaceAll('-', ' '));
-  const aliases = [
-    moduleName,
-    label,
-    ...pathKeywords,
-    label.replaceAll('&', 'and'),
-  ];
-  if (label === 'Users') aliases.push('accounts', 'login identities');
-  if (label === 'Shifts') aliases.push('scheduling', 'work schedule');
-  if (label === 'Employee Directory') aliases.push('employees', 'staff');
-  if (moduleName === 'CRM') aliases.push('sales');
-  if (moduleName === 'Alerts & Notifications') aliases.push('notifications', 'alerts');
-  return aliases;
-}
-
-function normalize(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function isAllowed(item: Pick<NavGroup | NavItem | SearchEntry, 'permission' | 'roles'>, permissions: Permission[], roles: RoleName[]) {
-  return hasPermission(permissions, item.permission) && hasAnyRole(roles, item.roles);
 }
