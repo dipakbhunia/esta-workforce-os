@@ -3,6 +3,16 @@ import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate, useParams } from 'react-router-dom';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { ProtectedRoute, PublicRoute, RoleGuard, type Permission, type RoleName } from '@/features/auth';
+import {
+  PLATFORM_ROLES,
+  SHARED_ROLES,
+  TENANT_ADMIN_ROLES,
+  TENANT_ATTENDANCE_ROLES,
+  TENANT_MANAGER_ROLES,
+  TENANT_ROLES,
+  TENANT_WORKFORCE_ROLES,
+  mutableRoles,
+} from '@/features/auth/utils/route-policy';
 import { AppLayout } from '@/layouts';
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
@@ -135,12 +145,14 @@ interface ComingSoonRoute extends Omit<AppRoute, 'element'> {
   availabilityMessage?: string;
 }
 
-const adminRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR'];
-const superAdminRoles: RoleName[] = ['SUPER_ADMIN'];
-const hrRoles: RoleName[] = ['COMPANY_ADMIN', 'HR'];
-const workforceRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
-const attendanceRoles: RoleName[] = ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
-const managerRoles: RoleName[] = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER'];
+const adminRoles = mutableRoles(TENANT_ADMIN_ROLES);
+const superAdminRoles = mutableRoles(PLATFORM_ROLES);
+const hrRoles = mutableRoles(TENANT_ADMIN_ROLES);
+const workforceRoles = mutableRoles(TENANT_WORKFORCE_ROLES);
+const attendanceRoles = mutableRoles(TENANT_ATTENDANCE_ROLES);
+const managerRoles = mutableRoles(TENANT_MANAGER_ROLES);
+const tenantRoles = mutableRoles(TENANT_ROLES);
+const sharedRoles = mutableRoles(SHARED_ROLES);
 
 function lazyElement(element: ReactElement) {
   return <Suspense fallback={<LoadingSkeleton rows={8} />}>{element}</Suspense>;
@@ -228,19 +240,19 @@ const comingSoonRoutes: ComingSoonRoute[] = [
   { path: 'ai/hr-analytics', title: 'AI HR Analytics', moduleName: 'AI Analytics', description: 'AI HR analytics are intentionally deferred.', plannedPhase: 'AI Analytics', permission: 'settings:view', roles: adminRoles },
   { path: 'ai/sales-analytics', title: 'AI Sales Analytics', moduleName: 'AI Analytics', description: 'AI sales analytics are intentionally deferred.', plannedPhase: 'AI Analytics', permission: 'settings:view', roles: adminRoles },
   { path: 'ai/assistant', title: 'AI Assistant', moduleName: 'AI Analytics', description: 'AI assistant workflows are intentionally deferred.', plannedPhase: 'AI Analytics', permission: 'settings:view', roles: adminRoles },
-  { path: 'reports/attendance', title: 'Attendance Reports', moduleName: 'Reports', description: 'Attendance reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view' },
-  { path: 'reports/employees', title: 'Employee Reports', moduleName: 'Reports', description: 'Employee reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view' },
-  { path: 'reports/leave', title: 'Leave Reports', moduleName: 'Reports', description: 'Leave reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view' },
-  { path: 'reports/monitoring', title: 'Monitoring Reports', moduleName: 'Reports', description: 'Monitoring reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view' },
-  { path: 'reports/productivity', title: 'Productivity Reports', moduleName: 'Reports', description: 'Productivity reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view' },
-  { path: 'reports/scheduling', title: 'Scheduling Reports', moduleName: 'Reports', description: 'Analyze scheduling, roster, weekly-off, and holiday data.', plannedPhase: 'Reports', permission: 'reports:view' },
-  { path: 'reports/ceo-dashboard', title: 'CEO Dashboard', moduleName: 'Reports', description: 'Executive reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: ['SUPER_ADMIN', 'COMPANY_ADMIN'] },
+  { path: 'reports/attendance', title: 'Attendance Reports', moduleName: 'Reports', description: 'Attendance reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: tenantRoles },
+  { path: 'reports/employees', title: 'Employee Reports', moduleName: 'Reports', description: 'Employee reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: tenantRoles },
+  { path: 'reports/leave', title: 'Leave Reports', moduleName: 'Reports', description: 'Leave reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: tenantRoles },
+  { path: 'reports/monitoring', title: 'Monitoring Reports', moduleName: 'Reports', description: 'Monitoring reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: tenantRoles },
+  { path: 'reports/productivity', title: 'Productivity Reports', moduleName: 'Reports', description: 'Productivity reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: tenantRoles },
+  { path: 'reports/scheduling', title: 'Scheduling Reports', moduleName: 'Reports', description: 'Analyze scheduling, roster, weekly-off, and holiday data.', plannedPhase: 'Reports', permission: 'reports:view', roles: tenantRoles },
+  { path: 'reports/ceo-dashboard', title: 'CEO Dashboard', moduleName: 'Reports', description: 'Executive reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: ['COMPANY_ADMIN'] },
   { path: 'reports/hr-dashboard', title: 'HR Dashboard', moduleName: 'Reports', description: 'HR reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: hrRoles },
   { path: 'reports/sales-dashboard', title: 'Sales Dashboard', moduleName: 'Reports', description: 'Sales reporting will be connected after CRM reporting APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: managerRoles },
   { path: 'reports/manager-dashboard', title: 'Manager Dashboard', moduleName: 'Reports', description: 'Manager reporting will be connected after report APIs are introduced.', plannedPhase: 'Reports', permission: 'reports:view', roles: managerRoles },
   { path: 'settings/company-profile', title: 'Company Profile', moduleName: 'Settings', description: 'Company profile settings will be connected after settings APIs are introduced.', plannedPhase: 'Settings', permission: 'settings:view', roles: hrRoles },
   { path: 'settings/desktop-agent', title: 'Desktop Agent', moduleName: 'Settings', description: 'Desktop agent configuration will be connected after agent policy APIs are introduced.', plannedPhase: 'Settings', permission: 'settings:view', roles: hrRoles },
-  { path: 'settings/general', title: 'General Settings', moduleName: 'Settings', description: 'General workspace settings will be added in a later administration phase.', plannedPhase: 'Settings', permission: 'settings:view' },
+  { path: 'settings/general', title: 'General Settings', moduleName: 'Settings', description: 'General workspace settings will be added in a later administration phase.', plannedPhase: 'Settings', permission: 'settings:view', roles: tenantRoles },
 ];
 
 export const router = createBrowserRouter([
@@ -255,11 +267,11 @@ export const router = createBrowserRouter([
         path: '/',
         element: <AppLayout />,
         children: [
-          { index: true, element: protectedElement(<DashboardPage />, 'dashboard:view') },
-          { path: 'organization/companies', element: protectedElement(<CompaniesPage />, 'companies:manage', ['SUPER_ADMIN']) },
-          { path: 'organization/companies/create', element: protectedElement(<CompanyCreatePage />, 'companies:manage', ['SUPER_ADMIN']) },
-          { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', ['SUPER_ADMIN']) },
-          { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', ['SUPER_ADMIN']) },
+          { index: true, element: protectedElement(<DashboardPage />, 'dashboard:view', sharedRoles) },
+          { path: 'organization/companies', element: protectedElement(<CompaniesPage />, 'companies:manage', superAdminRoles) },
+          { path: 'organization/companies/create', element: protectedElement(<CompanyCreatePage />, 'companies:manage', superAdminRoles) },
+          { path: 'organization/companies/:id', element: protectedElement(<CompanyDetailsPage />, 'companies:manage', superAdminRoles) },
+          { path: 'organization/companies/:id/edit', element: protectedElement(<CompanyEditPage />, 'companies:manage', superAdminRoles) },
           { path: 'saas/plans', element: protectedElement(<PlansPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/plans/create', element: protectedElement(<PlanFormPage />, 'settings:view', superAdminRoles) },
           { path: 'saas/plans/:id/edit', element: protectedElement(<PlanFormPage />, 'settings:view', superAdminRoles) },
@@ -336,17 +348,17 @@ export const router = createBrowserRouter([
           { path: 'settings/users', element: protectedElement(<UsersPage />, 'people:manage', adminRoles) },
           { path: 'settings/roles', element: protectedElement(<RolesPage />, 'people:manage', adminRoles) },
           { path: 'settings/permissions', element: protectedElement(<PermissionsPage />, 'people:manage', adminRoles) },
-          { path: 'settings/notifications', element: protectedElement(<Navigate to="/notifications/preferences" replace />, 'settings:view', workforceRoles) },
-          { path: 'notifications', element: protectedElement(<NotificationCenterPage />, 'monitoring:view', workforceRoles) },
-          { path: 'notifications/preferences', element: protectedElement(<NotificationPreferencesPage />, 'settings:view', workforceRoles) },
-          { path: 'downloads', element: protectedElement(<DownloadsPage />, 'dashboard:view', workforceRoles) },
+          { path: 'settings/notifications', element: protectedElement(<Navigate to="/notifications/preferences" replace />, 'settings:view', sharedRoles) },
+          { path: 'notifications', element: protectedElement(<NotificationCenterPage />, 'monitoring:view', sharedRoles) },
+          { path: 'notifications/preferences', element: protectedElement(<NotificationPreferencesPage />, 'settings:view', sharedRoles) },
+          { path: 'downloads', element: protectedElement(<DownloadsPage />, 'dashboard:view', sharedRoles) },
           { path: 'attendance', element: protectedElement(<AttendancePage />, 'attendance:view', attendanceRoles) },
           { path: 'attendance/create', element: lazyElement(<NotFoundPage />) },
           { path: 'attendance/corrections', element: protectedElement(<AttendanceCorrectionsPage />, 'attendance:view', attendanceRoles) },
           { path: 'attendance/corrections/create', element: protectedElement(<AttendanceCorrectionCreatePage />, 'attendance:view', attendanceRoles) },
           { path: 'attendance/corrections/:id', element: protectedElement(<AttendanceCorrectionDetailsPage />, 'attendance:view', attendanceRoles) },
           { path: 'attendance/policies', element: protectedElement(<AttendancePoliciesPage />, 'attendance:manage', hrRoles) },
-          { path: 'attendance/break-policies', element: protectedElement(<BreakPoliciesPage />, 'attendance:manage', ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']) },
+          { path: 'attendance/break-policies', element: protectedElement(<BreakPoliciesPage />, 'attendance:manage', hrRoles) },
           { path: 'attendance/holiday-calendar', element: protectedElement(<Navigate to="/scheduling/holiday-calendar" replace />, 'shifts:manage', hrRoles) },
           { path: 'attendance/:id', element: protectedElement(<AttendanceDetailsPage />, 'attendance:view', attendanceRoles) },
           { path: 'leave/types', element: protectedElement(<LeaveTypesPage />, 'leave:manage', hrRoles) },
@@ -356,33 +368,33 @@ export const router = createBrowserRouter([
           { path: 'leave/requests/create', element: protectedElement(<LeaveRequestCreatePage />, 'leave:view', attendanceRoles) },
           { path: 'leave/requests/:id', element: protectedElement(<LeaveRequestDetailsPage />, 'leave:view', attendanceRoles) },
           { path: 'leave/balances', element: protectedElement(<LeaveBalancesPage />, 'leave:view', attendanceRoles) },
-          { path: 'monitoring/live-status', element: protectedElement(<LiveStatusPage />, 'monitoring:view') },
-          { path: 'monitoring/timeline', element: protectedElement(<MonitoringTimelinePage />, 'monitoring:view') },
-          { path: 'monitoring/activity-timeline', element: protectedElement(<Navigate to="/monitoring/timeline" replace />, 'monitoring:view') },
-          { path: 'monitoring/activity', element: protectedElement(<MonitoringActivityPage />, 'monitoring:view') },
-          { path: 'monitoring/screenshots', element: protectedElement(<MonitoringScreenshotsPage />, 'monitoring:view') },
-          { path: 'monitoring/applications', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view') },
-          { path: 'monitoring/websites', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view') },
-          { path: 'monitoring/apps-urls', element: protectedElement(<Navigate to="/monitoring/applications" replace />, 'monitoring:view') },
-          { path: 'monitoring/devices', element: protectedElement(<MonitoringDevicesOverviewPage />, 'monitoring:view') },
-          { path: 'monitoring/devices/inventory', element: protectedElement(<MonitoringDevicesPage />, 'monitoring:view') },
-          { path: 'monitoring/devices/:deviceId', element: protectedElement(<MonitoringDeviceDetailsPage />, 'monitoring:view') },
-          { path: 'monitoring/idle-time', element: protectedElement(<MonitoringIdleAnalyticsPage />, 'monitoring:view') },
-          { path: 'monitoring/alerts', element: protectedElement(<MonitoringAlertsPage />, 'monitoring:view') },
-          { path: 'monitoring/alerts/:alertId', element: protectedElement(<MonitoringAlertDetailsPage />, 'monitoring:view') },
+          { path: 'monitoring/live-status', element: protectedElement(<LiveStatusPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/timeline', element: protectedElement(<MonitoringTimelinePage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/activity-timeline', element: protectedElement(<Navigate to="/monitoring/timeline" replace />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/activity', element: protectedElement(<MonitoringActivityPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/screenshots', element: protectedElement(<MonitoringScreenshotsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/applications', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/websites', element: protectedElement(<MonitoringAppsUrlsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/apps-urls', element: protectedElement(<Navigate to="/monitoring/applications" replace />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/devices', element: protectedElement(<MonitoringDevicesOverviewPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/devices/inventory', element: protectedElement(<MonitoringDevicesPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/devices/:deviceId', element: protectedElement(<MonitoringDeviceDetailsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/idle-time', element: protectedElement(<MonitoringIdleAnalyticsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/alerts', element: protectedElement(<MonitoringAlertsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/alerts/:alertId', element: protectedElement(<MonitoringAlertDetailsPage />, 'monitoring:view', tenantRoles) },
           { path: 'monitoring/alert-policies', element: protectedElement(<MonitoringAlertPoliciesPage />, 'monitoring:view', adminRoles) },
           { path: 'monitoring/alert-policies/create', element: protectedElement(<MonitoringAlertPolicyFormPage />, 'monitoring:view', adminRoles) },
           { path: 'monitoring/alert-policies/:id/edit', element: protectedElement(<MonitoringAlertPolicyFormPage />, 'monitoring:view', adminRoles) },
           { path: 'monitoring/operations', element: protectedElement(<MonitoringOperationsPage />, 'monitoring:view', managerRoles) },
-          { path: 'monitoring/productivity', element: protectedElement(<Navigate to="/monitoring/productivity/analytics" replace />, 'monitoring:view') },
-          { path: 'monitoring/productivity/analytics', element: protectedElement(<ProductivityAnalyticsPage />, 'monitoring:view') },
-          { path: 'monitoring/productivity/coverage', element: protectedElement(<ProductivityCoveragePage />, 'monitoring:view') },
-          { path: 'monitoring/productivity/trends', element: protectedElement(<ProductivityTrendsPage />, 'monitoring:view') },
-          { path: 'monitoring/productivity/employees/:employeeId', element: protectedElement(<ProductivityEmployeeDetailsPage />, 'monitoring:view') },
+          { path: 'monitoring/productivity', element: protectedElement(<Navigate to="/monitoring/productivity/analytics" replace />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/productivity/analytics', element: protectedElement(<ProductivityAnalyticsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/productivity/coverage', element: protectedElement(<ProductivityCoveragePage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/productivity/trends', element: protectedElement(<ProductivityTrendsPage />, 'monitoring:view', tenantRoles) },
+          { path: 'monitoring/productivity/employees/:employeeId', element: protectedElement(<ProductivityEmployeeDetailsPage />, 'monitoring:view', tenantRoles) },
           { path: 'monitoring/productivity/applications', element: protectedElement(<ProductivityApplicationsPage />, 'monitoring:view', adminRoles) },
           { path: 'monitoring/productivity/websites', element: protectedElement(<ProductivityWebsitesPage />, 'monitoring:view', adminRoles) },
-          { path: 'reports', element: protectedElement(<ReportsPage />, 'reports:view') },
-          { path: 'settings', element: protectedElement(<SettingsPage />, 'settings:view') },
+          { path: 'reports', element: protectedElement(<ReportsPage />, 'reports:view', tenantRoles) },
+          { path: 'settings', element: protectedElement(<SettingsPage />, 'settings:view', tenantRoles) },
           ...comingSoonRoutes.map(comingSoon),
           { path: '*', element: lazyElement(<NotFoundPage />) },
         ],

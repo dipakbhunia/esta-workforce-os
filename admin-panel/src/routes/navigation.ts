@@ -34,15 +34,25 @@ import {
   Users,
 } from 'lucide-react';
 import type { RoleName } from '@/features/auth';
+import {
+  PLATFORM_ROLES,
+  SHARED_ROLES,
+  TENANT_ADMIN_ROLES,
+  TENANT_MANAGER_ROLES,
+  TENANT_ROLES,
+  TENANT_WORKFORCE_ROLES,
+  mutableRoles,
+} from '@/features/auth/utils/route-policy';
 import type { NavGroup } from '@/types/navigation';
 
-const superAdminRoles: RoleName[] = ['SUPER_ADMIN'];
-const tenantRoles: RoleName[] = ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
-const adminRoles: RoleName[] = ['COMPANY_ADMIN', 'HR'];
-const hrRoles: RoleName[] = ['COMPANY_ADMIN', 'HR'];
-const workforceRoles: RoleName[] = tenantRoles;
-const reviewerRoles: RoleName[] = ['COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE'];
-const managerRoles: RoleName[] = ['COMPANY_ADMIN', 'HR', 'MANAGER'];
+const superAdminRoles: RoleName[] = mutableRoles(PLATFORM_ROLES);
+const tenantRoles: RoleName[] = mutableRoles(TENANT_ROLES);
+const adminRoles: RoleName[] = mutableRoles(TENANT_ADMIN_ROLES);
+const hrRoles: RoleName[] = mutableRoles(TENANT_ADMIN_ROLES);
+const workforceRoles: RoleName[] = mutableRoles(TENANT_WORKFORCE_ROLES);
+const reviewerRoles: RoleName[] = mutableRoles(TENANT_ROLES);
+const managerRoles: RoleName[] = mutableRoles(TENANT_MANAGER_ROLES);
+const sharedRoles: RoleName[] = mutableRoles(SHARED_ROLES);
 
 export const navigation: NavGroup[] = [
   { label: 'Dashboard', path: '/', icon: Gauge, permission: 'dashboard:view' },
@@ -226,8 +236,8 @@ export const navigation: NavGroup[] = [
       { label: 'Alert Center', path: '/monitoring/alerts', icon: AlertTriangle, permission: 'monitoring:view', roles: tenantRoles },
       { label: 'Alert Policies', path: '/monitoring/alert-policies', icon: BellRing, permission: 'monitoring:view', roles: adminRoles },
       { label: 'Operations Dashboard', path: '/monitoring/operations', icon: Gauge, permission: 'monitoring:view', roles: managerRoles },
-      { label: 'Notification Center', path: '/notifications', icon: Bell, permission: 'monitoring:view', roles: workforceRoles },
-      { label: 'Notification Preferences', path: '/notifications/preferences', icon: Settings, permission: 'settings:view', roles: workforceRoles },
+      { label: 'Notification Center', path: '/notifications', icon: Bell, permission: 'monitoring:view', roles: sharedRoles },
+      { label: 'Notification Preferences', path: '/notifications/preferences', icon: Settings, permission: 'settings:view', roles: sharedRoles },
     ],
   },
   {
