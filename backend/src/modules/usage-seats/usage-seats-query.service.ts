@@ -227,6 +227,7 @@ export class UsageSeatsQueryService {
         FROM "CompanySubscription" subscription
         INNER JOIN "Plan" plan ON plan."id" = subscription."planId"
         WHERE subscription."status" IN ('ACTIVE', 'SUSPENDED')
+          AND (subscription."currentPeriodEnd" IS NULL OR subscription."currentPeriodEnd" > ${now})
         ORDER BY subscription."companyId", subscription."createdAt" DESC
       ),
       "usage_rows" AS (

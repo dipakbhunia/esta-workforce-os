@@ -197,6 +197,8 @@ describe('Storage Usage reporting', () => {
     assert.match(sql, /trial\."endsAt" >/);
     assert.match(sql, /WHEN trial\."id" IS NOT NULL THEN 'TRIAL'/);
     assert.match(sql, /\(subscription\."status" = 'ACTIVE'\) DESC/);
+    assert.match(sql, /subscription\."currentPeriodEnd" IS NULL/);
+    assert.match(sql, /subscription\."currentPeriodEnd" >/);
   });
 
   it('uses agreement snapshots and does not resolve limits from mutable Plan data', async () => {

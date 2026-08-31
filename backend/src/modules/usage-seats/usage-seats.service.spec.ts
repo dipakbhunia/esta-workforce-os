@@ -89,6 +89,20 @@ describe('Usage & Seats domain services', () => {
     });
   });
 
+  it('does not treat an elapsed bounded Subscription as current authority', async () => {
+    const at = new Date('2026-08-31T12:00:00.000Z');
+    let subscriptionWhere: unknown;
+    const service = new CommercialAccessService({
+      companyTrial: { findFirst: async () => null },
+      companySubscription: { findFirst: async ({ where }: { where: unknown }) => { subscriptionWhere = where; return null; } },
+    } as never);
+    const access = await service.resolve('company-1', undefined, at);
+    assert.equal(access.source, CommercialSeatSource.NONE);
+    assert.deepEqual((subscriptionWhere as { OR: unknown }).OR, [
+      { currentPeriodEnd: null }, { currentPeriodEnd: { gt: at } },
+    ]);
+  });
+
   it('returns NONE when no effective commercial record exists', async () => {
     const access = await commercialHarness({ trial: null, subscription: null }).resolve('company-1');
     assert.deepEqual(access, {

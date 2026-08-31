@@ -47,6 +47,10 @@ export class CommercialAccessService {
         status: {
           in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED],
         },
+        OR: [
+          { currentPeriodEnd: null },
+          { currentPeriodEnd: { gt: now } },
+        ],
       },
       orderBy: { createdAt: 'desc' },
       select: {

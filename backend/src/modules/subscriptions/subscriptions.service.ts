@@ -9,6 +9,8 @@ import { CURRENT_ENTITLEMENTS, PLAN_LIMIT_KEYS, PlanLimits, isAssignableEntitlem
 import { ApprovedOverLimit, SeatUsageService } from '../usage-seats/seat-usage.service';
 import { ActivateSubscriptionDto, AmendSubscriptionDto, CreateSubscriptionDto, SubscriptionQueryDto } from './dto/subscription.dto';
 import { CommercialPricingError, resolveRecurringPricing } from './commercial-pricing.util';
+import { SubscriptionExpirationService } from './subscription-expiration.service';
+import { isSubscriptionPeriodDue } from './subscription-period-validity.util';
 
 const planPricingInclude = { recurringPrices: true } satisfies Prisma.PlanInclude;
 type PlanWithRecurringPrices = Prisma.PlanGetPayload<{ include: typeof planPricingInclude }>;
@@ -25,6 +27,7 @@ export class SubscriptionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly seatUsage: SeatUsageService,
+    private readonly expiration: SubscriptionExpirationService,
   ) {}
 
   async create(dto: CreateSubscriptionDto, actor: AuthenticatedUser) {
@@ -107,7 +110,11 @@ export class SubscriptionsService {
   }
 
   async expire(id: string, actor: AuthenticatedUser) {
-    return this.terminalTransition(id, SubscriptionStatus.EXPIRED, 'SUBSCRIPTION_EXPIRED', actor);
+    const result = await this.expiration.expire(id, { now: new Date(), source: 'MANUAL', actorUserId: actor.id });
+    if (result.outcome === 'NOT_FOUND') throw new NotFoundException('Subscription not found');
+    if (result.outcome === 'NOT_DUE') throw new BadRequestException('Subscription cannot expire before its current period end');
+    if (result.outcome !== 'EXPIRED') throw new BadRequestException(`Cannot expire a ${result.outcome === 'ALREADY_EXPIRED' ? SubscriptionStatus.EXPIRED : 'non-live'} subscription`);
+    return this.findOne(id);
   }
 
   async amend(id: string, dto: AmendSubscriptionDto, actor: AuthenticatedUser) {
@@ -125,6 +132,7 @@ export class SubscriptionsService {
       await this.seatUsage.lockCompany(tx, source.companyId);
       const locked = await tx.companySubscription.findUnique({ where: { id } });
       if (!locked || locked.status !== source.status) throw new ConflictException('Subscription changed while the amendment was being prepared');
+      if (isSubscriptionPeriodDue(locked, effectiveAt)) throw new BadRequestException('An elapsed subscription cannot be amended');
       await this.assertNoEffectiveTrial(tx, source.companyId);
       await this.assertNoLive(tx, source.companyId, source.id);
       const used = await this.seatUsage.countUsedSeats(source.companyId, tx);
@@ -217,33 +225,29 @@ export class SubscriptionsService {
       const current = await tx.companySubscription.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Subscription not found');
       if (current.status !== from) throw new BadRequestException(`Cannot transition subscription from ${current.status} to ${to}`);
+      const now = new Date();
+      if ((to === SubscriptionStatus.ACTIVE || to === SubscriptionStatus.SUSPENDED) && isSubscriptionPeriodDue(current, now)) {
+        throw new BadRequestException('An elapsed subscription cannot remain commercially live');
+      }
       if (to === SubscriptionStatus.ACTIVE) await this.assertNoEffectiveTrial(tx, current.companyId);
-      const data = await extra(tx, current, new Date());
+      const data = await extra(tx, current, now);
       const updated = await tx.companySubscription.update({ where: { id }, data: { ...data, status: to }, include: detailInclude });
       await this.audit(tx, actor.id, current.companyId, id, action, { from, to });
       return updated;
     });
   }
-  private async terminalTransition(id: string, to: typeof SubscriptionStatus.CANCELLED | typeof SubscriptionStatus.EXPIRED, action: string, actor: AuthenticatedUser) {
+  private async terminalTransition(id: string, to: typeof SubscriptionStatus.CANCELLED, action: string, actor: AuthenticatedUser) {
     return this.prisma.$transaction(async (tx) => {
       const candidate = await tx.companySubscription.findUnique({ where: { id } });
       if (!candidate) throw new NotFoundException('Subscription not found');
       await this.seatUsage.lockCompany(tx, candidate.companyId);
       const current = await tx.companySubscription.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Subscription not found');
-      if (to === SubscriptionStatus.CANCELLED) {
-        if (current.status !== SubscriptionStatus.PENDING && current.status !== SubscriptionStatus.ACTIVE && current.status !== SubscriptionStatus.SUSPENDED) throw new BadRequestException(`Cannot cancel a ${current.status} subscription`);
-      } else {
-        if (current.status !== SubscriptionStatus.ACTIVE && current.status !== SubscriptionStatus.SUSPENDED) throw new BadRequestException(`Cannot expire a ${current.status} subscription`);
-        if (!current.currentPeriodEnd) throw new BadRequestException('Subscription cannot expire without a current period end');
-        if (current.currentPeriodEnd.getTime() > Date.now()) throw new BadRequestException('Subscription cannot expire before its current period end');
-      }
+      if (current.status !== SubscriptionStatus.PENDING && current.status !== SubscriptionStatus.ACTIVE && current.status !== SubscriptionStatus.SUSPENDED) throw new BadRequestException(`Cannot cancel a ${current.status} subscription`);
       const now = new Date();
       const updated = await tx.companySubscription.update({
         where: { id },
-        data: to === SubscriptionStatus.CANCELLED
-          ? { status: to, cancelledAt: now, endedAt: now }
-          : { status: to, endedAt: now },
+        data: { status: to, cancelledAt: now, endedAt: now },
         include: detailInclude,
       });
       await this.audit(tx, actor.id, current.companyId, id, action, { from: current.status, to });

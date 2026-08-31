@@ -175,6 +175,7 @@ export class StorageUsageQueryService {
           subscription."createdAt"
         FROM "CompanySubscription" subscription
         WHERE subscription."status" IN ('ACTIVE', 'SUSPENDED')
+          AND (subscription."currentPeriodEnd" IS NULL OR subscription."currentPeriodEnd" > ${now})
         ORDER BY
           subscription."companyId",
           (subscription."status" = 'ACTIVE') DESC,
