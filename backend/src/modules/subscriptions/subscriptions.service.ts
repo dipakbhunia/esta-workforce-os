@@ -76,6 +76,7 @@ export class SubscriptionsService {
       await this.seatUsage.lockCompany(tx, candidate.companyId);
       const current = await tx.companySubscription.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Subscription not found');
+      if (current.activationSource === SubscriptionActivationSource.PAYMENT) throw new BadRequestException('Payment subscriptions are activated only by authoritative captured payment');
       if (current.status !== SubscriptionStatus.PENDING) throw new BadRequestException(`Cannot transition subscription from ${current.status} to ${SubscriptionStatus.ACTIVE}`);
       await this.assertNoEffectiveTrial(tx, current.companyId);
       await this.assertNoLive(tx, current.companyId, current.id);

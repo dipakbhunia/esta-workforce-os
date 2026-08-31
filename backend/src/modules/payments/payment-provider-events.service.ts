@@ -5,6 +5,7 @@ import { BillingProviderCredentialsService } from '../billing-settings/billing-p
 import { transitionPaymentState } from './payment-state-machine';
 import type { StoredNormalizedProviderEvent } from './payment-provider-event.types';
 import { ProviderRegistryService } from './providers/provider-registry.service';
+import { SubscriptionPaymentActivationService } from '../subscriptions/subscription-payment-activation.service';
 
 const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 30 * 60_000;
@@ -15,7 +16,7 @@ class ProviderOrderNotFoundError extends Error {}
 
 @Injectable()
 export class PaymentProviderEventsService {
-  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService, private readonly providers: ProviderRegistryService) {}
+  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService, private readonly providers: ProviderRegistryService, private readonly activation: SubscriptionPaymentActivationService) {}
 
   async ingest(provider: PaymentProviderType, configurationId: string, rawBody: Buffer, signature: string, providerEventId?: string) {
     let candidates;
@@ -71,8 +72,10 @@ export class PaymentProviderEventsService {
       { status: PaymentProviderEventStatus.PROCESSING, processingStartedAt: { lte: new Date(now.getTime() - PROCESSING_LEASE_MS) } },
     ] }, data: { status: PaymentProviderEventStatus.PROCESSING, processingStartedAt: now, attemptCount: { increment: 1 }, nextRetryAt: null, safeErrorMessage: null } });
     if (claimed.count !== 1) return;
-    try { await this.applyTruth(eventId); }
-    catch (error) { if (this.isUniqueViolation(error)) await this.markPermanentConflict(eventId); else await this.markRetryableFailure(eventId, error); }
+    let capturedPaymentId: string | null = null;
+    try { capturedPaymentId = await this.applyTruth(eventId); }
+    catch (error) { if (this.isUniqueViolation(error)) await this.markPermanentConflict(eventId); else await this.markRetryableFailure(eventId, error); return; }
+    if (capturedPaymentId) { try { await this.activation.activate(capturedPaymentId); } catch { /* CAPTURED truth is committed; durable recovery remains authoritative */ } }
   }
 
   async recoverDue(limit = 25): Promise<void> {
@@ -90,21 +93,21 @@ export class PaymentProviderEventsService {
     for (const row of rows) { try { await this.process(row.id); } catch { /* isolate poisoned events; durable claim recovery remains available */ } }
   }
 
-  private async applyTruth(eventId: string): Promise<void> {
+  private async applyTruth(eventId: string): Promise<string | null> {
     const candidate = await this.prisma.paymentProviderEvent.findUnique({ where: { id: eventId } });
-    if (!candidate) return;
+    if (!candidate) return null;
     const normalized = candidate.normalizedPayload as unknown as StoredNormalizedProviderEvent;
     if (normalized.truth === 'IGNORED') {
       await this.prisma.$transaction(async (tx) => {
         await tx.paymentProviderEvent.update({ where: { id: eventId }, data: { status: PaymentProviderEventStatus.IGNORED, processedAt: new Date(), processingStartedAt: null, safeErrorMessage: 'Unsupported provider event type' } });
         await tx.auditLog.create({ data: { action: 'PAYMENT_PROVIDER_EVENT_IGNORED', entityType: 'PaymentProviderEvent', entityId: eventId, metadata: { category: 'UNSUPPORTED_EVENT_TYPE' } } });
       });
-      return;
+      return null;
     }
     if (!candidate.providerOrderId) throw new ProviderOrderNotFoundError('Provider order correlation is unavailable');
     const order = await this.prisma.paymentProviderOrder.findUnique({ where: { providerConfigurationId_providerOrderId: { providerConfigurationId: candidate.providerConfigurationId, providerOrderId: candidate.providerOrderId } }, select: { paymentId: true } });
     if (!order) throw new ProviderOrderNotFoundError('Provider order correlation is unavailable');
-    await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${order.paymentId}::uuid FOR UPDATE`);
       if (!locked.length) throw new Error('Payment correlation is unavailable');
       const [event, payment, providerOrder] = await Promise.all([
@@ -123,18 +126,18 @@ export class PaymentProviderEventsService {
         && amountMinor === payment.amountMinor && evidence.currency === payment.currency
         && event.providerPaymentId === evidence.providerPaymentId
         && (!payment.attempts[0] || payment.attempts[0].providerPaymentId === evidence.providerPaymentId);
-      if (!coherent) { await this.ignoreConflict(tx, event.id, payment.companyId, 'Provider payment evidence conflicts with stored ownership or money'); return; }
+      if (!coherent) { await this.ignoreConflict(tx, event.id, payment.companyId, 'Provider payment evidence conflicts with stored ownership or money'); return null; }
       if (evidence.providerPaymentId) {
         const competing = await tx.payment.findFirst({ where: { providerConfigurationId: payment.providerConfigurationId, capturedProviderPaymentId: evidence.providerPaymentId, id: { not: payment.id } }, select: { id: true } });
-        if (competing) { await this.ignoreConflict(tx, event.id, payment.companyId, 'Provider payment identity is already bound to another payment'); return; }
+        if (competing) { await this.ignoreConflict(tx, event.id, payment.companyId, 'Provider payment identity is already bound to another payment'); return null; }
       }
       const target = this.targetStatus(evidence.truth);
-      if (!target) { await this.ignore(tx, event.id, 'Provider event does not carry payment truth', payment.companyId); return; }
+      if (!target) { await this.ignore(tx, event.id, 'Provider event does not carry payment truth', payment.companyId); return null; }
       if (payment.status === PaymentStatus.CAPTURED) {
-        if (target === PaymentStatus.CAPTURED && payment.capturedProviderPaymentId !== evidence.providerPaymentId) { await this.ignoreConflict(tx, event.id, payment.companyId, 'Captured provider payment identity conflicts with existing truth'); return; }
-        await this.ignore(tx, event.id, target === PaymentStatus.CAPTURED ? 'Duplicate captured provider truth' : 'Stale provider truth after capture', payment.companyId); return;
+        if (target === PaymentStatus.CAPTURED && payment.capturedProviderPaymentId !== evidence.providerPaymentId) { await this.ignoreConflict(tx, event.id, payment.companyId, 'Captured provider payment identity conflicts with existing truth'); return null; }
+        await this.ignore(tx, event.id, target === PaymentStatus.CAPTURED ? 'Duplicate captured provider truth' : 'Stale provider truth after capture', payment.companyId); return target === PaymentStatus.CAPTURED ? payment.id : null;
       }
-      if (payment.status === PaymentStatus.FAILED && target === PaymentStatus.AUTHORIZED) { await this.ignore(tx, event.id, 'Stale authorization after provider failure', payment.companyId); return; }
+      if (payment.status === PaymentStatus.FAILED && target === PaymentStatus.AUTHORIZED) { await this.ignore(tx, event.id, 'Stale authorization after provider failure', payment.companyId); return null; }
       const transition = transitionPaymentState(payment, target, {
         observedAt: evidence.occurredAt ? new Date(evidence.occurredAt) : event.receivedAt,
         providerStatus: evidence.providerPaymentStatus, providerPaymentId: evidence.providerPaymentId ?? undefined,
@@ -152,6 +155,7 @@ export class PaymentProviderEventsService {
       if (target === PaymentStatus.CAPTURED && providerOrder.status === PaymentProviderOrderStatus.CLOSED) await tx.auditLog.create({ data: { companyId: payment.companyId, action: 'PAYMENT_CAPTURED_AFTER_ORDER_CLOSED', entityType: 'Payment', entityId: payment.id, metadata: { providerEventId: event.id, providerOrderRecordId: providerOrder.id } } });
       if (target === PaymentStatus.CAPTURED && payment.subscription.status === 'CANCELLED') await tx.auditLog.create({ data: { companyId: payment.companyId, action: 'PAYMENT_CAPTURED_FOR_CANCELLED_SUBSCRIPTION', entityType: 'Payment', entityId: payment.id, metadata: { providerEventId: event.id, subscriptionId: payment.subscriptionId } } });
       await tx.paymentProviderEvent.update({ where: { id: event.id }, data: { paymentId: payment.id, providerOrderRecordId: providerOrder.id, status: PaymentProviderEventStatus.PROCESSED, processedAt: new Date(), processingStartedAt: null, safeErrorMessage: null } });
+      return target === PaymentStatus.CAPTURED ? payment.id : null;
     });
   }
 

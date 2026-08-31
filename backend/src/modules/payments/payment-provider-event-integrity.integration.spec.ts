@@ -75,7 +75,7 @@ describeDb('E1.6 PostgreSQL provider-event integrity', () => {
       providerEventId: eventId, sourceEventType: 'probe.unsupported', providerOrderId: null, providerPaymentId: null,
       occurredAt: null, payloadHash, normalizedPayloadVersion: 1, normalizedPayload,
     }) }) };
-    const service = new PaymentProviderEventsService(prisma as never, credentials as never, providers as never);
+    const service = new PaymentProviderEventsService(prisma as never, credentials as never, providers as never, { activate: async () => undefined } as never);
     try {
       const results = await Promise.all([service.ingest(PaymentProviderType.RAZORPAY, ensured.credential.providerConfigurationId, Buffer.from('{}'), 'valid'),
         service.ingest(PaymentProviderType.RAZORPAY, ensured.credential.providerConfigurationId, Buffer.from('{}'), 'valid')]);
@@ -94,7 +94,7 @@ describeDb('E1.6 PostgreSQL provider-event integrity', () => {
 
   it('serializes concurrent authorized/captured and failed/captured truth with CAPTURED winning', async () => {
     const fixture = await commercialFixture(2);
-    const service = new PaymentProviderEventsService(prisma as never, null as never, null as never);
+    const service = new PaymentProviderEventsService(prisma as never, null as never, null as never, { activate: async () => undefined } as never);
     try {
       const authorized = await providerEvent(fixture, 0, 'PAYMENT_AUTHORIZED', 'pay-concurrent-a');
       const captured = await providerEvent(fixture, 0, 'PAYMENT_CAPTURED', 'pay-concurrent-a');
@@ -115,7 +115,7 @@ describeDb('E1.6 PostgreSQL provider-event integrity', () => {
 
   it('converges concurrent cross-payment capture identity to one owner and one safe conflict', async () => {
     const fixture = await commercialFixture(2);
-    const service = new PaymentProviderEventsService(prisma as never, null as never, null as never);
+    const service = new PaymentProviderEventsService(prisma as never, null as never, null as never, { activate: async () => undefined } as never);
     try {
       const left = await providerEvent(fixture, 0, 'PAYMENT_CAPTURED', 'pay-shared-concurrent');
       const right = await providerEvent(fixture, 1, 'PAYMENT_CAPTURED', 'pay-shared-concurrent');
