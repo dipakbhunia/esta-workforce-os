@@ -99,6 +99,48 @@ function queryHarness(options: {
 }
 
 describe('Storage Usage reporting', () => {
+  it('builds the bounded platform snapshot from the shared commercial-storage CTE', async () => {
+    const queries: string[] = [];
+    const prisma = {
+      $queryRaw: async (query: { text?: string; sql?: string }) => {
+        const sql = query.text ?? query.sql ?? ''; queries.push(sql);
+        if (sql.includes('AS "measuredStorageBytes"') && sql.includes('SUM(')) return [{
+          measuredStorageBytes: '9007199254740993000', configuredAllocationBytes: '9007199254740999000',
+          measuredObjectCount: 3, unmeasuredObjectCount: 2, companiesWithConfiguredLimit: 2,
+          companiesWithoutConfiguredLimit: 1, companiesAtLimit: 1, companiesOverLimit: 1,
+        }];
+        if (sql.includes('GROUP BY "capacityState"')) return [{ state: StorageCapacityState.OVER_LIMIT, companyCount: 1 }];
+        if (sql.includes('utilizationPercent')) return [{ companyId: storageRow.companyId, companyName: storageRow.companyName, measuredStorageBytes: '11', configuredLimitBytes: '10', utilizationPercent: '110.00', capacityState: StorageCapacityState.OVER_LIMIT }];
+        return [{ companyId: storageRow.companyId, companyName: storageRow.companyName, referenceId: storageRow.referenceId, capacityState: StorageCapacityState.OVER_LIMIT, measuredStorageBytes: '11' }];
+      },
+      $transaction: async (promises: Array<Promise<unknown>>) => Promise.all(promises),
+    };
+    const snapshot = await new StorageUsageQueryService(prisma as never, calculator)
+      .getPlatformDashboardSnapshot(new Date('2026-08-31T00:00:00.000Z'), 5);
+    assert.equal(snapshot.measurementCoverage, 'PARTIAL');
+    assert.equal(snapshot.measuredStorageBytes, '9007199254740993000');
+    assert.equal(snapshot.highUsageCompanies.length, 1);
+    assert.deepEqual(snapshot.capacityDistribution.map((row) => row.state), Object.values(StorageCapacityState));
+    assert.match(queries.join('\n'), /LIMIT/);
+    assert.equal(queries.every((sql) => sql.includes('WITH "screenshot_usage"')), true);
+  });
+
+  for (const [measured, unmeasured, expected] of [
+    [0, 0, 'NO_OBJECTS'], [1, 0, 'COMPLETE'], [1, 1, 'PARTIAL'], [0, 1, 'UNMEASURABLE'],
+  ] as const) {
+    it(`reports platform measurement coverage ${expected}`, async () => {
+      const prisma = {
+        $queryRaw: async (query: { text?: string; sql?: string }) => {
+          const sql = query.text ?? query.sql ?? '';
+          if (sql.includes('AS "measuredStorageBytes"') && sql.includes('SUM(')) return [{ measuredStorageBytes: '0', configuredAllocationBytes: '0', measuredObjectCount: measured, unmeasuredObjectCount: unmeasured, companiesWithConfiguredLimit: 0, companiesWithoutConfiguredLimit: 0, companiesAtLimit: 0, companiesOverLimit: 0 }];
+          return [];
+        },
+        $transaction: async (promises: Array<Promise<unknown>>) => Promise.all(promises),
+      };
+      const result = await new StorageUsageQueryService(prisma as never, calculator).getPlatformDashboardSnapshot(new Date(), 5);
+      assert.equal(result.measurementCoverage, expected);
+    });
+  }
   it('calculates exact byte totals without converting through Number', () => {
     const result = calculate(
       '9007199254740993000',

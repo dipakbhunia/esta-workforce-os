@@ -22,6 +22,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ProductivityModule } from './modules/productivity/productivity.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { PlatformDashboardModule } from './modules/platform-dashboard/platform-dashboard.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { TrialsModule } from './modules/trials/trials.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -62,6 +63,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     ProductivityModule,
     PlansModule,
     PaymentsModule,
+    PlatformDashboardModule,
     SubscriptionsModule,
     TrialsModule,
     SchedulingModule,

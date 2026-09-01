@@ -5,9 +5,44 @@ import { PrismaService } from '../../database/prisma.service';
 import { StorageUsageQueryDto } from './dto/storage-usage-query.dto';
 import { StorageUsageService } from './storage-usage.service';
 import {
+  PlatformStorageDashboardSnapshot,
+  StorageCapacityState,
   StorageUsageMetrics,
   StorageUsageRecord,
 } from './storage-usage.types';
+
+interface PlatformStorageAggregate {
+  measuredStorageBytes: string;
+  configuredAllocationBytes: string;
+  measuredObjectCount: number;
+  unmeasuredObjectCount: number;
+  companiesWithConfiguredLimit: number;
+  companiesWithoutConfiguredLimit: number;
+  companiesAtLimit: number;
+  companiesOverLimit: number;
+}
+
+interface CapacityDistributionRow {
+  state: StorageCapacityState;
+  companyCount: number;
+}
+
+interface HighUsageRow {
+  companyId: string;
+  companyName: string;
+  measuredStorageBytes: string;
+  configuredLimitBytes: string;
+  utilizationPercent: string;
+  capacityState: StorageCapacityState.AVAILABLE | StorageCapacityState.AT_LIMIT | StorageCapacityState.OVER_LIMIT;
+}
+
+interface StorageAttentionRow {
+  companyId: string;
+  companyName: string;
+  referenceId: string | null;
+  capacityState: StorageCapacityState.AT_LIMIT | StorageCapacityState.OVER_LIMIT | StorageCapacityState.UNMEASURABLE | StorageCapacityState.NO_ACCESS;
+  measuredStorageBytes: string;
+}
 
 interface StorageUsageAggregate {
   total: number;
@@ -124,6 +159,86 @@ export class StorageUsageQueryService {
     const record = rows[0];
     if (!record) throw new NotFoundException('Company not found');
     return this.storageUsage.toCompanySummary(record, calculatedAt);
+  }
+
+  async getPlatformDashboardSnapshot(
+    asOf: Date,
+    highUsageLimit: number,
+  ): Promise<PlatformStorageDashboardSnapshot> {
+    const cte = this.storageCte(asOf);
+    const capacityStates = Object.values(StorageCapacityState);
+    const [aggregateRows, distributionRows, highUsageCompanies, attentionCandidates] =
+      await this.prisma.$transaction([
+        this.prisma.$queryRaw<PlatformStorageAggregate[]>(Prisma.sql`
+          ${cte}
+          SELECT
+            COALESCE(SUM("measuredStorageBytesNumeric"), 0)::TEXT AS "measuredStorageBytes",
+            COALESCE(SUM("configuredLimitBytesNumeric"), 0)::TEXT AS "configuredAllocationBytes",
+            COALESCE(SUM("measuredObjectCount"), 0)::INTEGER AS "measuredObjectCount",
+            COALESCE(SUM("unmeasuredObjectCount"), 0)::INTEGER AS "unmeasuredObjectCount",
+            COUNT(*) FILTER (WHERE "configuredLimitBytesNumeric" IS NOT NULL)::INTEGER AS "companiesWithConfiguredLimit",
+            COUNT(*) FILTER (WHERE "source" <> 'NONE' AND "configuredLimitBytesNumeric" IS NULL)::INTEGER AS "companiesWithoutConfiguredLimit",
+            COUNT(*) FILTER (WHERE "capacityState" = 'AT_LIMIT')::INTEGER AS "companiesAtLimit",
+            COUNT(*) FILTER (WHERE "capacityState" = 'OVER_LIMIT')::INTEGER AS "companiesOverLimit"
+          FROM "derived_storage"
+        `),
+        this.prisma.$queryRaw<CapacityDistributionRow[]>(Prisma.sql`
+          ${cte}
+          SELECT "capacityState" AS "state", COUNT(*)::INTEGER AS "companyCount"
+          FROM "derived_storage"
+          GROUP BY "capacityState"
+        `),
+        this.prisma.$queryRaw<HighUsageRow[]>(Prisma.sql`
+          ${cte}
+          SELECT
+            "companyId", "companyName",
+            "measuredStorageBytesNumeric"::TEXT AS "measuredStorageBytes",
+            "configuredLimitBytesNumeric"::TEXT AS "configuredLimitBytes",
+            ROUND(("measuredStorageBytesNumeric" * 100) / "configuredLimitBytesNumeric", 2)::TEXT AS "utilizationPercent",
+            "capacityState"
+          FROM "derived_storage"
+          WHERE "source" <> 'NONE'
+            AND "configuredLimitBytesNumeric" > 0
+            AND "unmeasuredObjectCount" = 0
+          ORDER BY
+            ("measuredStorageBytesNumeric" / "configuredLimitBytesNumeric") DESC,
+            "measuredStorageBytesNumeric" DESC,
+            "companyName" ASC,
+            "companyId" ASC
+          LIMIT ${highUsageLimit}
+        `),
+        this.prisma.$queryRaw<StorageAttentionRow[]>(Prisma.sql`
+          ${cte}
+          SELECT "companyId", "companyName", "referenceId", "capacityState",
+            "measuredStorageBytesNumeric"::TEXT AS "measuredStorageBytes"
+          FROM "derived_storage"
+          WHERE "capacityState" IN ('OVER_LIMIT', 'AT_LIMIT', 'UNMEASURABLE', 'NO_ACCESS')
+          ORDER BY CASE "capacityState"
+            WHEN 'OVER_LIMIT' THEN 1 WHEN 'AT_LIMIT' THEN 2
+            WHEN 'UNMEASURABLE' THEN 3 ELSE 4 END,
+            "companyName" ASC, "companyId" ASC
+          LIMIT 40
+        `),
+      ]);
+    const aggregate = aggregateRows[0] ?? {
+      measuredStorageBytes: '0', configuredAllocationBytes: '0', measuredObjectCount: 0,
+      unmeasuredObjectCount: 0, companiesWithConfiguredLimit: 0,
+      companiesWithoutConfiguredLimit: 0, companiesAtLimit: 0, companiesOverLimit: 0,
+    };
+    const distribution = new Map(distributionRows.map((row) => [row.state, row.companyCount]));
+    const measurementCoverage = aggregate.measuredObjectCount === 0
+      ? aggregate.unmeasuredObjectCount === 0 ? 'NO_OBJECTS' : 'UNMEASURABLE'
+      : aggregate.unmeasuredObjectCount === 0 ? 'COMPLETE' : 'PARTIAL';
+    return {
+      ...aggregate,
+      measurementCoverage,
+      capacityDistribution: capacityStates.map((state) => ({
+        state,
+        companyCount: distribution.get(state) ?? 0,
+      })),
+      highUsageCompanies,
+      attentionCandidates,
+    };
   }
 
   private storageCte(now: Date): Prisma.Sql {

@@ -93,3 +93,47 @@ export interface StorageUsageMetrics {
   suspendedSubscriptionCount: number;
   noAccessCount: number;
 }
+
+export type PlatformStorageMeasurementCoverage =
+  | 'NO_OBJECTS'
+  | 'COMPLETE'
+  | 'PARTIAL'
+  | 'UNMEASURABLE';
+
+export interface PlatformStorageDashboardSnapshot {
+  measurementCoverage: PlatformStorageMeasurementCoverage;
+  measuredStorageBytes: string;
+  configuredAllocationBytes: string;
+  measuredObjectCount: number;
+  unmeasuredObjectCount: number;
+  companiesWithConfiguredLimit: number;
+  companiesWithoutConfiguredLimit: number;
+  companiesAtLimit: number;
+  companiesOverLimit: number;
+  capacityDistribution: Array<{
+    state: StorageCapacityState;
+    companyCount: number;
+  }>;
+  highUsageCompanies: Array<{
+    companyId: string;
+    companyName: string;
+    measuredStorageBytes: string;
+    configuredLimitBytes: string;
+    utilizationPercent: string;
+    capacityState:
+      | StorageCapacityState.AVAILABLE
+      | StorageCapacityState.AT_LIMIT
+      | StorageCapacityState.OVER_LIMIT;
+  }>;
+  attentionCandidates: Array<{
+    companyId: string;
+    companyName: string;
+    referenceId: string | null;
+    capacityState:
+      | StorageCapacityState.AT_LIMIT
+      | StorageCapacityState.OVER_LIMIT
+      | StorageCapacityState.UNMEASURABLE
+      | StorageCapacityState.NO_ACCESS;
+    measuredStorageBytes: string;
+  }>;
+}
