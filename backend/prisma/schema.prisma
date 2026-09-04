@@ -649,6 +649,7 @@ model Payment {
   @@index([companyId, createdAt])
   @@index([subscriptionId, createdAt])
   @@index([status, createdAt])
+  @@index([createdAt, id], map: "Payment_createdAt_id_idx")
   @@index([provider, providerMode, status])
   @@index([providerConfigurationId])
   @@index([createdByUserId])
