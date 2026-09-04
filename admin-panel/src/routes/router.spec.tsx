@@ -72,6 +72,22 @@ describe('application router direct-entry isolation', () => {
     expect(screen.queryByText('Access restricted')).not.toBeInTheDocument();
     view.unmount();
   });
+
+  it('keeps Payments Coming Soon while describing the implemented backend and unavailable operations accurately', async () => {
+    await router.navigate('/billing/payments');
+    const view = renderRouter();
+
+    expect(await screen.findByRole('heading', { name: 'Payments' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Coming Soon' })).toBeInTheDocument();
+    expect(screen.getByText(/checkout signature confirmation/)).toBeInTheDocument();
+    expect(screen.getByText(/verified webhook payment-truth processing/)).toBeInTheDocument();
+    expect(screen.getByText(/activation of eligible subscriptions from CAPTURED payment truth/)).toBeInTheDocument();
+    expect(screen.getByText(/Payment management and browser checkout remain unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/Provider payment fetch or polling, active capture operations/)).toBeInTheDocument();
+    expect(screen.getByText(/LIVE Razorpay order execution, settlement, and renewal orchestration/)).toBeInTheDocument();
+    expect(screen.getByText(/refund actions are not available/)).toBeInTheDocument();
+    view.unmount();
+  });
 });
 
 function renderRouter() {

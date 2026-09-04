@@ -214,7 +214,7 @@ export default function BillingSettingsPage() {
       <Button variant="contained" startIcon={<Save size={18} />} disabled={settingsMutation.isPending} onClick={submitSettings}>{settingsMutation.isPending ? 'Saving…' : 'Save Billing Settings'}</Button>
     </Stack>
 
-    <SectionCard title="Payment Providers" description="Payment intents and backend provider-order preparation are implemented. Browser checkout, confirmation, webhooks, capture synchronization, automatic activation, refunds, invoices, GST, and renewals are not implemented.">
+    <SectionCard title="Payment Providers" description="Configured provider runtime supports TEST-mode Razorpay order preparation, checkout signature confirmation, verified webhook payment-truth processing, and activation of eligible subscriptions from CAPTURED payment truth. Credential checks are structural only; connectivity verification, provider payment fetch or polling, active capture operations, Payments management UI, and refunds are not implemented.">
       {providersQuery.isError ? <Alert severity="error" action={<Button onClick={() => void providersQuery.refetch()}>Retry</Button>}>Payment provider configurations could not be loaded.</Alert> : providersQuery.isLoading ? <LoadingSkeleton rows={3} /> : <ProviderSettings providers={providersQuery.data?.data ?? []} busy={providerMutation.isPending} run={(command) => providerMutation.mutate(command)} />}
     </SectionCard>
 
