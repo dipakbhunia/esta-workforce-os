@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { paginatedResult, paginationArgs } from '../../common/utils/pagination.util';
 import { PlatformPaymentQueryDto } from './dto/platform-payment-query.dto';
 import { mapPlatformPayment } from './platform-payment.mapper';
+import { mapPlatformPaymentDetails, PLATFORM_PAYMENT_HISTORY_LIMITS } from './platform-payment-details.mapper';
 
 const ACTIVATION_BLOCKED = 'SUBSCRIPTION_PAYMENT_ACTIVATION_BLOCKED';
 
@@ -119,5 +120,72 @@ export class PlatformPaymentsService {
       result.total,
       query,
     );
+  }
+
+  async findOne(id: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findUnique({ where: { id }, select: paymentSelect });
+      if (!payment) throw new NotFoundException('Payment not found');
+
+      const [orders, attempts, events, audits, blockedAudit] = await Promise.all([
+        tx.paymentProviderOrder.findMany({
+          where: { paymentId: id },
+          orderBy: [{ sequence: 'desc' }, { id: 'desc' }],
+          take: PLATFORM_PAYMENT_HISTORY_LIMITS.orders + 1,
+          select: { id: true, sequence: true, providerOrderId: true, status: true, providerStatus: true, createdAt: true, updatedAt: true },
+        }),
+        tx.paymentAttempt.findMany({
+          where: { paymentId: id },
+          orderBy: [{ sequence: 'desc' }, { id: 'desc' }],
+          take: PLATFORM_PAYMENT_HISTORY_LIMITS.attempts + 1,
+          select: {
+            id: true, sequence: true, operation: true, status: true, providerOrderId: true, providerPaymentId: true,
+            providerStatus: true, amountMinor: true, currency: true, failureCode: true, safeFailureMessage: true,
+            startedAt: true, completedAt: true, createdAt: true, updatedAt: true,
+          },
+        }),
+        tx.paymentProviderEvent.findMany({
+          where: { paymentId: id },
+          orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+          take: PLATFORM_PAYMENT_HISTORY_LIMITS.events + 1,
+          select: {
+            id: true, eventType: true, providerEventId: true, status: true, providerOrderId: true,
+            providerPaymentId: true, providerCreatedAt: true, receivedAt: true, processedAt: true,
+          },
+        }),
+        tx.auditLog.findMany({
+          where: {
+            companyId: payment.company.id,
+            OR: [
+              {
+                action: 'SUBSCRIPTION_ACTIVATED_BY_PAYMENT', entityType: 'CompanySubscription', entityId: payment.subscription.id,
+                AND: [
+                  { metadata: { path: ['paymentId'], equals: payment.id } },
+                  { metadata: { path: ['subscriptionId'], equals: payment.subscription.id } },
+                ],
+              },
+              {
+                action: ACTIVATION_BLOCKED, entityType: 'Payment', entityId: payment.id,
+                metadata: { path: ['subscriptionId'], equals: payment.subscription.id },
+              },
+              { action: 'PAYMENT_RECOVERED_AFTER_PROVIDER_FAILURE', entityType: 'Payment', entityId: payment.id },
+            ],
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: PLATFORM_PAYMENT_HISTORY_LIMITS.audits + 1,
+          select: { id: true, action: true, createdAt: true },
+        }),
+        tx.auditLog.findFirst({
+          where: {
+            companyId: payment.company.id, action: ACTIVATION_BLOCKED, entityType: 'Payment', entityId: payment.id,
+            metadata: { path: ['subscriptionId'], equals: payment.subscription.id },
+          },
+          select: { id: true },
+        }),
+      ]);
+      return { payment, orders, attempts, events, audits, hasMatchingBlockedAudit: blockedAudit !== null };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+
+    return mapPlatformPaymentDetails(result);
   }
 }

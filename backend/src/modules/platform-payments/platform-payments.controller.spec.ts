@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
-import { ForbiddenException, RequestMethod } from '@nestjs/common';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
+import { BadRequestException, ForbiddenException, ParseUUIDPipe, RequestMethod } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RoleName } from '@prisma/client';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
@@ -15,7 +15,18 @@ describe('PlatformPaymentsController', () => {
     assert.deepEqual(Reflect.getMetadata(ROLES_KEY, PlatformPaymentsController), [RoleName.SUPER_ADMIN]);
     assert.deepEqual(Reflect.getMetadata(GUARDS_METADATA, PlatformPaymentsController), [JwtAuthGuard, RolesGuard]);
     assert.equal(Reflect.getMetadata(METHOD_METADATA, PlatformPaymentsController.prototype.findAll), RequestMethod.GET);
-    assert.deepEqual(Object.getOwnPropertyNames(PlatformPaymentsController.prototype).sort(), ['constructor', 'findAll']);
+    assert.deepEqual(Object.getOwnPropertyNames(PlatformPaymentsController.prototype).sort(), ['constructor', 'findAll', 'findOne']);
+    assert.equal(Reflect.getMetadata(PATH_METADATA, PlatformPaymentsController.prototype.findOne), ':id');
+    assert.equal(Reflect.getMetadata(METHOD_METADATA, PlatformPaymentsController.prototype.findOne), RequestMethod.GET);
+    const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, PlatformPaymentsController, 'findOne');
+    assert.ok(Object.values(args).some((value: any) => value.pipes?.some((pipe: unknown) => pipe === ParseUUIDPipe)));
+  });
+
+  it('delegates valid detail IDs and the route UUID pipe rejects invalid IDs', async () => {
+    const id = '00000000-0000-4000-8000-000000000001';
+    const controller = new PlatformPaymentsController({ findOne: async (received: string) => ({ id: received }) } as never);
+    assert.deepEqual(await controller.findOne(id), { id });
+    await assert.rejects(() => new ParseUUIDPipe().transform('not-a-uuid', { type: 'param' }), BadRequestException);
   });
 
   it('delegates the validated query without exposing a mutation path', async () => {
