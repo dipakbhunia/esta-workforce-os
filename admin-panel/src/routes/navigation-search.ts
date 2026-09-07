@@ -58,6 +58,7 @@ export const implementedNavPaths = new Set([
   '/notifications',
   '/notifications/preferences',
   '/billing/settings',
+  '/billing/payments',
   '/settings/users',
   '/settings/roles',
   '/settings/permissions',

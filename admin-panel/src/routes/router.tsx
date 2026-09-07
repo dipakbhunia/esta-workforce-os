@@ -37,6 +37,8 @@ const CompanySeatDetailsPage = lazy(() => import('@/features/usage-seats/Company
 const StorageUsagePage = lazy(() => import('@/features/storage-usage/StorageUsagePage'));
 const CompanyStorageDetailsPage = lazy(() => import('@/features/storage-usage/CompanyStorageDetailsPage'));
 const BillingSettingsPage = lazy(() => import('@/features/billing/BillingSettingsPage'));
+const PlatformPaymentsPage = lazy(() => import('@/features/platform-payments/pages/PlatformPaymentsPage'));
+const PlatformPaymentDetailsPage = lazy(() => import('@/features/platform-payments/pages/PlatformPaymentDetailsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -184,7 +186,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'billing/payments', title: 'Payments', moduleName: 'Billing', description: 'Backend payment creation, TEST-mode Razorpay order preparation, checkout signature confirmation, verified webhook payment-truth processing, and activation of eligible subscriptions from CAPTURED payment truth are implemented. Payment management and browser checkout remain unavailable in this UI.', availabilityMessage: 'Payment lists, details, provider history, browser checkout, and refund actions are not available here yet. Provider payment fetch or polling, active capture operations, LIVE Razorpay order execution, settlement, and renewal orchestration are also not implemented.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/invoices', title: 'Invoices', moduleName: 'Billing', description: 'Subscription invoice management is planned for a future billing release.', availabilityMessage: 'Invoice generation, records, downloads, payment marking, and numbering runtime are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/gst-invoices', title: 'GST Invoices', moduleName: 'Billing', description: 'GST invoice and tax-record management is planned for a future billing release.', availabilityMessage: 'GST invoice generation, tax calculations, and compliance workflows are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/renewals', title: 'Renewals', moduleName: 'Billing', description: 'Subscription renewal management is planned for a future billing release.', availabilityMessage: 'Renewal tracking, orchestration, dunning, and collection are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
@@ -289,6 +290,8 @@ export const router = createBrowserRouter([
           { path: 'saas/storage', element: protectedElement(<StorageUsagePage />, 'settings:view', superAdminRoles) },
           { path: 'saas/storage/:companyId', element: protectedElement(<CompanyStorageDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'billing/settings', element: protectedElement(<BillingSettingsPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/payments', element: protectedElement(<PlatformPaymentsPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/payments/:id', element: protectedElement(<PlatformPaymentDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

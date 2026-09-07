@@ -24,11 +24,11 @@ describe('NavigationSearchDialog behavior', () => {
 
   it('marks a placeholder result Coming Soon and navigates to its guarded placeholder path', () => {
     renderDialog();
-    fireEvent.change(screen.getByPlaceholderText('Search pages, modules, settings...'), { target: { value: 'Payments' } });
+    fireEvent.change(screen.getByPlaceholderText('Search pages, modules, settings...'), { target: { value: 'Invoices' } });
 
-    expect(screen.getByText('Coming Soon')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Open Payments in Billing' }));
-    expect(screen.getByTestId('current-path')).toHaveTextContent('/billing/payments');
+    expect(screen.getAllByText('Coming Soon').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Open Invoices in Billing' }));
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/billing/invoices');
   });
 });
 

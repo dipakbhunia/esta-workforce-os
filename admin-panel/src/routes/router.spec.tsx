@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RoleName } from '@/features/auth';
 import { permissionsForRoles } from '@/features/auth/utils/permissions';
+import { getRouteMeta } from './routeMeta';
 
 let roles: RoleName[] = ['SUPER_ADMIN'];
 
@@ -73,19 +74,40 @@ describe('application router direct-entry isolation', () => {
     view.unmount();
   });
 
-  it('keeps Payments Coming Soon while describing the implemented backend and unavailable operations accurately', async () => {
+  it('routes Payments to the implemented read-only foundation instead of Coming Soon', async () => {
     await router.navigate('/billing/payments');
     const view = renderRouter();
 
     expect(await screen.findByRole('heading', { name: 'Payments' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Coming Soon' })).toBeInTheDocument();
-    expect(screen.getByText(/checkout signature confirmation/)).toBeInTheDocument();
-    expect(screen.getByText(/verified webhook payment-truth processing/)).toBeInTheDocument();
-    expect(screen.getByText(/activation of eligible subscriptions from CAPTURED payment truth/)).toBeInTheDocument();
-    expect(screen.getByText(/Payment management and browser checkout remain unavailable/)).toBeInTheDocument();
-    expect(screen.getByText(/Provider payment fetch or polling, active capture operations/)).toBeInTheDocument();
-    expect(screen.getByText(/LIVE Razorpay order execution, settlement, and renewal orchestration/)).toBeInTheDocument();
-    expect(screen.getByText(/refund actions are not available/)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Read-only operational payment history/)).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('routes read-only Payment details and keeps the platform-only boundary', async () => {
+    expect(getRouteMeta('/billing/payments/11111111-1111-4111-8111-111111111111')).toEqual({
+      title: 'Payment Details',
+      breadcrumbs: ['Billing', 'Payments', 'Details'],
+      moduleName: 'Billing',
+      canonicalPath: '/billing/payments/:id',
+    });
+    await router.navigate('/billing/payments/11111111-1111-4111-8111-111111111111');
+    const superView = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Payment Details' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to Payments' })).toHaveAttribute('href', '/billing/payments');
+    superView.unmount();
+
+    roles = ['COMPANY_ADMIN'];
+    await router.navigate('/billing/payments/11111111-1111-4111-8111-111111111111');
+    const tenantView = renderRouter();
+    expect(await screen.findByText('Access restricted')).toBeInTheDocument();
+    tenantView.unmount();
+  });
+
+  it('does not introduce a /platform-payments frontend route', async () => {
+    await router.navigate('/platform-payments');
+    const view = renderRouter();
+    expect(await screen.findByText('This admin page does not exist yet.')).toBeInTheDocument();
     view.unmount();
   });
 });

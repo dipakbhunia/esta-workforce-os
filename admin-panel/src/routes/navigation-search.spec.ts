@@ -13,10 +13,10 @@ const functionalSuperAdminRoots = [
   '/saas/usage-seats',
   '/saas/storage',
   '/billing/settings',
+  '/billing/payments',
 ];
 
 const platformPlaceholders = [
-  '/billing/payments',
   '/billing/invoices',
   '/billing/gst-invoices',
   '/billing/renewals',
@@ -49,8 +49,8 @@ const dynamicRoutes = [
 ];
 
 describe('navigation search indexing', () => {
-  it('keeps exactly 41 implemented stable navigation roots', () => {
-    expect(implementedNavPaths.size).toBe(41);
+  it('keeps exactly 42 implemented stable navigation roots', () => {
+    expect(implementedNavPaths.size).toBe(42);
   });
 
   it('classifies all functional Super Admin roots as implemented navigation destinations', () => {
@@ -102,6 +102,14 @@ describe('navigation search indexing', () => {
       const paths = pathsFor([role]);
       expect(new Set(paths).size, role).toBe(paths.length);
     }
+  });
+
+  it('keeps one implemented Payments destination and no dynamic-details navigation duplicate', () => {
+    const entries = entriesFor(['SUPER_ADMIN']);
+    expect(entries.filter((entry) => entry.path === '/billing/payments')).toHaveLength(1);
+    expect(entries.find((entry) => entry.path === '/billing/payments')).toMatchObject({ comingSoon: false });
+    expect(entries.some((entry) => entry.path === '/billing/payments/:id')).toBe(false);
+    expect(entries.find((entry) => entry.path === '/billing/invoices')).toMatchObject({ comingSoon: true });
   });
 
   it('indexes stable navigation roots and excludes dynamic detail, create, edit, amend, and convert routes', () => {
