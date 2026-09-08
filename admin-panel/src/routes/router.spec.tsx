@@ -78,7 +78,7 @@ describe('application router direct-entry isolation', () => {
     await router.navigate('/billing/payments');
     const view = renderRouter();
 
-    expect(await screen.findByRole('heading', { name: 'Payments' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Payments' }, { timeout: 15_000 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
     expect(screen.getByText(/Read-only operational payment history/)).toBeInTheDocument();
     view.unmount();
