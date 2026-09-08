@@ -372,6 +372,7 @@ model Plan {
   archivedAt               DateTime?
   subscriptions            CompanySubscription[]
   recurringPrices          PlanRecurringPrice[]
+  invoiceLines             InvoiceLine[]
 
   @@index([status, isPublic, sortOrder])
   @@index([billingModel])
@@ -450,6 +451,8 @@ model Company {
   subscriptions                CompanySubscription[]
   trials                       CompanyTrial[]
   payments                     Payment[]
+  billingProfile               CompanyBillingProfile?
+  invoices                     Invoice[]
 
   @@index([status])
   @@index([slug])
@@ -495,8 +498,11 @@ model CompanySubscription {
   convertedTrial            CompanyTrial?
   payments                  Payment[]                    @relation("SubscriptionPayments")
   activatedByPayment        Payment?                     @relation("SubscriptionActivationPayment", fields: [activatedByPaymentId, id, companyId], references: [id, subscriptionId, companyId], onDelete: Restrict)
+  invoices                  Invoice[]                    @relation("InvoiceSourceSubscription")
+  invoiceLines              InvoiceLine[]                @relation("InvoiceLineSourceSubscription")
 
   @@unique([id, companyId])
+  @@unique([id, companyId, planId])
   @@unique([activatedByPaymentId, id, companyId])
   @@index([companyId, status])
   @@index([planId, status])
@@ -559,6 +565,116 @@ model BillingSettings {
   updatedBy                User?                    @relation("BillingSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@index([updatedById])
+}
+
+model CompanyBillingProfile {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @unique @db.Uuid
+  billingName  String
+  billingEmail String?
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String?
+  postalCode   String
+  country      String
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+}
+
+model InvoiceNumberSequence {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  scope                 String                   @default("PLATFORM")
+  prefix                String
+  resetPolicy           InvoiceNumberResetPolicy
+  resetBucket           String
+  lastAllocatedSequence BigInt                   @default(0)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  invoices              Invoice[]
+
+  @@unique([scope, prefix, resetPolicy, resetBucket])
+  @@unique([id, prefix, resetPolicy, resetBucket])
+}
+
+model Invoice {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  companyId                String                   @db.Uuid
+  sourcePaymentId          String                   @db.Uuid
+  sourceSubscriptionId     String                   @db.Uuid
+  sourcePaymentPurpose     PaymentPurpose
+  sourceCapturedAt         DateTime
+  capturedPaymentReference String
+  numberSequenceId         String                   @db.Uuid
+  numberPrefix             String
+  numberResetPolicy        InvoiceNumberResetPolicy
+  numberResetBucket        String
+  numberSequence           BigInt
+  invoiceNumber            String                   @unique
+  issuedAt                 DateTime
+  dueAt                    DateTime?
+  servicePeriodStart       DateTime
+  servicePeriodEnd         DateTime
+  sellerLegalName          String
+  sellerBillingEmail       String?
+  sellerAddressLine1       String
+  sellerAddressLine2       String?
+  sellerCity               String
+  sellerState              String?
+  sellerStateCode          String?
+  sellerPostalCode         String
+  sellerCountry            String
+  billToName               String
+  billToBillingEmail       String?
+  billToAddressLine1       String
+  billToAddressLine2       String?
+  billToCity               String
+  billToState              String?
+  billToPostalCode         String
+  billToCountry            String
+  billToPhone              String?
+  currency                 String
+  subtotalMinor            BigInt
+  totalMinor               BigInt
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  company                  Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourcePayment            Payment                  @relation(fields: [sourcePaymentId, sourceSubscriptionId, companyId], references: [id, subscriptionId, companyId], onDelete: Restrict)
+  sourceSubscription       CompanySubscription      @relation("InvoiceSourceSubscription", fields: [sourceSubscriptionId, companyId], references: [id, companyId], onDelete: Restrict)
+  numberSequenceState      InvoiceNumberSequence    @relation(fields: [numberSequenceId, numberPrefix, numberResetPolicy, numberResetBucket], references: [id, prefix, resetPolicy, resetBucket], onDelete: Restrict, map: "Invoice_numberSequenceId_numberPrefix_numberResetPolicy_numberR")
+  lines                    InvoiceLine[]
+
+  @@unique([id, companyId, sourceSubscriptionId])
+  @@unique([sourcePaymentId, sourceSubscriptionId, companyId])
+  @@index([companyId, issuedAt])
+  @@index([sourceSubscriptionId])
+  @@index([numberSequenceId])
+}
+
+model InvoiceLine {
+  id                   String              @id @default(uuid()) @db.Uuid
+  invoiceId            String              @db.Uuid
+  companyId            String              @db.Uuid
+  sourceSubscriptionId String              @db.Uuid
+  sourcePlanId         String              @db.Uuid
+  planCodeSnapshot     String
+  planNameSnapshot     String
+  lineSequence         Int
+  description          String
+  quantity             Int
+  unitAmountMinor      BigInt
+  lineSubtotalMinor    BigInt
+  currency             String
+  createdAt            DateTime            @default(now())
+  invoice              Invoice             @relation(fields: [invoiceId, companyId, sourceSubscriptionId], references: [id, companyId, sourceSubscriptionId], onDelete: Restrict)
+  sourceSubscription   CompanySubscription @relation("InvoiceLineSourceSubscription", fields: [sourceSubscriptionId, companyId, sourcePlanId], references: [id, companyId, planId], onDelete: Restrict)
+  sourcePlan           Plan                @relation(fields: [sourcePlanId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceId, lineSequence])
+  @@index([sourceSubscriptionId])
+  @@index([sourcePlanId])
 }
 
 model BillingProviderConfiguration {
@@ -641,6 +757,7 @@ model Payment {
   configuredAttempts        PaymentAttempt[]             @relation("PaymentAttemptConfiguration")
   providerEvents            PaymentProviderEvent[]
   activatedSubscription     CompanySubscription?         @relation("SubscriptionActivationPayment")
+  invoice                   Invoice?
 
   @@unique([companyId, idempotencyKey])
   @@unique([providerConfigurationId, capturedProviderPaymentId])
