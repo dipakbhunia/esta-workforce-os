@@ -9,6 +9,7 @@ describe('formatPlatformPaymentAmount', () => {
     ['105', 'INR 1.05'],
     ['1000', 'INR 10.00'],
     ['9007199254740991', 'INR 90071992547409.91'],
+    ['9007199254740993', 'INR 90071992547409.93'],
     ['000105', 'INR 1.05'],
   ])('formats %s exactly', (amount, expected) => {
     expect(formatPlatformPaymentAmount(amount, 'INR')).toBe(expected);

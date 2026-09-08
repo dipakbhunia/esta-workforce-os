@@ -17,10 +17,15 @@ const empty = { data: { data: [], meta: { page: 1, limit: 20, total: 0, totalPag
 describe('PlatformPaymentsPage', () => {
   beforeEach(() => { list.mockReset().mockResolvedValue(empty); filterProps.current = null; listProps.current = null; });
 
-  it('loads once with canonical defaults and no details request', async () => {
+  it('announces initial loading, then removes the status after loading resolves', async () => {
+    let resolve!: (value: unknown) => void;
+    list.mockImplementation(() => new Promise((done) => { resolve = done; }));
     renderPage();
     expect(screen.getByText('Loading list')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading payments');
     await waitFor(() => expect(list).toHaveBeenCalledWith({ page: 1, limit: 20 }));
+    resolve(empty);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
     expect(list).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('location')).toHaveTextContent('?page=1&limit=20');
   });

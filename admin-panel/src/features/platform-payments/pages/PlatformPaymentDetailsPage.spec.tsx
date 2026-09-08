@@ -38,8 +38,11 @@ describe('PlatformPaymentDetailsPage', () => {
 
   it('shows initial loading then renders exact read-only payment and commercial truth from one request', async () => {
     let resolve!: (value: unknown) => void; get.mockImplementation(() => new Promise((done) => { resolve = done; })); const view = renderPage();
-    expect(view.container.querySelectorAll('.MuiSkeleton-root')).toHaveLength(10); resolve({ data: base });
+    expect(view.container.querySelectorAll('.MuiSkeleton-root')).toHaveLength(10);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading payment details');
+    resolve({ data: base });
     expect((await screen.findAllByText(id)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getAllByText('INR 90071992547409.91').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Exact Company' })).toHaveAttribute('href', `/organization/companies/${base.company.id}`);
     expect(screen.getByRole('link', { name: /Historic Enterprise/ })).toHaveAttribute('href', `/saas/subscriptions/${base.subscription.id}`);

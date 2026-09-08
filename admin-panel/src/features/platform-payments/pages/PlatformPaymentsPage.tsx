@@ -54,6 +54,7 @@ export default function PlatformPaymentsPage() {
   return <PageLayout>
     <PageHeader title="Payments" description="Read-only operational payment history for the SaaS platform." breadcrumbs={['Admin', 'Billing', 'Payments']} />
     <PlatformPaymentFilters draft={draft} filtered={filtered} fetching={query.isFetching} summary={summary} onChange={setDraft} onApply={apply} onClear={clear} onRefresh={() => void query.refetch()} />
+    {query.isLoading ? <Box role="status" sx={visuallyHidden}>Loading payments</Box> : null}
     {query.isFetching && !query.isLoading ? <Box aria-live="polite"><LinearProgress aria-label="Updating payment register" /></Box> : null}
     {query.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void query.refetch()}>Retry</Button>}>{errorMessage(query.error)}</Alert> : <PlatformPaymentList rows={rows} total={total} page={applied.page} limit={applied.limit} loading={query.isLoading} filtered={filtered} onPaginationChange={paginate} />}
   </PageLayout>;
@@ -62,3 +63,4 @@ export default function PlatformPaymentsPage() {
 function draftFrom(query: PlatformPaymentListQuery): PlatformPaymentFilterDraft { return { status: query.status ?? '', companyId: query.companyId ?? '', provider: query.provider ?? '', mode: query.mode ?? '', purpose: query.purpose ?? '', subscriptionId: query.subscriptionId ?? '', from: query.from ? canonicalIsoToLocalDateTime(query.from) ?? '' : '', to: query.to ? canonicalIsoToLocalDateTime(query.to) ?? '' : '' }; }
 function hasFilters(query: PlatformPaymentListQuery) { return Boolean(query.companyId || query.status || query.provider || query.mode || query.purpose || query.subscriptionId || query.from || query.to); }
 function errorMessage(error: unknown) { if (axios.isAxiosError(error) && error.response?.status === 400) return 'The applied payment filters are invalid. Clear or adjust them and try again.'; if (axios.isAxiosError(error) && error.response?.status === 403) return 'Access restricted. You do not have permission to view platform payments.'; return 'Payments could not be loaded. Check connectivity and try again.'; }
+const visuallyHidden = { position: 'absolute', width: 1, height: 1, p: 0, m: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 } as const;

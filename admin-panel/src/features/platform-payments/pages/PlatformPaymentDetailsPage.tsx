@@ -19,7 +19,7 @@ export default function PlatformPaymentDetailsPage() {
   return <PageLayout>
     <PageHeader title="Payment Details" description="Read-only operational payment truth and bounded history." breadcrumbs={['Admin', 'Billing', 'Payments', 'Details']} />
     <Button component={Link} to="/billing/payments" variant="outlined" sx={{ alignSelf: 'flex-start' }}>Back to Payments</Button>
-    {!id ? <Alert severity="warning">The Payment reference is missing.</Alert> : query.isLoading ? <LoadingSkeleton rows={10} /> : query.isError ? <DetailsError error={query.error} retry={() => void query.refetch()} /> : payment ? <PaymentDetails payment={payment} /> : <Alert severity="warning">Payment not found.</Alert>}
+    {!id ? <Alert severity="warning">The Payment reference is missing.</Alert> : query.isLoading ? <><Box role="status" sx={visuallyHidden}>Loading payment details</Box><LoadingSkeleton rows={10} /></> : query.isError ? <DetailsError error={query.error} retry={() => void query.refetch()} /> : payment ? <PaymentDetails payment={payment} /> : <Alert severity="warning">Payment not found.</Alert>}
   </PageLayout>;
 }
 
@@ -88,3 +88,4 @@ function label(value: string) { return value.replaceAll('_', ' '); }
 function paymentTone(status: PaymentStatus): StatusTone { return status === 'CAPTURED' ? 'success' : status === 'FAILED' ? 'danger' : status === 'AUTHORIZED' ? 'info' : 'warning'; }
 function activationTone(status: PlatformPaymentActivationStatus): StatusTone { return status === 'COMPLETED' ? 'success' : status === 'BLOCKED' ? 'danger' : status === 'PENDING' ? 'warning' : status === 'UNRESOLVED' ? 'info' : 'neutral'; }
 const detailGrid = { display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 } as const;
+const visuallyHidden = { position: 'absolute', width: 1, height: 1, p: 0, m: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 } as const;
