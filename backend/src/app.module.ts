@@ -16,6 +16,7 @@ import { DesignationsModule } from './modules/designations/designations.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { HealthModule } from './modules/health/health.module';
 import { LeaveModule } from './modules/leave/leave.module';
+import { InvoiceFoundationModule } from './modules/invoices/invoice-foundation.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { MonitoringAlertsModule } from './modules/monitoring-alerts/monitoring-alerts.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -58,6 +59,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     DesignationsModule,
     EmployeesModule,
     LeaveModule,
+    InvoiceFoundationModule,
     MonitoringModule,
     MonitoringAlertsModule,
     NotificationsModule,
