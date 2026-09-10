@@ -4,6 +4,7 @@ import {
   SubscriptionActivationSource, SubscriptionStatus, TrialStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { InvoiceGenerationService } from '../invoices/invoice-generation.service';
 import { CURRENT_ENTITLEMENTS, PLAN_LIMIT_KEYS } from '../plans/plan-catalog.registry';
 import { assertPaymentAmount, assertPaymentCurrency } from '../payments/payment-money.util';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
@@ -20,13 +21,18 @@ export type PaymentActivationResult = { outcome: 'ACTIVATED' | 'ALREADY_ACTIVATE
 
 @Injectable()
 export class SubscriptionPaymentActivationService {
-  constructor(private readonly prisma: PrismaService, private readonly seatUsage: SeatUsageService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly seatUsage: SeatUsageService,
+    private readonly invoiceGeneration: InvoiceGenerationService,
+  ) {}
 
   async activate(paymentId: string): Promise<PaymentActivationResult> {
     const identity = await this.prisma.payment.findUnique({ where: { id: paymentId }, select: { companyId: true } });
     if (!identity) return { outcome: 'PERMANENTLY_BLOCKED', reason: 'ownership_mismatch', subscriptionId: '' };
+    let result: PaymentActivationResult;
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      result = await this.prisma.$transaction(async (tx) => {
         await this.seatUsage.lockCompany(tx, identity.companyId);
         await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
         const payment = await tx.payment.findUnique({ where: { id: paymentId } });
@@ -80,10 +86,15 @@ export class SubscriptionPaymentActivationService {
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        return this.recordBlock(paymentId, 'existing_live_subscription');
+        result = await this.recordBlock(paymentId, 'existing_live_subscription');
+      } else {
+        throw error;
       }
-      throw error;
     }
+    if (result.outcome === 'ACTIVATED' || result.outcome === 'ALREADY_ACTIVATED') {
+      try { await this.invoiceGeneration.generate(paymentId); } catch { /* activation is already committed */ }
+    }
+    return result;
   }
 
   async recoverDue(limit = 25): Promise<void> {

@@ -7,6 +7,8 @@ import {
   SubscriptionStatus, TrialStatus,
 } from '@prisma/client';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
+import { InvoiceGenerationService } from '../invoices/invoice-generation.service';
+import { INVOICE_ISSUED, InvoiceIssuanceService } from '../invoices/invoice-issuance.service';
 import { SubscriptionPaymentActivationService, SUBSCRIPTION_ACTIVATED_BY_PAYMENT, SUBSCRIPTION_ACTIVATION_BLOCKED } from './subscription-payment-activation.service';
 
 const enabled = process.env.RUN_PAYMENT_DB_INTEGRATION === '1';
@@ -48,6 +50,64 @@ describeDb('E1.7 PostgreSQL subscription payment activation', () => {
       const retried = await prisma.companySubscription.findUniqueOrThrow({ where: { id: subscription.id } });
       assert.equal(retried.currentPeriodEnd?.toISOString(), originalEnd);
       assert.equal(await prisma.auditLog.count({ where: { action: SUBSCRIPTION_ACTIVATED_BY_PAYMENT, entityId: subscription.id } }), 1);
+    } finally { await cleanup(fixture); }
+  });
+
+  it('automatically issues after activation commit with a system actor and remains idempotent', async () => {
+    const fixture = await createFixture();
+    const settings = await prisma.billingSettings.findUnique({ where: { scope: 'PLATFORM' } });
+    assert.ok(settings);
+    const invoicePrefix = `IGB${fixture.company.id.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+    try {
+      await prisma.companyBillingProfile.create({ data: {
+        companyId: fixture.company.id, billingName: 'IG-B Customer', addressLine1: '1 Customer Road',
+        city: 'Pune', postalCode: '411001', country: 'IN',
+      } });
+      await prisma.billingSettings.update({ where: { scope: 'PLATFORM' }, data: {
+        invoicePrefix,
+        sellerLegalName: 'IG-B Seller', sellerAddressLine1: '1 Seller Road', sellerCity: 'Pune',
+        sellerPostalCode: '411001', sellerCountry: 'IN',
+      } });
+      const service = activationService(realGeneration());
+      assert.equal((await service.activate(fixture.payment.id)).outcome, 'ACTIVATED');
+      assert.equal((await service.activate(fixture.payment.id)).outcome, 'ALREADY_ACTIVATED');
+      const invoice = await prisma.invoice.findFirstOrThrow({ where: { sourcePaymentId: fixture.payment.id } });
+      assert.equal(await prisma.invoice.count({ where: { sourcePaymentId: fixture.payment.id } }), 1);
+      assert.equal(await prisma.invoiceLine.count({ where: { invoiceId: invoice.id } }), 1);
+      const audits = await prisma.auditLog.findMany({ where: {
+        action: INVOICE_ISSUED, entityType: 'Invoice', entityId: invoice.id,
+      } });
+      assert.equal(audits.length, 1);
+      assert.equal(audits[0].actorUserId, null);
+      assert.deepEqual(audits[0].metadata, {
+        sourcePaymentId: fixture.payment.id,
+        sourceSubscriptionId: fixture.subscription.id,
+        invoiceNumber: invoice.invoiceNumber,
+      });
+    } finally {
+      await prisma.billingSettings.update({ where: { scope: 'PLATFORM' }, data: {
+        invoicePrefix: settings.invoicePrefix,
+        sellerLegalName: settings.sellerLegalName,
+        sellerAddressLine1: settings.sellerAddressLine1,
+        sellerCity: settings.sellerCity,
+        sellerPostalCode: settings.sellerPostalCode,
+        sellerCountry: settings.sellerCountry,
+      } });
+      await cleanup(fixture, invoicePrefix);
+    }
+  });
+
+  it('does not undo committed activation when automatic invoice issuance fails', async () => {
+    const fixture = await createFixture();
+    try {
+      const result = await activationService(realGeneration()).activate(fixture.payment.id);
+      assert.equal(result.outcome, 'ACTIVATED');
+      const subscription = await prisma.companySubscription.findUniqueOrThrow({ where: { id: fixture.subscription.id } });
+      assert.equal(subscription.status, SubscriptionStatus.ACTIVE);
+      assert.equal(subscription.activatedByPaymentId, fixture.payment.id);
+      const payment = await prisma.payment.findUniqueOrThrow({ where: { id: fixture.payment.id } });
+      assert.equal(payment.status, PaymentStatus.CAPTURED);
+      assert.equal(await prisma.invoice.count({ where: { sourcePaymentId: fixture.payment.id } }), 0);
     } finally { await cleanup(fixture); }
   });
 
@@ -111,7 +171,15 @@ describeDb('E1.7 PostgreSQL subscription payment activation', () => {
   });
 });
 
-function activationService() { return new SubscriptionPaymentActivationService(prisma as never, new SeatUsageService(prisma as never)); }
+function realGeneration() {
+  const generation = new InvoiceGenerationService(new InvoiceIssuanceService(prisma as never));
+  (generation as unknown as { logger: { error(): void } }).logger = { error: () => undefined };
+  return generation;
+}
+
+function activationService(generation: { generate(paymentId: string): Promise<unknown> } = { generate: async () => undefined }) {
+  return new SubscriptionPaymentActivationService(prisma as never, new SeatUsageService(prisma as never), generation as never);
+}
 
 async function createFixture(withTrial = false) {
   const suffix = randomUUID(); const provider = await ensureProvider();
@@ -144,8 +212,12 @@ async function ensureProvider() {
   return { configuration, created };
 }
 
-async function cleanup(fixture: Awaited<ReturnType<typeof createFixture>>) {
+async function cleanup(fixture: Awaited<ReturnType<typeof createFixture>>, invoicePrefix?: string) {
   await prisma.auditLog.deleteMany({ where: { companyId: fixture.company.id } });
+  await prisma.invoiceLine.deleteMany({ where: { companyId: fixture.company.id } });
+  await prisma.invoice.deleteMany({ where: { companyId: fixture.company.id } });
+  if (invoicePrefix) await prisma.invoiceNumberSequence.deleteMany({ where: { prefix: invoicePrefix } });
+  await prisma.companyBillingProfile.deleteMany({ where: { companyId: fixture.company.id } });
   await prisma.companySubscription.updateMany({
     where: { companyId: fixture.company.id },
     data: { status: SubscriptionStatus.CANCELLED, activatedByPaymentId: null },

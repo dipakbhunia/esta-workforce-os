@@ -25,6 +25,7 @@ function harness(options: Record<string, any> = {}) {
     activatedByPaymentId: options.activatedByPaymentId ?? null };
   const trial: Record<string, any> | null = options.trial ? { id: ids.trial, companyId: ids.company, status: TrialStatus.ACTIVE, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-02-15'), convertedAt: null, convertedSubscriptionId: null } : null;
   const audits: Record<string, any>[] = []; const events: string[] = [];
+  const generated: string[] = [];
   const tx: any = {
     $queryRaw: async () => [{ id: 'locked' }],
     payment: { findUnique: async () => payment },
@@ -43,10 +44,16 @@ function harness(options: Record<string, any> = {}) {
       create: async ({ data }: any) => { audits.push(data); events.push(`audit:${data.action}`); return data; },
     },
   };
-  const prisma: any = { payment: { findUnique: async () => payment }, $transaction: async (callback: any) => callback(tx), $queryRaw: async () => options.candidates ?? [] };
+  const prisma: any = { payment: { findUnique: async () => payment }, $transaction: async (callback: any) => {
+    const result = await callback(tx); events.push('transaction:commit'); return result;
+  }, $queryRaw: async () => options.candidates ?? [] };
   const seats: any = { lockCompany: async () => { events.push('company:lock'); }, countUsedSeats: async () => options.usedSeats ?? 0 };
-  const service = new SubscriptionPaymentActivationService(prisma, seats);
-  return { service, company, payment, subscription, trial, audits, events, prisma };
+  const generation: any = { generate: async (paymentId: string) => {
+    generated.push(paymentId); events.push(`invoice:generate:${paymentId}`);
+    if (options.generationFailure) throw new Error('generation failed');
+  } };
+  const service = new SubscriptionPaymentActivationService(prisma, seats, generation);
+  return { service, company, payment, subscription, trial, audits, events, generated, prisma };
 }
 
 describe('SubscriptionPaymentActivationService', () => {
@@ -60,6 +67,9 @@ describe('SubscriptionPaymentActivationService', () => {
     assert.deepEqual(h.audits.map((audit) => audit.action), ['TRIAL_ENDED_BY_PAID_SUBSCRIPTION', SUBSCRIPTION_ACTIVATED_BY_PAYMENT]);
     assert.equal(h.audits[1].metadata.overLimit, true); assert.equal(h.audits[1].metadata.overBy, 2);
     assert.deepEqual(h.events.slice(0, 2), ['company:lock', 'trial:update']);
+    assert.deepEqual(h.generated, [ids.payment]);
+    assert.equal(h.events.at(-2), 'transaction:commit');
+    assert.equal(h.events.at(-1), `invoice:generate:${ids.payment}`);
   });
 
   it('returns durable idempotent success for ACTIVE or SUSPENDED without rewriting periods or audits', async () => {
@@ -68,7 +78,17 @@ describe('SubscriptionPaymentActivationService', () => {
       h.subscription.startsAt = original; h.subscription.currentPeriodStart = original; h.subscription.currentPeriodEnd = new Date('2026-04-01');
       assert.equal((await h.service.activate(ids.payment)).outcome, 'ALREADY_ACTIVATED');
       assert.equal(h.subscription.status, status); assert.equal(h.subscription.currentPeriodStart, original); assert.deepEqual(h.audits, []);
+      assert.deepEqual(h.generated, [ids.payment]);
     }
+  });
+
+  it('keeps committed activation successful when automatic generation fails', async () => {
+    const h = harness({ generationFailure: true });
+    const result = await h.service.activate(ids.payment);
+    assert.equal(result.outcome, 'ACTIVATED');
+    assert.equal(h.subscription.status, SubscriptionStatus.ACTIVE);
+    assert.equal(h.subscription.activatedByPaymentId, ids.payment);
+    assert.deepEqual(h.generated, [ids.payment]);
   });
 
   it('treats PENDING, AUTHORIZED, and FAILED Payment as not ready', async () => {
