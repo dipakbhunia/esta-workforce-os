@@ -20,6 +20,11 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
 
   it('issues one exact immutable BigInt invoice and remains idempotent', async () => {
     const fixture = await createFixture({ amount: 9_007_199_254_740_991n, basis: RecurringPriceBasis.FIXED_TOTAL });
+    const actorId = randomUUID();
+    await prisma.user.create({ data: {
+      id: actorId, email: `ifd-${actorId}@example.invalid`, passwordHash: 'integration-probe',
+      firstName: 'IF-D', lastName: 'Actor',
+    } });
     try {
       const service = new InvoiceIssuanceService(prisma as never, { now: () => new Date('2026-09-08T12:00:00.000Z') });
       const [persistedPayment, persistedSubscription] = await Promise.all([
@@ -31,8 +36,8 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
       assert.equal(persistedPayment.amountMinor, 9_007_199_254_740_991n);
       assert.equal(persistedSubscription.recurringTotalPriceMinor, 9_007_199_254_740_991n);
       assert.equal(persistedSubscription.recurringUnitPriceMinor, null);
-      const first = await service.issue(fixture.paymentId);
-      const second = await service.issue(fixture.paymentId);
+      const first = await service.issue(fixture.paymentId, actorId);
+      const second = await service.issue(fixture.paymentId, actorId);
       assert.equal(first.id, second.id);
       assert.equal(first.subtotalMinor, '9007199254740991');
       assert.equal(first.totalMinor, '9007199254740991');
@@ -65,9 +70,26 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
       assert.deepEqual(immutable, { billToName: 'IF-B Customer', billToAddressLine1: '1 Customer Road', billToCity: 'Pune', billToPostalCode: '411001' });
       assert.equal(await prisma.invoice.count({ where: { sourcePaymentId: fixture.paymentId } }), 1);
       assert.equal(await prisma.invoiceLine.count({ where: { invoiceId: first.id } }), 1);
-      assert.equal(await prisma.auditLog.count({ where: { action: INVOICE_ISSUED, entityId: first.id } }), 1);
+      const audit = await prisma.auditLog.findFirstOrThrow({
+        where: { action: INVOICE_ISSUED, entityType: 'Invoice', entityId: first.id },
+        select: { actorUserId: true, companyId: true, metadata: true },
+      });
+      assert.equal(audit.actorUserId, actorId);
+      assert.equal(audit.companyId, fixture.companyId);
+      assert.deepEqual(audit.metadata, {
+        sourcePaymentId: fixture.paymentId,
+        sourceSubscriptionId: fixture.subscriptionId,
+        invoiceNumber: first.invoiceNumber,
+      });
+      assert.equal(await prisma.auditLog.count({ where: {
+        action: INVOICE_ISSUED, entityType: 'Invoice', entityId: first.id,
+        companyId: fixture.companyId,
+      } }), 1);
       assert.equal(JSON.stringify(first).match(/secret|signature|token|payload|credential/gi), null);
-    } finally { await cleanup(fixture); }
+    } finally {
+      await cleanup(fixture);
+      await prisma.user.deleteMany({ where: { id: actorId } });
+    }
   });
 
   it('uses subscription snapshots after the live Plan changes', async () => {
@@ -90,6 +112,60 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
       assert.equal(await prisma.invoiceLine.count({ where: { invoiceId: results[0].id } }), 1);
       assert.equal(await prisma.auditLog.count({ where: { action: INVOICE_ISSUED, entityId: results[0].id } }), 1);
     } finally { await cleanup(fixture); }
+  });
+
+  it('allocates unique numbers for separate Payments issued concurrently in one scope', async () => {
+    const firstFixture = await createFixture();
+    let secondFixture: Awaited<ReturnType<typeof createFixture>> | undefined;
+    try {
+      secondFixture = await createFixture();
+      await setNumbering(firstFixture.prefix, InvoiceNumberResetPolicy.NEVER);
+      const service = new InvoiceIssuanceService(prisma as never);
+      const invoices = await Promise.all([
+        service.issue(firstFixture.paymentId),
+        service.issue(secondFixture.paymentId),
+      ]);
+      assert.equal(new Set(invoices.map(({ id }) => id)).size, 2);
+      assert.equal(new Set(invoices.map(({ invoiceNumber }) => invoiceNumber)).size, 2);
+      assert.deepEqual(invoices.map(({ invoiceNumber }) => invoiceNumber).sort(), [
+        `${firstFixture.prefix}/000001`, `${firstFixture.prefix}/000002`,
+      ]);
+      for (const [fixture, returned] of [
+        [firstFixture, invoices[0]], [secondFixture, invoices[1]],
+      ] as const) {
+        const durableInvoices = await prisma.invoice.findMany({
+          where: { sourcePaymentId: fixture.paymentId },
+          select: { id: true },
+        });
+        assert.deepEqual(durableInvoices, [{ id: returned.id }]);
+        assert.equal(await prisma.invoiceLine.count({ where: { invoiceId: returned.id } }), 1);
+        const audits = await prisma.auditLog.findMany({
+          where: {
+            action: INVOICE_ISSUED, entityType: 'Invoice', entityId: returned.id,
+            companyId: fixture.companyId,
+          },
+          select: { metadata: true },
+        });
+        assert.deepEqual(audits, [{ metadata: {
+          sourcePaymentId: fixture.paymentId,
+          sourceSubscriptionId: fixture.subscriptionId,
+          invoiceNumber: returned.invoiceNumber,
+        } }]);
+      }
+      const sequence = await prisma.invoiceNumberSequence.findUniqueOrThrow({ where: {
+        scope_prefix_resetPolicy_resetBucket: {
+          scope: 'PLATFORM', prefix: firstFixture.prefix,
+          resetPolicy: InvoiceNumberResetPolicy.NEVER, resetBucket: 'NEVER',
+        },
+      } });
+      assert.equal(sequence.lastAllocatedSequence, 2n);
+    } finally {
+      try {
+        if (secondFixture) await cleanup(secondFixture);
+      } finally {
+        await cleanup(firstFixture);
+      }
+    }
   });
 
   it('rolls sequence mutation back when issuance fails after allocation', async () => {
@@ -208,6 +284,49 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
       await setNumbering(`${fixture.prefix}R`, InvoiceNumberResetPolicy.NEVER);
       assert.equal((await new InvoiceIssuanceService(prisma as never).issue(resumedSecondPayment.paymentId)).invoiceNumber, `${fixture.prefix}R/000002`);
     } finally { await cleanup(fixture); }
+  });
+
+  it('persists exact Asia/Kolkata calendar, financial-year, and NEVER boundary scopes', async () => {
+    const calendar = await createFixture();
+    try {
+      await setNumbering(calendar.prefix, InvoiceNumberResetPolicy.CALENDAR_YEAR);
+      const before = await new InvoiceIssuanceService(prisma as never, {
+        now: () => new Date('2025-12-31T18:29:59.999Z'),
+      }).issue(calendar.paymentId);
+      const next = await createAdditionalPayment(calendar);
+      const at = await new InvoiceIssuanceService(prisma as never, {
+        now: () => new Date('2025-12-31T18:30:00.000Z'),
+      }).issue(next.paymentId);
+      assert.equal(before.invoiceNumber, `${calendar.prefix}/2025/000001`);
+      assert.equal(at.invoiceNumber, `${calendar.prefix}/2026/000001`);
+    } finally { await cleanup(calendar); }
+
+    const financial = await createFixture();
+    try {
+      await setNumbering(financial.prefix, InvoiceNumberResetPolicy.FINANCIAL_YEAR);
+      const before = await new InvoiceIssuanceService(prisma as never, {
+        now: () => new Date('2026-03-31T18:29:59.999Z'),
+      }).issue(financial.paymentId);
+      const next = await createAdditionalPayment(financial);
+      const at = await new InvoiceIssuanceService(prisma as never, {
+        now: () => new Date('2026-03-31T18:30:00.000Z'),
+      }).issue(next.paymentId);
+      assert.equal(before.invoiceNumber, `${financial.prefix}/FY2025-26/000001`);
+      assert.equal(at.invoiceNumber, `${financial.prefix}/FY2026-27/000001`);
+    } finally { await cleanup(financial); }
+
+    const never = await createFixture();
+    try {
+      const before = await new InvoiceIssuanceService(prisma as never, {
+        now: () => new Date('2025-12-31T18:29:59.999Z'),
+      }).issue(never.paymentId);
+      const next = await createAdditionalPayment(never);
+      const at = await new InvoiceIssuanceService(prisma as never, {
+        now: () => new Date('2026-03-31T18:30:00.000Z'),
+      }).issue(next.paymentId);
+      assert.equal(before.invoiceNumber, `${never.prefix}/000001`);
+      assert.equal(at.invoiceNumber, `${never.prefix}/000002`);
+    } finally { await cleanup(never); }
   });
 });
 
