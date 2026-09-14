@@ -14,10 +14,10 @@ const functionalSuperAdminRoots = [
   '/saas/storage',
   '/billing/settings',
   '/billing/payments',
+  '/billing/invoices',
 ];
 
 const platformPlaceholders = [
-  '/billing/invoices',
   '/billing/gst-invoices',
   '/billing/renewals',
   '/platform-communication/email-configuration',
@@ -49,8 +49,8 @@ const dynamicRoutes = [
 ];
 
 describe('navigation search indexing', () => {
-  it('keeps exactly 42 implemented stable navigation roots', () => {
-    expect(implementedNavPaths.size).toBe(42);
+  it('keeps exactly 43 implemented stable navigation roots', () => {
+    expect(implementedNavPaths.size).toBe(43);
   });
 
   it('classifies all functional Super Admin roots as implemented navigation destinations', () => {
@@ -109,7 +109,7 @@ describe('navigation search indexing', () => {
     expect(entries.filter((entry) => entry.path === '/billing/payments')).toHaveLength(1);
     expect(entries.find((entry) => entry.path === '/billing/payments')).toMatchObject({ comingSoon: false });
     expect(entries.some((entry) => entry.path === '/billing/payments/:id')).toBe(false);
-    expect(entries.find((entry) => entry.path === '/billing/invoices')).toMatchObject({ comingSoon: true });
+    expect(entries.find((entry) => entry.path === '/billing/invoices')).toMatchObject({ comingSoon: false });
   });
 
   it('indexes stable navigation roots and excludes dynamic detail, create, edit, amend, and convert routes', () => {

@@ -44,6 +44,7 @@ const tenantDeniedPlatformPaths = [
   '/saas/plans',
   '/billing/settings',
   '/billing/payments',
+  '/billing/invoices',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -102,6 +103,37 @@ describe('application router direct-entry isolation', () => {
     const tenantView = renderRouter();
     expect(await screen.findByText('Access restricted')).toBeInTheDocument();
     tenantView.unmount();
+  });
+
+  it('routes Invoices to the operational foundation and protects Invoice details', async () => {
+    await router.navigate('/billing/invoices');
+    const listView = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Invoices' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    listView.unmount();
+
+    expect(getRouteMeta('/billing/invoices/11111111-1111-4111-8111-111111111111')).toEqual({
+      title: 'Invoice Details', breadcrumbs: ['Billing', 'Invoices', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/invoices/:invoiceId',
+    });
+    await router.navigate('/billing/invoices/11111111-1111-4111-8111-111111111111');
+    const detailsView = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Invoice Details' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to Invoices' })).toHaveAttribute('href', '/billing/invoices');
+    detailsView.unmount();
+
+    roles = ['COMPANY_ADMIN'];
+    await router.navigate('/billing/invoices/11111111-1111-4111-8111-111111111111');
+    const tenantView = renderRouter();
+    expect(await screen.findByText('Access restricted')).toBeInTheDocument();
+    tenantView.unmount();
+  });
+
+  it('keeps GST Invoices on the Coming Soon surface', async () => {
+    await router.navigate('/billing/gst-invoices');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Coming Soon' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'GST Invoices' })).toBeInTheDocument();
+    view.unmount();
   });
 
   it('does not introduce a /platform-payments frontend route', async () => {

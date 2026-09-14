@@ -39,6 +39,8 @@ const CompanyStorageDetailsPage = lazy(() => import('@/features/storage-usage/Co
 const BillingSettingsPage = lazy(() => import('@/features/billing/BillingSettingsPage'));
 const PlatformPaymentsPage = lazy(() => import('@/features/platform-payments/pages/PlatformPaymentsPage'));
 const PlatformPaymentDetailsPage = lazy(() => import('@/features/platform-payments/pages/PlatformPaymentDetailsPage'));
+const PlatformInvoicesPage = lazy(() => import('@/features/platform-invoices/pages/PlatformInvoicesPage'));
+const PlatformInvoiceDetailsPage = lazy(() => import('@/features/platform-invoices/pages/PlatformInvoiceDetailsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -186,7 +188,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'billing/invoices', title: 'Invoices', moduleName: 'Billing', description: 'Subscription invoice management is planned for a future billing release.', availabilityMessage: 'Invoice generation, records, downloads, payment marking, and numbering runtime are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/gst-invoices', title: 'GST Invoices', moduleName: 'Billing', description: 'GST invoice and tax-record management is planned for a future billing release.', availabilityMessage: 'GST invoice generation, tax calculations, and compliance workflows are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'billing/renewals', title: 'Renewals', moduleName: 'Billing', description: 'Subscription renewal management is planned for a future billing release.', availabilityMessage: 'Renewal tracking, orchestration, dunning, and collection are not available yet.', plannedPhase: 'Platform Billing', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-configuration', title: 'Email Configuration', moduleName: 'Platform Communication', description: 'Configure the platform email delivery service for SaaS communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
@@ -292,6 +293,8 @@ export const router = createBrowserRouter([
           { path: 'billing/settings', element: protectedElement(<BillingSettingsPage />, 'settings:view', superAdminRoles) },
           { path: 'billing/payments', element: protectedElement(<PlatformPaymentsPage />, 'settings:view', superAdminRoles) },
           { path: 'billing/payments/:id', element: protectedElement(<PlatformPaymentDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/invoices', element: protectedElement(<PlatformInvoicesPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/invoices/:invoiceId', element: protectedElement(<PlatformInvoiceDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },
