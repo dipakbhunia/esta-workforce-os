@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePlatformInvoicesUrl, platformInvoiceQueryForAppliedFilters, serializePlatformInvoicesUrl } from './platform-invoices-url';
+import { isValidPlatformInvoiceDateRange, localDateTimeToPlatformInvoiceIso, parsePlatformInvoicesUrl, platformInvoiceIsoToLocalDateTime, platformInvoiceQueryForAppliedFilters, serializePlatformInvoicesUrl } from './platform-invoices-url';
 
 const companyId = '11111111-1111-4111-8111-111111111111';
 const subscriptionId = '22222222-2222-4222-8222-222222222222';
@@ -25,6 +25,10 @@ describe('Platform Invoices URL state', () => {
     expect(parsePlatformInvoicesUrl(new URLSearchParams({ [key]: value })).query).toMatchObject({ page: 1, limit: 20 });
   });
 
+  it.each(['10', '20', '50', '100'])('accepts allowed page size %s', (limit) => {
+    expect(parsePlatformInvoicesUrl(new URLSearchParams({ limit })).query.limit).toBe(Number(limit));
+  });
+
   it.each(['companyId', 'subscriptionId', 'sourcePaymentId'])('removes malformed UUID filter %s', (key) => {
     expect(parsePlatformInvoicesUrl(new URLSearchParams({ [key]: 'invalid' })).query).not.toHaveProperty(key);
   });
@@ -44,5 +48,13 @@ describe('Platform Invoices URL state', () => {
 
   it('resets page when applying filters', () => {
     expect(platformInvoiceQueryForAppliedFilters({ page: 9, limit: 20, companyId })).toEqual({ page: 1, limit: 20, companyId });
+  });
+
+  it('round-trips a canonical instant through local datetime display', () => {
+    expect(localDateTimeToPlatformInvoiceIso(platformInvoiceIsoToLocalDateTime(from)!)).toBe(from);
+  });
+
+  it.each([['', '', true], ['2026-09-01T10:00', '', false], ['2026-09-01T10:00', '2026-09-01T10:00', false], ['2026-09-01T11:00', '2026-09-01T10:00', false], ['2026-02-30T10:00', '2026-03-01T10:00', false]])('validates local range %j to %j', (start, end, valid) => {
+    expect(isValidPlatformInvoiceDateRange(start, end)).toBe(valid);
   });
 });

@@ -46,6 +46,33 @@ export function platformInvoiceQueryForAppliedFilters(query: PlatformInvoiceList
   return { ...query, page: PLATFORM_INVOICE_DEFAULT_PAGE };
 }
 
+export function localDateTimeToPlatformInvoiceIso(value: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText = '0', millisecondText = '0'] = match;
+  const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number);
+  const millisecond = Number(millisecondText.padEnd(3, '0'));
+  const date = new Date(year, month - 1, day, hour, minute, second, millisecond);
+  const actual = [date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds()];
+  if (actual.some((part, index) => part !== [year, month, day, hour, minute, second, millisecond][index])) return null;
+  return date.toISOString();
+}
+
+export function platformInvoiceIsoToLocalDateTime(value: string): string | null {
+  const instant = canonicalInstant(value);
+  if (!instant) return null;
+  const date = new Date(instant);
+  const part = (amount: number, size = 2) => String(amount).padStart(size, '0');
+  return `${part(date.getFullYear(), 4)}-${part(date.getMonth() + 1)}-${part(date.getDate())}T${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}.${part(date.getMilliseconds(), 3)}`;
+}
+
+export function isValidPlatformInvoiceDateRange(from: string, to: string) {
+  if (!from && !to) return true;
+  const canonicalFrom = localDateTimeToPlatformInvoiceIso(from);
+  const canonicalTo = localDateTimeToPlatformInvoiceIso(to);
+  return canonicalFrom !== null && canonicalTo !== null && Date.parse(canonicalFrom) < Date.parse(canonicalTo);
+}
+
 function canonicalInstant(value: string | null) {
   if (!value || !CANONICAL_ISO.test(value)) return null;
   const date = new Date(value);
