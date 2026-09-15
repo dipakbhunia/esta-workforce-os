@@ -14,6 +14,8 @@ const enabled = process.env.RUN_INVOICE_GENERATION_RECOVERY_DB_INTEGRATION === '
 const REQUIRED_TABLES = [
   'Company', 'Plan', 'CompanySubscription', 'BillingSettings', 'CompanyBillingProfile',
   'BillingProviderConfiguration', 'Payment', 'InvoiceNumberSequence', 'Invoice', 'InvoiceLine', 'AuditLog',
+  'GstTaxPolicyVersion', 'PaymentTaxSnapshot', 'PaymentTaxComponent', 'InvoiceGstEvidence',
+  'InvoiceLineGstEvidence', 'InvoiceLineTaxComponent',
 ] as const;
 
 describe('IG-C PostgreSQL invoice generation recovery', () => {

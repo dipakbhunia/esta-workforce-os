@@ -19,12 +19,13 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { assertPaymentAmount, assertPaymentCurrency } from './payment-money.util';
 import { PaymentResponseDto } from './dto/payment-response.dto';
+import { GstTaxDomainError, SubscriptionTaxCalculationService } from './subscription-tax-calculation.service';
 
 const SUPPORTED_INTERVALS: readonly BillingInterval[] = [BillingInterval.MONTHLY, BillingInterval.YEARLY];
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly taxes: SubscriptionTaxCalculationService) {}
 
   async createForSubscription(subscriptionId: string, actor: AuthenticatedUser): Promise<PaymentResponseDto> {
     const payment = await this.prisma.$transaction(async (tx) => {
@@ -38,7 +39,9 @@ export class PaymentsService {
           where: { subscriptionId, purpose: PaymentPurpose.SUBSCRIPTION_ACTIVATION },
         });
         if (existing) {
-          this.assertCompatible(existing, subscription.id, subscription.companyId, subscription.recurringTotalPriceMinor!, subscription.recurringCurrency!);
+          this.assertCompatible(existing, subscription.id, subscription.companyId);
+          try { await this.taxes.assertPersistedPayment(tx, existing, { recurringTotalPriceMinor: subscription.recurringTotalPriceMinor!, recurringCurrency: subscription.recurringCurrency! }); }
+          catch (error) { this.mapTaxError(error); }
           return existing;
         }
 
@@ -49,6 +52,11 @@ export class PaymentsService {
           throw new ConflictException('No enabled default payment provider is configured');
         }
 
+        const decisionAt = new Date();
+        let tax;
+        try { tax = await this.taxes.resolve(tx, { companyId: subscription.companyId, recurringTotalPriceMinor: subscription.recurringTotalPriceMinor!, recurringCurrency: subscription.recurringCurrency! }, decisionAt); }
+        catch (error) { this.mapTaxError(error); }
+        const amountMinor = tax?.grossTotalMinor ?? subscription.recurringTotalPriceMinor!;
         const created = await tx.payment.create({
           data: {
             companyId: subscription.companyId,
@@ -58,11 +66,25 @@ export class PaymentsService {
             status: PaymentStatus.PENDING,
             provider: provider.provider,
             providerMode: provider.mode,
-            amountMinor: subscription.recurringTotalPriceMinor!,
+            amountMinor,
             currency: subscription.recurringCurrency!,
             idempotencyKey: `subscription-activation:${subscription.id}`,
             businessReference: `subscription-activation:${subscription.id}`,
             createdByUserId: actor.id,
+            ...(tax ? { taxSnapshot: { create: {
+              company: { connect: { id: subscription.companyId } },
+              sourceSubscription: { connect: { id_companyId: { id: subscription.id, companyId: subscription.companyId } } },
+              policyVersion: { connect: { id: tax.policyVersionId } },
+              treatment: tax.treatment, calculationVersion: tax.calculationVersion, decisionAt: tax.decisionAt,
+              currency: tax.currency, taxableSubtotalMinor: tax.taxableSubtotalMinor, totalTaxMinor: tax.totalTaxMinor,
+              grossTotalMinor: tax.grossTotalMinor, jurisdictionClassification: tax.jurisdictionClassification,
+              serviceClassification: tax.serviceClassification, roundingMode: tax.roundingMode, sellerGstin: tax.sellerGstin,
+              sellerLegalName: tax.sellerLegalName, sellerRegisteredState: tax.sellerRegisteredState,
+              sellerRegisteredStateCode: tax.sellerRegisteredStateCode, buyerRegistrationStatus: tax.buyerRegistrationStatus,
+              buyerGstin: tax.buyerGstin, buyerBillingState: tax.buyerBillingState, buyerBillingStateCode: tax.buyerBillingStateCode,
+              placeOfSupplyState: tax.placeOfSupplyState, placeOfSupplyStateCode: tax.placeOfSupplyStateCode,
+              components: { create: tax.components.map((component) => component) },
+            } } } : {}),
           },
         });
         await tx.auditLog.create({
@@ -125,16 +147,19 @@ export class PaymentsService {
     }
   }
 
-  private assertCompatible(payment: Payment, subscriptionId: string, companyId: string, amountMinor: bigint, currency: string): void {
+  private assertCompatible(payment: Payment, subscriptionId: string, companyId: string): void {
     if (
       payment.subscriptionId !== subscriptionId ||
       payment.companyId !== companyId ||
-      payment.amountMinor !== amountMinor ||
-      payment.currency !== currency ||
       payment.purpose !== PaymentPurpose.SUBSCRIPTION_ACTIVATION
     ) {
       throw new ConflictException('An incompatible durable activation payment already exists');
     }
+  }
+
+  private mapTaxError(error: unknown): never {
+    if (error instanceof GstTaxDomainError) throw new ConflictException(error.message);
+    throw error;
   }
 
   private assertTenantAccess(companyId: string, actor: AuthenticatedUser): void {

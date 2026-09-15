@@ -14,7 +14,8 @@ const enabled = process.env.RUN_INVOICE_GENERATION_CONCURRENCY_DB_INTEGRATION ==
 const REQUIRED_TABLES = [
   'Company', 'Plan', 'CompanySubscription', 'BillingSettings', 'CompanyBillingProfile',
   'BillingProviderConfiguration', 'Payment', 'InvoiceNumberSequence', 'Invoice', 'InvoiceLine',
-  'User', 'AuditLog',
+  'User', 'AuditLog', 'GstTaxPolicyVersion', 'PaymentTaxSnapshot', 'PaymentTaxComponent',
+  'InvoiceGstEvidence', 'InvoiceLineGstEvidence', 'InvoiceLineTaxComponent',
 ] as const;
 
 describe('IG-D PostgreSQL invoice generation concurrency', () => {

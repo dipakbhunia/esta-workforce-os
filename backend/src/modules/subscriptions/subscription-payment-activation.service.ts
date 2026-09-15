@@ -35,7 +35,7 @@ export class SubscriptionPaymentActivationService {
       result = await this.prisma.$transaction(async (tx) => {
         await this.seatUsage.lockCompany(tx, identity.companyId);
         await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
-        const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+        const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: { taxSnapshot: { include: { components: true } } } });
         if (!payment || payment.companyId !== identity.companyId) return this.block(tx, paymentId, '', identity.companyId, 'ownership_mismatch');
         await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "CompanySubscription" WHERE "id" = ${payment.subscriptionId}::uuid FOR UPDATE`);
         const subscription = await tx.companySubscription.findUnique({ where: { id: payment.subscriptionId } });
@@ -114,7 +114,10 @@ export class SubscriptionPaymentActivationService {
     for (const row of rows) { try { await this.activate(row.id); } catch { /* durable state remains eligible for a later bounded scan */ } }
   }
 
-  private snapshotReason(payment: { amountMinor: bigint; currency: string }, subscription: {
+  private snapshotReason(payment: { amountMinor: bigint; currency: string; companyId?: string; subscriptionId?: string; taxSnapshot?: {
+    companyId: string; sourceSubscriptionId: string; currency: string; taxableSubtotalMinor: bigint; totalTaxMinor: bigint;
+    grossTotalMinor: bigint; components: Array<{ taxableAmountMinor: bigint; taxAmountMinor: bigint; currency: string }>;
+  } | null }, subscription: {
     seatQuantity: number; billingInterval: BillingInterval; pricingInterval: BillingInterval | null; pricingResolvedAt: Date | null;
     recurringPriceBasis: RecurringPriceBasis | null; recurringUnitPriceMinor: bigint | null; recurringTotalPriceMinor: bigint | null;
     recurringCurrency: string | null; currency: string; entitlementsSnapshot: string[]; limitsSnapshot: Prisma.JsonValue;
@@ -124,7 +127,15 @@ export class SubscriptionPaymentActivationService {
       subscription.billingInterval !== subscription.pricingInterval || !subscription.recurringPriceBasis ||
       subscription.recurringTotalPriceMinor === null || !subscription.recurringCurrency) return 'commercial_snapshot_mismatch';
     try { assertPaymentAmount(payment.amountMinor); assertPaymentCurrency(payment.currency); assertPaymentCurrency(subscription.recurringCurrency); } catch { return 'commercial_snapshot_mismatch'; }
-    if (payment.amountMinor !== subscription.recurringTotalPriceMinor || payment.currency !== subscription.recurringCurrency || subscription.currency !== subscription.recurringCurrency) return 'commercial_snapshot_mismatch';
+    if (payment.currency !== subscription.recurringCurrency || subscription.currency !== subscription.recurringCurrency) return 'commercial_snapshot_mismatch';
+    if (payment.taxSnapshot) {
+      const tax = payment.taxSnapshot;
+      const componentTotal = tax.components.reduce((sum, component) => sum + component.taxAmountMinor, 0n);
+      if (tax.companyId !== payment.companyId || tax.sourceSubscriptionId !== payment.subscriptionId || tax.currency !== payment.currency ||
+        tax.taxableSubtotalMinor !== subscription.recurringTotalPriceMinor || tax.totalTaxMinor !== componentTotal ||
+        tax.grossTotalMinor !== tax.taxableSubtotalMinor + tax.totalTaxMinor || tax.grossTotalMinor !== payment.amountMinor ||
+        tax.components.some((component) => component.currency !== tax.currency || component.taxableAmountMinor !== tax.taxableSubtotalMinor)) return 'commercial_snapshot_mismatch';
+    } else if (payment.amountMinor !== subscription.recurringTotalPriceMinor) return 'commercial_snapshot_mismatch';
     if (subscription.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT) {
       if (subscription.recurringUnitPriceMinor === null || subscription.recurringUnitPriceMinor < 0n || subscription.recurringUnitPriceMinor * BigInt(subscription.seatQuantity) !== subscription.recurringTotalPriceMinor) return 'commercial_snapshot_mismatch';
     } else if (subscription.recurringPriceBasis === RecurringPriceBasis.FIXED_TOTAL) {

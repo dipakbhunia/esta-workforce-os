@@ -35,7 +35,7 @@ const payment = {
   capturedAt: null, failedAt: null, createdByUserId: actor.id, createdAt: new Date(), updatedAt: new Date(),
 };
 
-function harness(options: { subscription?: typeof subscription; provider?: typeof provider | null; existing?: typeof payment | null; createError?: unknown } = {}) {
+function harness(options: { subscription?: typeof subscription; provider?: typeof provider | null; existing?: typeof payment | null; createError?: unknown; tax?: Record<string, unknown> | null } = {}) {
   const events: string[] = [];
   const selectedSubscription = options.subscription ?? subscription;
   const selectedProvider = options.provider === undefined ? provider : options.provider;
@@ -60,7 +60,12 @@ function harness(options: { subscription?: typeof subscription; provider?: typeo
     $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
     payment: { findFirst: async () => existing, findUnique: async () => existing ?? payment },
   };
-  return { service: new PaymentsService(prisma as never), data: () => createdData, audits: () => auditCount, events };
+  const taxes = { resolve: async () => options.tax ?? null, assertPersistedPayment: async (_tx: unknown, existingPayment: typeof payment) => {
+    if (existingPayment.amountMinor !== selectedSubscription.recurringTotalPriceMinor || existingPayment.currency !== selectedSubscription.recurringCurrency) {
+      throw new ConflictException('Persisted Payment tax evidence is contradictory');
+    }
+  } };
+  return { service: new PaymentsService(prisma as never, taxes as never), data: () => createdData, audits: () => auditCount, events };
 }
 
 describe('PaymentsService E1.2 creation runtime', () => {
@@ -75,6 +80,21 @@ describe('PaymentsService E1.2 creation runtime', () => {
     assert.equal(h.data()?.status, PaymentStatus.PENDING);
     assert.equal(h.audits(), 1);
     assert.equal((h.data() as Record<string, unknown>).activatedByPaymentId, undefined);
+  });
+
+  it('persists a GST-aware gross Payment and tax evidence atomically', async () => {
+    const tax = { policyVersionId: '00000000-0000-4000-8000-000000000009', treatment: 'TAXABLE', calculationVersion: 1,
+      decisionAt: new Date(), currency: 'INR', taxableSubtotalMinor: 49500n, totalTaxMinor: 8910n, grossTotalMinor: 58410n,
+      jurisdictionClassification: 'INTER_STATE', serviceClassification: 'TEST-SAC', roundingMode: 'HALF_UP_MINOR_UNIT_PER_COMPONENT',
+      sellerGstin: '27ABCDE1234F1Z5', sellerLegalName: 'Seller', sellerRegisteredState: 'Maharashtra', sellerRegisteredStateCode: '27',
+      buyerRegistrationStatus: 'UNREGISTERED', buyerGstin: null, buyerBillingState: 'Karnataka', buyerBillingStateCode: '29',
+      placeOfSupplyState: 'Karnataka', placeOfSupplyStateCode: '29', components: [{ type: 'IGST', rateBasisPoints: 1800,
+        taxableAmountMinor: 49500n, taxAmountMinor: 8910n, currency: 'INR' }] };
+    const h = harness({ tax });
+    const result = await h.service.createForSubscription(subscriptionId, actor);
+    assert.equal(result.amountMinor, '58410');
+    assert.equal(h.data()?.amountMinor, 58410n);
+    assert.ok((h.data()?.taxSnapshot as { create?: unknown })?.create);
   });
 
   it('rejects client-controlled commercial and provider fields', async () => {

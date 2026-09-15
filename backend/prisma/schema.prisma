@@ -351,6 +351,37 @@ enum PaymentProviderEventStatus {
   FAILED
 }
 
+enum GstTaxTreatment {
+  TAXABLE
+  NON_TAXABLE
+}
+
+enum GstJurisdictionClassification {
+  INTRA_STATE
+  INTER_STATE
+}
+
+enum GstTaxComponentType {
+  CGST
+  SGST
+  IGST
+}
+
+enum GstTaxPolicyStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum GstRoundingMode {
+  HALF_UP_MINOR_UNIT_PER_COMPONENT
+}
+
+enum GstRegistrationStatus {
+  REGISTERED
+  UNREGISTERED
+}
+
 model Plan {
   id                       String                @id @default(uuid()) @db.Uuid
   code                     String                @unique
@@ -453,6 +484,7 @@ model Company {
   payments                     Payment[]
   billingProfile               CompanyBillingProfile?
   invoices                     Invoice[]
+  paymentTaxSnapshots          PaymentTaxSnapshot[]
 
   @@index([status])
   @@index([slug])
@@ -500,6 +532,7 @@ model CompanySubscription {
   activatedByPayment        Payment?                     @relation("SubscriptionActivationPayment", fields: [activatedByPaymentId, id, companyId], references: [id, subscriptionId, companyId], onDelete: Restrict)
   invoices                  Invoice[]                    @relation("InvoiceSourceSubscription")
   invoiceLines              InvoiceLine[]                @relation("InvoiceLineSourceSubscription")
+  paymentTaxSnapshots       PaymentTaxSnapshot[]
 
   @@unique([id, companyId])
   @@unique([id, companyId, planId])
@@ -567,21 +600,53 @@ model BillingSettings {
   @@index([updatedById])
 }
 
+model GstTaxPolicyVersion {
+  id                    String               @id @default(uuid()) @db.Uuid
+  policyCode            String
+  version               Int
+  status                GstTaxPolicyStatus   @default(DRAFT)
+  effectiveFrom         DateTime
+  effectiveUntil        DateTime?
+  currency              String
+  treatment             GstTaxTreatment
+  totalRateBasisPoints  Int
+  cgstRateBasisPoints   Int
+  sgstRateBasisPoints   Int
+  igstRateBasisPoints   Int
+  serviceClassification String?
+  roundingMode          GstRoundingMode      @default(HALF_UP_MINOR_UNIT_PER_COMPONENT)
+  calculationVersion    Int                  @default(1)
+  createdByUserId       String?              @db.Uuid
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  createdBy             User?                @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  paymentTaxSnapshots   PaymentTaxSnapshot[]
+
+  @@unique([policyCode, version])
+  @@index([status, currency, effectiveFrom])
+  @@index([createdByUserId])
+}
+
 model CompanyBillingProfile {
-  id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @unique @db.Uuid
-  billingName  String
-  billingEmail String?
-  addressLine1 String
-  addressLine2 String?
-  city         String
-  state        String?
-  postalCode   String
-  country      String
-  phone        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  id                     String                 @id @default(uuid()) @db.Uuid
+  companyId              String                 @unique @db.Uuid
+  billingName            String
+  billingEmail           String?
+  addressLine1           String
+  addressLine2           String?
+  city                   String
+  state                  String?
+  postalCode             String
+  country                String
+  phone                  String?
+  gstRegistrationStatus  GstRegistrationStatus?
+  gstin                  String?
+  billingStateCode       String?
+  placeOfSupplyState     String?
+  placeOfSupplyStateCode String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  company                Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
 }
 
 model InvoiceNumberSequence {
@@ -637,6 +702,7 @@ model Invoice {
   billToPhone              String?
   currency                 String
   subtotalMinor            BigInt
+  totalTaxMinor            BigInt?
   totalMinor               BigInt
   createdAt                DateTime                 @default(now())
   updatedAt                DateTime                 @updatedAt
@@ -645,8 +711,10 @@ model Invoice {
   sourceSubscription       CompanySubscription      @relation("InvoiceSourceSubscription", fields: [sourceSubscriptionId, companyId], references: [id, companyId], onDelete: Restrict)
   numberSequenceState      InvoiceNumberSequence    @relation(fields: [numberSequenceId, numberPrefix, numberResetPolicy, numberResetBucket], references: [id, prefix, resetPolicy, resetBucket], onDelete: Restrict, map: "Invoice_numberSequenceId_numberPrefix_numberResetPolicy_numberR")
   lines                    InvoiceLine[]
+  gstEvidence              InvoiceGstEvidence?
 
   @@unique([id, companyId, sourceSubscriptionId])
+  @@unique([id, sourcePaymentId])
   @@unique([sourcePaymentId, sourceSubscriptionId, companyId])
   @@index([companyId, issuedAt])
   @@index([sourceSubscriptionId])
@@ -654,11 +722,11 @@ model Invoice {
 }
 
 model InvoiceLine {
-  id                   String              @id @default(uuid()) @db.Uuid
-  invoiceId            String              @db.Uuid
-  companyId            String              @db.Uuid
-  sourceSubscriptionId String              @db.Uuid
-  sourcePlanId         String              @db.Uuid
+  id                   String                  @id @default(uuid()) @db.Uuid
+  invoiceId            String                  @db.Uuid
+  companyId            String                  @db.Uuid
+  sourceSubscriptionId String                  @db.Uuid
+  sourcePlanId         String                  @db.Uuid
   planCodeSnapshot     String
   planNameSnapshot     String
   lineSequence         Int
@@ -667,10 +735,11 @@ model InvoiceLine {
   unitAmountMinor      BigInt
   lineSubtotalMinor    BigInt
   currency             String
-  createdAt            DateTime            @default(now())
-  invoice              Invoice             @relation(fields: [invoiceId, companyId, sourceSubscriptionId], references: [id, companyId, sourceSubscriptionId], onDelete: Restrict)
-  sourceSubscription   CompanySubscription @relation("InvoiceLineSourceSubscription", fields: [sourceSubscriptionId, companyId, sourcePlanId], references: [id, companyId, planId], onDelete: Restrict)
-  sourcePlan           Plan                @relation(fields: [sourcePlanId], references: [id], onDelete: Restrict)
+  createdAt            DateTime                @default(now())
+  invoice              Invoice                 @relation(fields: [invoiceId, companyId, sourceSubscriptionId], references: [id, companyId, sourceSubscriptionId], onDelete: Restrict)
+  sourceSubscription   CompanySubscription     @relation("InvoiceLineSourceSubscription", fields: [sourceSubscriptionId, companyId, sourcePlanId], references: [id, companyId, planId], onDelete: Restrict)
+  sourcePlan           Plan                    @relation(fields: [sourcePlanId], references: [id], onDelete: Restrict)
+  gstEvidence          InvoiceLineGstEvidence?
 
   @@unique([invoiceId, lineSequence])
   @@index([sourceSubscriptionId])
@@ -758,6 +827,7 @@ model Payment {
   providerEvents            PaymentProviderEvent[]
   activatedSubscription     CompanySubscription?         @relation("SubscriptionActivationPayment")
   invoice                   Invoice?
+  taxSnapshot               PaymentTaxSnapshot?
 
   @@unique([companyId, idempotencyKey])
   @@unique([providerConfigurationId, capturedProviderPaymentId])
@@ -770,6 +840,128 @@ model Payment {
   @@index([provider, providerMode, status])
   @@index([providerConfigurationId])
   @@index([createdByUserId])
+}
+
+model PaymentTaxSnapshot {
+  id                         String                         @id @default(uuid()) @db.Uuid
+  paymentId                  String                         @unique @db.Uuid
+  companyId                  String                         @db.Uuid
+  sourceSubscriptionId       String                         @db.Uuid
+  policyVersionId            String                         @db.Uuid
+  treatment                  GstTaxTreatment
+  calculationVersion         Int
+  decisionAt                 DateTime
+  currency                   String
+  taxableSubtotalMinor       BigInt
+  totalTaxMinor              BigInt
+  grossTotalMinor            BigInt
+  jurisdictionClassification GstJurisdictionClassification?
+  serviceClassification      String?
+  roundingMode               GstRoundingMode
+  sellerGstin                String?
+  sellerLegalName            String?
+  sellerRegisteredState      String?
+  sellerRegisteredStateCode  String?
+  buyerRegistrationStatus    GstRegistrationStatus?
+  buyerGstin                 String?
+  buyerBillingState          String?
+  buyerBillingStateCode      String?
+  placeOfSupplyState         String?
+  placeOfSupplyStateCode     String?
+  createdAt                  DateTime                       @default(now())
+  payment                    Payment                        @relation(fields: [paymentId, sourceSubscriptionId, companyId], references: [id, subscriptionId, companyId], onDelete: Restrict)
+  company                    Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  sourceSubscription         CompanySubscription            @relation(fields: [sourceSubscriptionId, companyId], references: [id, companyId], onDelete: Restrict)
+  policyVersion              GstTaxPolicyVersion            @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  components                 PaymentTaxComponent[]
+  invoiceEvidence            InvoiceGstEvidence?
+
+  @@unique([id, paymentId])
+  @@unique([paymentId, sourceSubscriptionId, companyId])
+  @@index([companyId, decisionAt])
+  @@index([sourceSubscriptionId])
+  @@index([policyVersionId])
+  @@index([treatment, decisionAt])
+}
+
+model PaymentTaxComponent {
+  id                   String              @id @default(uuid()) @db.Uuid
+  paymentTaxSnapshotId String              @db.Uuid
+  type                 GstTaxComponentType
+  rateBasisPoints      Int
+  taxableAmountMinor   BigInt
+  taxAmountMinor       BigInt
+  currency             String
+  createdAt            DateTime            @default(now())
+  paymentTaxSnapshot   PaymentTaxSnapshot  @relation(fields: [paymentTaxSnapshotId], references: [id], onDelete: Restrict)
+
+  @@unique([paymentTaxSnapshotId, type])
+  @@index([paymentTaxSnapshotId])
+}
+
+model InvoiceGstEvidence {
+  id                         String                         @id @default(uuid()) @db.Uuid
+  invoiceId                  String                         @unique @db.Uuid
+  sourcePaymentId            String                         @db.Uuid
+  paymentTaxSnapshotId       String                         @unique @db.Uuid
+  treatment                  GstTaxTreatment
+  policyCode                 String
+  policyVersion              Int
+  calculationVersion         Int
+  decisionAt                 DateTime
+  currency                   String
+  taxableSubtotalMinor       BigInt
+  totalTaxMinor              BigInt
+  grossTotalMinor            BigInt
+  jurisdictionClassification GstJurisdictionClassification?
+  serviceClassification      String?
+  roundingMode               GstRoundingMode
+  sellerGstin                String?
+  sellerLegalName            String?
+  sellerRegisteredState      String?
+  sellerRegisteredStateCode  String?
+  buyerRegistrationStatus    GstRegistrationStatus?
+  buyerGstin                 String?
+  buyerBillingState          String?
+  buyerBillingStateCode      String?
+  placeOfSupplyState         String?
+  placeOfSupplyStateCode     String?
+  createdAt                  DateTime                       @default(now())
+  invoice                    Invoice                        @relation(fields: [invoiceId, sourcePaymentId], references: [id, sourcePaymentId], onDelete: Restrict)
+  paymentTaxSnapshot         PaymentTaxSnapshot             @relation(fields: [paymentTaxSnapshotId, sourcePaymentId], references: [id, paymentId], onDelete: Restrict)
+
+  @@unique([invoiceId, sourcePaymentId])
+  @@unique([paymentTaxSnapshotId, sourcePaymentId])
+  @@index([treatment, invoiceId])
+}
+
+model InvoiceLineGstEvidence {
+  id                         String                         @id @default(uuid()) @db.Uuid
+  invoiceLineId              String                         @unique @db.Uuid
+  treatment                  GstTaxTreatment
+  jurisdictionClassification GstJurisdictionClassification?
+  currency                   String
+  taxableAmountMinor         BigInt
+  totalTaxMinor              BigInt
+  grossAmountMinor           BigInt
+  serviceClassification      String?
+  createdAt                  DateTime                       @default(now())
+  invoiceLine                InvoiceLine                    @relation(fields: [invoiceLineId], references: [id], onDelete: Restrict)
+  components                 InvoiceLineTaxComponent[]
+}
+
+model InvoiceLineTaxComponent {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  invoiceLineGstEvidenceId String                 @db.Uuid
+  type                     GstTaxComponentType
+  rateBasisPoints          Int
+  taxAmountMinor           BigInt
+  currency                 String
+  createdAt                DateTime               @default(now())
+  invoiceLineGstEvidence   InvoiceLineGstEvidence @relation(fields: [invoiceLineGstEvidenceId], references: [id], onDelete: Restrict)
+
+  @@unique([invoiceLineGstEvidenceId, type])
+  @@index([invoiceLineGstEvidenceId])
 }
 
 model PaymentProviderOrder {
@@ -1041,6 +1233,7 @@ model User {
   notifications                Notification[]
   notificationPreference       NotificationPreference?
   billingSettingsUpdates       BillingSettings[]              @relation("BillingSettingsUpdatedBy")
+  gstTaxPoliciesCreated        GstTaxPolicyVersion[]
   billingProviderUpdates       BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
   billingProviderCredentials   BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
   createdPayments              Payment[]                      @relation("PaymentCreatedBy")

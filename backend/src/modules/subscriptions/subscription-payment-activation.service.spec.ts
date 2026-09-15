@@ -13,7 +13,8 @@ function harness(options: Record<string, any> = {}) {
   const company = { id: ids.company, status: options.companyStatus ?? CompanyStatus.ACTIVE };
   const payment: Record<string, any> = { id: ids.payment, companyId: ids.company, subscriptionId: ids.subscription,
     purpose: options.purpose ?? PaymentPurpose.SUBSCRIPTION_ACTIVATION, status: options.paymentStatus ?? PaymentStatus.CAPTURED,
-    amountMinor: options.amountMinor ?? 1000n, currency: options.paymentCurrency ?? 'INR', capturedProviderPaymentId: options.captureId === null ? null : 'pay_authoritative', capturedAt: options.capturedAt === null ? null : capturedAt };
+    amountMinor: options.amountMinor ?? 1000n, currency: options.paymentCurrency ?? 'INR', capturedProviderPaymentId: options.captureId === null ? null : 'pay_authoritative', capturedAt: options.capturedAt === null ? null : capturedAt,
+    taxSnapshot: options.taxSnapshot ?? null };
   const subscription: Record<string, any> = { id: ids.subscription, companyId: ids.company, planId: ids.plan,
     status: options.subscriptionStatus ?? SubscriptionStatus.PENDING, activationSource: options.activationSource ?? SubscriptionActivationSource.PAYMENT,
     billingInterval: BillingInterval.MONTHLY, planCodeSnapshot: 'STARTER', planNameSnapshot: 'Starter', billingModelSnapshot: PlanBillingModel.PER_USER,
@@ -70,6 +71,17 @@ describe('SubscriptionPaymentActivationService', () => {
     assert.deepEqual(h.generated, [ids.payment]);
     assert.equal(h.events.at(-2), 'transaction:commit');
     assert.equal(h.events.at(-1), `invoice:generate:${ids.payment}`);
+  });
+
+  it('activates a GST-aware gross Payment only when its immutable tax evidence reconciles', async () => {
+    const taxSnapshot = { companyId: ids.company, sourceSubscriptionId: ids.subscription, currency: 'INR',
+      taxableSubtotalMinor: 1000n, totalTaxMinor: 180n, grossTotalMinor: 1180n,
+      components: [{ taxableAmountMinor: 1000n, taxAmountMinor: 180n, currency: 'INR' }] };
+    const valid = harness({ amountMinor: 1180n, taxSnapshot });
+    assert.equal((await valid.service.activate(ids.payment)).outcome, 'ACTIVATED');
+    const invalid = harness({ amountMinor: 1180n, taxSnapshot: { ...taxSnapshot, totalTaxMinor: 179n } });
+    const result = await invalid.service.activate(ids.payment);
+    assert.equal(result.outcome, 'PERMANENTLY_BLOCKED');
   });
 
   it('returns durable idempotent success for ACTIVE or SUSPENDED without rewriting periods or audits', async () => {

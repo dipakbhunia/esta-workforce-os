@@ -94,12 +94,17 @@ export class InvoiceIssuanceService {
 
         const payment = await tx.payment.findUnique({
           where: { id: sourcePaymentId },
-          include: { subscription: true },
+          include: { subscription: true, taxSnapshot: { include: { components: true, policyVersion: true } } },
         });
         if (!payment) throw new InvoiceIssuanceError('PAYMENT_NOT_FOUND', 'Source Payment was not found');
         this.validatePayment(payment);
         const subscription = payment.subscription;
         this.validateSubscription(payment, subscription);
+        const tax = payment.taxSnapshot;
+        if (tax) this.validateTaxEvidence(payment, subscription, tax);
+        else if (payment.amountMinor !== subscription.recurringTotalPriceMinor) {
+          throw new InvoiceIssuanceError('COMMERCIAL_MISMATCH', 'Legacy Payment does not match the subscription commercial snapshot');
+        }
 
         const [settings, profile] = await Promise.all([
           tx.billingSettings.findUnique({ where: { scope: PLATFORM_SCOPE } }),
@@ -171,7 +176,8 @@ export class InvoiceIssuanceService {
             billToCountry: profile.country.trim(),
             billToPhone: this.optionalText(profile.phone),
             currency: payment.currency,
-            subtotalMinor: payment.amountMinor,
+            subtotalMinor: tax?.taxableSubtotalMinor ?? payment.amountMinor,
+            totalTaxMinor: tax?.totalTaxMinor ?? null,
             totalMinor: payment.amountMinor,
           },
         });
@@ -186,9 +192,31 @@ export class InvoiceIssuanceService {
           description: `${subscription.planNameSnapshot} subscription`,
           quantity,
           unitAmountMinor: unitAmount,
-          lineSubtotalMinor: payment.amountMinor,
+          lineSubtotalMinor: tax?.taxableSubtotalMinor ?? payment.amountMinor,
           currency: payment.currency,
         } });
+        if (tax) {
+          const invoiceEvidence = await tx.invoiceGstEvidence.create({ data: {
+            invoiceId: createdInvoice.id, sourcePaymentId: payment.id, paymentTaxSnapshotId: tax.id,
+            treatment: tax.treatment, policyCode: tax.policyVersion.policyCode, policyVersion: tax.policyVersion.version,
+            calculationVersion: tax.calculationVersion, decisionAt: tax.decisionAt, currency: tax.currency,
+            taxableSubtotalMinor: tax.taxableSubtotalMinor, totalTaxMinor: tax.totalTaxMinor, grossTotalMinor: tax.grossTotalMinor,
+            jurisdictionClassification: tax.jurisdictionClassification, serviceClassification: tax.serviceClassification,
+            roundingMode: tax.roundingMode, sellerGstin: tax.sellerGstin, sellerLegalName: tax.sellerLegalName,
+            sellerRegisteredState: tax.sellerRegisteredState, sellerRegisteredStateCode: tax.sellerRegisteredStateCode,
+            buyerRegistrationStatus: tax.buyerRegistrationStatus, buyerGstin: tax.buyerGstin,
+            buyerBillingState: tax.buyerBillingState, buyerBillingStateCode: tax.buyerBillingStateCode,
+            placeOfSupplyState: tax.placeOfSupplyState, placeOfSupplyStateCode: tax.placeOfSupplyStateCode,
+          } });
+          await tx.invoiceLineGstEvidence.create({ data: {
+            invoiceLineId: line.id, treatment: tax.treatment, jurisdictionClassification: tax.jurisdictionClassification, currency: tax.currency,
+            taxableAmountMinor: tax.taxableSubtotalMinor, totalTaxMinor: tax.totalTaxMinor,
+            grossAmountMinor: tax.grossTotalMinor, serviceClassification: tax.serviceClassification,
+            components: { create: tax.components.map((component) => ({ type: component.type, rateBasisPoints: component.rateBasisPoints,
+              taxAmountMinor: component.taxAmountMinor, currency: component.currency })) },
+          } });
+          if (!invoiceEvidence) throw new InvoiceIssuanceError('INVOICE_TAX_EVIDENCE_INVALID', 'Invoice GST evidence could not be persisted');
+        }
         await tx.auditLog.create({ data: {
           companyId: payment.companyId,
           actorUserId,
@@ -240,8 +268,7 @@ export class InvoiceIssuanceService {
       !subscription.planCodeSnapshot.trim() || !subscription.planNameSnapshot.trim()) {
       throw new InvoiceIssuanceError('COMMERCIAL_SNAPSHOT_INVALID', 'Subscription commercial snapshot is incomplete');
     }
-    if (payment.amountMinor !== subscription.recurringTotalPriceMinor || payment.currency !== subscription.recurringCurrency ||
-      subscription.currency !== subscription.recurringCurrency) {
+    if (payment.currency !== subscription.recurringCurrency || subscription.currency !== subscription.recurringCurrency) {
       throw new InvoiceIssuanceError('COMMERCIAL_MISMATCH', 'Payment does not match the subscription commercial snapshot');
     }
     if (subscription.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT) {
@@ -262,6 +289,36 @@ export class InvoiceIssuanceService {
   private validateSeller(settings: { sellerLegalName: string | null; sellerAddressLine1: string | null; sellerCity: string | null; sellerPostalCode: string | null; sellerCountry: string | null }) {
     try { this.requireText(settings.sellerLegalName, settings.sellerAddressLine1, settings.sellerCity, settings.sellerPostalCode, settings.sellerCountry); }
     catch { throw new InvoiceIssuanceError('SELLER_PROFILE_INCOMPLETE', 'Billing Settings seller identity is incomplete'); }
+  }
+
+  private validateTaxEvidence(payment: { id: string; companyId: string; subscriptionId: string; amountMinor: bigint; currency: string }, subscription: { recurringTotalPriceMinor: bigint | null; recurringCurrency: string | null }, tax: {
+    companyId: string; sourceSubscriptionId: string; treatment: string; currency: string; taxableSubtotalMinor: bigint; totalTaxMinor: bigint;
+    grossTotalMinor: bigint; jurisdictionClassification: string | null; serviceClassification: string | null; sellerGstin: string | null;
+    sellerLegalName: string | null; sellerRegisteredState: string | null; sellerRegisteredStateCode: string | null;
+    buyerRegistrationStatus: string | null; buyerGstin: string | null; buyerBillingState: string | null; buyerBillingStateCode: string | null;
+    placeOfSupplyState: string | null; placeOfSupplyStateCode: string | null; components: Array<{ type: string; rateBasisPoints: number; taxableAmountMinor: bigint; taxAmountMinor: bigint; currency: string }>;
+  }): void {
+    const componentTotal = tax.components.reduce((sum, component) => sum + component.taxAmountMinor, 0n);
+    const componentTypes = tax.components.map((component) => component.type).sort();
+    const invalidComponent = tax.components.some((component) => !Number.isInteger(component.rateBasisPoints) || component.rateBasisPoints < 0 ||
+      component.rateBasisPoints > 10_000 || component.taxAmountMinor !== (component.taxableAmountMinor * BigInt(component.rateBasisPoints) + 5_000n) / 10_000n);
+    if (tax.companyId !== payment.companyId || tax.sourceSubscriptionId !== payment.subscriptionId || tax.currency !== payment.currency ||
+      tax.currency !== subscription.recurringCurrency || tax.taxableSubtotalMinor !== subscription.recurringTotalPriceMinor ||
+      tax.totalTaxMinor !== componentTotal || tax.grossTotalMinor !== tax.taxableSubtotalMinor + tax.totalTaxMinor ||
+      tax.grossTotalMinor !== payment.amountMinor || invalidComponent || tax.components.some((component) => component.currency !== tax.currency || component.taxableAmountMinor !== tax.taxableSubtotalMinor)) {
+      throw new InvoiceIssuanceError('PAYMENT_TAX_EVIDENCE_CONFLICT', 'Payment GST evidence does not reconcile');
+    }
+    if ((tax.treatment === 'NON_TAXABLE' && (tax.totalTaxMinor !== 0n || tax.components.length !== 0 || tax.jurisdictionClassification !== null)) ||
+      (tax.jurisdictionClassification === 'INTRA_STATE' && componentTypes.join(',') !== 'CGST,SGST') ||
+      (tax.jurisdictionClassification === 'INTER_STATE' && componentTypes.join(',') !== 'IGST')) {
+      throw new InvoiceIssuanceError('PAYMENT_TAX_EVIDENCE_CONFLICT', 'Payment GST component evidence is contradictory');
+    }
+    if (tax.treatment === 'TAXABLE' && (!tax.jurisdictionClassification || !tax.serviceClassification?.trim() || !tax.sellerGstin?.trim() ||
+      !tax.sellerLegalName?.trim() || !tax.sellerRegisteredState?.trim() || !tax.sellerRegisteredStateCode?.trim() ||
+      !tax.buyerRegistrationStatus || !tax.buyerBillingState?.trim() || !tax.buyerBillingStateCode?.trim() ||
+      !tax.placeOfSupplyState?.trim() || !tax.placeOfSupplyStateCode?.trim() || !tax.components.length)) {
+      throw new InvoiceIssuanceError('PAYMENT_TAX_EVIDENCE_INCOMPLETE', 'Payment GST evidence is incomplete');
+    }
   }
 
   private requireText(...values: Array<string | null>): void {
