@@ -2,17 +2,20 @@ import { Alert, Box, Button, LinearProgress } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/page-header';
 import { PageLayout } from '@/components/page-layout';
 import { PlatformInvoiceFilters, type PlatformInvoiceFilterDraft } from '../components/PlatformInvoiceFilters';
+import { IssueInvoiceDialog } from '../components/IssueInvoiceDialog';
 import { PlatformInvoiceList } from '../components/PlatformInvoiceList';
 import { listPlatformInvoices, platformInvoiceKeys } from '../platform-invoices-api';
 import type { PlatformInvoiceListQuery } from '../platform-invoices.types';
 import { localDateTimeToPlatformInvoiceIso, parsePlatformInvoicesUrl, platformInvoiceIsoToLocalDateTime, serializePlatformInvoicesUrl } from '../platform-invoices-url';
 
 export default function PlatformInvoicesPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [issueInvoiceOpen, setIssueInvoiceOpen] = useState(false);
   const parsed = useMemo(() => parsePlatformInvoicesUrl(searchParams), [searchParams]);
   const applied = parsed.query;
   const [draft, setDraft] = useState<PlatformInvoiceFilterDraft>(() => draftFrom(applied));
@@ -35,11 +38,15 @@ export default function PlatformInvoicesPage() {
   const summary = total ? `${total} Invoice${total === 1 ? '' : 's'}` : filtered ? 'No invoices match the applied filters.' : 'No Invoice records available.';
   return <PageLayout>
     <PageHeader title="Invoices" description="Review authoritative subscription Invoice records." breadcrumbs={['Admin', 'Billing', 'Invoices']} />
+    <Box sx={{ display: 'flex', justifyContent: { xs: 'stretch', sm: 'flex-end' } }}>
+      <Button variant="contained" onClick={() => setIssueInvoiceOpen(true)} sx={{ width: { xs: '100%', sm: 'auto' } }}>Issue Invoice</Button>
+    </Box>
     <PlatformInvoiceFilters draft={draft} filtered={filtered} fetching={query.isFetching} summary={summary} onChange={setDraft} onApply={apply} onClear={clear} onRefresh={() => void query.refetch()} />
     {query.isLoading ? <Box role="status" sx={visuallyHidden}>Loading invoices</Box> : null}
     {query.isFetching && !query.isLoading ? <Box aria-live="polite"><LinearProgress aria-label="Updating Invoice register" /></Box> : null}
     {query.isRefetchError && hasRetainedData ? <Alert severity="warning" action={<Button color="inherit" onClick={() => void query.refetch()}>Retry</Button>}>We couldn't refresh the Invoice list. Showing the most recent available data.</Alert> : null}
     {query.isError && !hasRetainedData ? <Alert severity="error" action={<Button color="inherit" onClick={() => void query.refetch()}>Retry</Button>}>{errorMessage(query.error)}</Alert> : <PlatformInvoiceList rows={rows} total={total} page={applied.page} limit={applied.limit} loading={query.isLoading} filtered={filtered} onPaginationChange={paginate} />}
+    <IssueInvoiceDialog open={issueInvoiceOpen} onClose={() => setIssueInvoiceOpen(false)} onIssued={(invoiceId) => navigate(`/billing/invoices/${invoiceId}`)} />
   </PageLayout>;
 }
 
