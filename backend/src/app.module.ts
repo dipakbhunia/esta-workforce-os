@@ -24,6 +24,7 @@ import { ProductivityModule } from './modules/productivity/productivity.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PlatformDashboardModule } from './modules/platform-dashboard/platform-dashboard.module';
+import { PlatformGstModule } from './modules/platform-gst/platform-gst.module';
 import { PlatformPaymentsModule } from './modules/platform-payments/platform-payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { TrialsModule } from './modules/trials/trials.module';
@@ -67,6 +68,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     PlansModule,
     PaymentsModule,
     PlatformDashboardModule,
+    PlatformGstModule,
     PlatformPaymentsModule,
     SubscriptionsModule,
     TrialsModule,
