@@ -45,6 +45,7 @@ const tenantDeniedPlatformPaths = [
   '/billing/settings',
   '/billing/payments',
   '/billing/invoices',
+  '/billing/gst-invoices',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -128,11 +129,12 @@ describe('application router direct-entry isolation', () => {
     tenantView.unmount();
   });
 
-  it('keeps GST Invoices on the Coming Soon surface', async () => {
+  it('routes GST Invoices to the implemented Super Admin workspace', async () => {
     await router.navigate('/billing/gst-invoices');
     const view = renderRouter();
-    expect(await screen.findByRole('heading', { name: 'Coming Soon' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'GST Invoices' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'GST Invoices' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'GST Transactions' })).toBeInTheDocument();
     view.unmount();
   });
 
