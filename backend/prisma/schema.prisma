@@ -311,6 +311,13 @@ enum PaymentProviderMode {
 
 enum PaymentPurpose {
   SUBSCRIPTION_ACTIVATION
+  SUBSCRIPTION_RENEWAL
+}
+
+enum SubscriptionRenewalStatus {
+  PREPARED
+  APPLIED
+  BLOCKED
 }
 
 enum PaymentStatus {
@@ -485,6 +492,7 @@ model Company {
   billingProfile               CompanyBillingProfile?
   invoices                     Invoice[]
   paymentTaxSnapshots          PaymentTaxSnapshot[]
+  subscriptionRenewals         SubscriptionRenewal[]
 
   @@index([status])
   @@index([slug])
@@ -533,6 +541,7 @@ model CompanySubscription {
   invoices                  Invoice[]                    @relation("InvoiceSourceSubscription")
   invoiceLines              InvoiceLine[]                @relation("InvoiceLineSourceSubscription")
   paymentTaxSnapshots       PaymentTaxSnapshot[]
+  renewals                  SubscriptionRenewal[]
 
   @@unique([id, companyId])
   @@unique([id, companyId, planId])
@@ -540,6 +549,7 @@ model CompanySubscription {
   @@index([companyId, status])
   @@index([planId, status])
   @@index([status, currentPeriodEnd])
+  @@index([status, currentPeriodEnd, id], map: "CompanySubscription_renewal_candidates_idx")
   @@index([createdAt])
   @@index([supersedesSubscriptionId])
 }
@@ -828,6 +838,7 @@ model Payment {
   activatedSubscription     CompanySubscription?         @relation("SubscriptionActivationPayment")
   invoice                   Invoice?
   taxSnapshot               PaymentTaxSnapshot?
+  renewal                   SubscriptionRenewal?
 
   @@unique([companyId, idempotencyKey])
   @@unique([providerConfigurationId, capturedProviderPaymentId])
@@ -840,6 +851,41 @@ model Payment {
   @@index([provider, providerMode, status])
   @@index([providerConfigurationId])
   @@index([createdByUserId])
+}
+
+model SubscriptionRenewal {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  companyId                String                    @db.Uuid
+  subscriptionId           String                    @db.Uuid
+  paymentId                String                    @unique @db.Uuid
+  cycleStart               DateTime
+  cycleEnd                 DateTime
+  billingInterval          BillingInterval
+  recurringPriceBasis      RecurringPriceBasis
+  recurringUnitPriceMinor  BigInt?
+  recurringTotalPriceMinor BigInt
+  currency                 String
+  seatQuantity             Int
+  status                   SubscriptionRenewalStatus @default(PREPARED)
+  preparedByUserId         String?                   @db.Uuid
+  applicationAttemptCount  Int                       @default(0)
+  lastApplicationAttemptAt DateTime?
+  appliedAt                DateTime?
+  blockedAt                DateTime?
+  blockCode                String?
+  safeBlockMessage         String?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  company                  Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  subscription             CompanySubscription       @relation(fields: [subscriptionId, companyId], references: [id, companyId], onDelete: Restrict)
+  payment                  Payment                   @relation(fields: [paymentId, subscriptionId, companyId], references: [id, subscriptionId, companyId], onDelete: Restrict)
+  preparedBy               User?                     @relation("SubscriptionRenewalPreparedBy", fields: [preparedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([subscriptionId, cycleStart])
+  @@unique([paymentId, subscriptionId, companyId])
+  @@index([status, cycleStart, id], map: "SubscriptionRenewal_recovery_order_idx")
+  @@index([companyId, createdAt, id], map: "SubscriptionRenewal_company_history_idx")
+  @@index([preparedByUserId])
 }
 
 model PaymentTaxSnapshot {
@@ -1237,6 +1283,7 @@ model User {
   billingProviderUpdates       BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
   billingProviderCredentials   BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
   createdPayments              Payment[]                      @relation("PaymentCreatedBy")
+  preparedSubscriptionRenewals SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
 
   @@index([companyId])
   @@index([branchId])
