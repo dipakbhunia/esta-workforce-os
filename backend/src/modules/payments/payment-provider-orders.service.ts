@@ -2,8 +2,9 @@ import {
   BadGatewayException, BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import {
-  Payment, PaymentAttempt, PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderMode,
-  PaymentProviderOrder, PaymentProviderOrderStatus, PaymentProviderType, PaymentStatus, Prisma, SubscriptionStatus,
+  Payment, PaymentAttempt, PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderMode, PaymentPurpose,
+  PaymentProviderOrder, PaymentProviderOrderStatus, PaymentProviderType, PaymentStatus, Prisma,
+  SubscriptionRenewalStatus, SubscriptionStatus,
 } from '@prisma/client';
 import { isSuperAdmin } from '../../common/utils/tenant.util';
 import { PrismaService } from '../../database/prisma.service';
@@ -18,7 +19,10 @@ import type { ProviderOrderResponseDto } from './dto/provider-order-response.dto
 
 const CURRENT_ORDER_STATUSES = [PaymentProviderOrderStatus.CREATED, PaymentProviderOrderStatus.PAID];
 
-type PaymentWithSubscription = Payment & { subscription: { status: SubscriptionStatus } };
+type PaymentWithSubscription = Payment & {
+  subscription: { status: SubscriptionStatus };
+  renewal: { paymentId: string; companyId: string; subscriptionId: string; status: SubscriptionRenewalStatus } | null;
+};
 type ReservedOperation = { payment: PaymentWithSubscription; attempt: PaymentAttempt; existingOrder: PaymentProviderOrder | null; fresh: boolean };
 
 @Injectable()
@@ -30,21 +34,31 @@ export class PaymentProviderOrdersService {
   ) {}
 
   async prepare(paymentId: string, actor: AuthenticatedUser): Promise<ProviderOrderResponseDto> {
+    return this.prepareInternal(paymentId, actor);
+  }
+
+  async prepareSystem(paymentId: string): Promise<ProviderOrderResponseDto> {
+    return this.prepareInternal(paymentId, null);
+  }
+
+  private async prepareInternal(paymentId: string, actor: AuthenticatedUser | null): Promise<ProviderOrderResponseDto> {
     const initial = await this.loadPayment(paymentId, actor);
-    this.assertEligiblePayment(initial);
+    this.assertEligiblePayment(initial, false);
 
     const current = await this.findCurrentOrder(initial.id);
     if (current) return this.response(initial, current, await this.resolveHistorical(initial, current.credentialVersionId));
 
+    const eligible = await this.lockAndRevalidate(initial.id, actor);
+
     const existingAttempt = await this.prisma.paymentAttempt.findFirst({
       where: { paymentId, operation: PaymentAttemptOperation.ORDER_CREATE }, orderBy: { sequence: 'desc' },
     });
-    if (existingAttempt) return this.resume(initial, existingAttempt, actor);
+    if (existingAttempt && !this.canRetryFailedRenewal(eligible, existingAttempt)) return this.resume(eligible, existingAttempt, actor);
 
     const effective = await this.credentials.resolveForOperation(
-      initial.providerConfigurationId, initial.provider, initial.providerMode,
+      eligible.providerConfigurationId, eligible.provider, eligible.providerMode,
     );
-    const reserved = await this.reserve(initial.id, effective, actor);
+    const reserved = await this.reserve(eligible.id, effective, actor);
     if (reserved.existingOrder) {
       return this.response(reserved.payment, reserved.existingOrder, await this.resolveHistorical(reserved.payment, reserved.existingOrder.credentialVersionId));
     }
@@ -52,13 +66,17 @@ export class PaymentProviderOrdersService {
     return this.dispatch(reserved.payment, reserved.attempt, effective, actor);
   }
 
-  private async reserve(paymentId: string, effective: EffectiveProviderCredential, actor: AuthenticatedUser): Promise<ReservedOperation> {
+  private async reserve(paymentId: string, effective: EffectiveProviderCredential, actor: AuthenticatedUser | null): Promise<ReservedOperation> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
-      const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: { subscription: { select: { status: true } } } });
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "paymentId" = ${paymentId}::uuid FOR UPDATE`);
+      const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: {
+        subscription: { select: { status: true } },
+        renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
+      } });
       if (!payment) throw new NotFoundException('Payment not found');
       this.assertTenantAccess(payment.companyId, actor);
-      this.assertEligiblePayment(payment);
+      this.assertEligiblePayment(payment, true);
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "BillingProviderConfiguration" WHERE "id" = ${payment.providerConfigurationId}::uuid FOR UPDATE`);
       const configuration = await tx.billingProviderConfiguration.findUnique({ where: { id: payment.providerConfigurationId } });
       const credential = await tx.billingProviderCredential.findFirst({ where: { id: effective.credentialVersionId, providerConfigurationId: payment.providerConfigurationId } });
@@ -67,7 +85,9 @@ export class PaymentProviderOrdersService {
       }
       const existingOrder = await tx.paymentProviderOrder.findFirst({ where: { paymentId, status: { in: CURRENT_ORDER_STATUSES } } });
       const prior = await tx.paymentAttempt.findFirst({ where: { paymentId, operation: PaymentAttemptOperation.ORDER_CREATE }, orderBy: { sequence: 'desc' } });
-      if (existingOrder || prior) return { payment, attempt: prior!, existingOrder, fresh: false };
+      if (existingOrder || (prior && !this.canRetryFailedRenewal(payment, prior))) {
+        return { payment, attempt: prior!, existingOrder, fresh: false };
+      }
       const attemptSequence = await tx.paymentAttempt.aggregate({ where: { paymentId }, _max: { sequence: true } });
       const attempt = await tx.paymentAttempt.create({ data: {
         paymentId, providerConfigurationId: payment.providerConfigurationId, credentialVersionId: effective.credentialVersionId,
@@ -79,7 +99,7 @@ export class PaymentProviderOrdersService {
     });
   }
 
-  private async resume(payment: PaymentWithSubscription, attempt: PaymentAttempt, actor: AuthenticatedUser): Promise<ProviderOrderResponseDto> {
+  private async resume(payment: PaymentWithSubscription, attempt: PaymentAttempt, actor: AuthenticatedUser | null): Promise<ProviderOrderResponseDto> {
     this.assertAttemptCompatible(payment, attempt);
     if (attempt.status === PaymentAttemptStatus.SUCCEEDED) {
       const order = await this.findCurrentOrder(payment.id);
@@ -92,7 +112,7 @@ export class PaymentProviderOrdersService {
     return this.dispatch(payment, attempt, historical, actor);
   }
 
-  private async dispatch(payment: PaymentWithSubscription, attempt: PaymentAttempt, credential: EffectiveProviderCredential, actor: AuthenticatedUser): Promise<ProviderOrderResponseDto> {
+  private async dispatch(payment: PaymentWithSubscription, attempt: PaymentAttempt, credential: EffectiveProviderCredential, actor: AuthenticatedUser | null): Promise<ProviderOrderResponseDto> {
     const claimed = await this.prisma.paymentAttempt.updateMany({
       where: { id: attempt.id, status: PaymentAttemptStatus.PENDING },
       data: { status: PaymentAttemptStatus.UNKNOWN, completedAt: new Date(), failureCode: 'DISPATCH_STARTED', safeFailureMessage: 'Provider order dispatch requires confirmation' },
@@ -116,7 +136,7 @@ export class PaymentProviderOrdersService {
     return this.materializeResponse(payment, durableOrder);
   }
 
-  private async reconcile(payment: PaymentWithSubscription, attempt: PaymentAttempt, credential: EffectiveProviderCredential, actor: AuthenticatedUser): Promise<ProviderOrderResponseDto> {
+  private async reconcile(payment: PaymentWithSubscription, attempt: PaymentAttempt, credential: EffectiveProviderCredential, actor: AuthenticatedUser | null): Promise<ProviderOrderResponseDto> {
     let durableOrder: PaymentProviderOrder;
     try {
       const matches = await this.providers.resolve(payment.provider).findOrdersByReceipt(this.context(credential), this.receipt(payment.id));
@@ -134,12 +154,15 @@ export class PaymentProviderOrdersService {
     return this.materializeResponse(payment, durableOrder);
   }
 
-  private async persistSuccess(payment: PaymentWithSubscription, attempt: PaymentAttempt, providerOrder: ProviderOrder, recovered: boolean, actor: AuthenticatedUser): Promise<PaymentProviderOrder> {
+  private async persistSuccess(payment: PaymentWithSubscription, attempt: PaymentAttempt, providerOrder: ProviderOrder, recovered: boolean, actor: AuthenticatedUser | null): Promise<PaymentProviderOrder> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${payment.id}::uuid FOR UPDATE`);
-      const durablePayment = await tx.payment.findUnique({ where: { id: payment.id }, include: { subscription: { select: { status: true } } } });
+      const durablePayment = await tx.payment.findUnique({ where: { id: payment.id }, include: {
+        subscription: { select: { status: true } },
+        renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
+      } });
       if (!durablePayment) throw new NotFoundException('Payment not found');
-      this.assertEligiblePayment(durablePayment);
+      this.assertEligiblePayment(durablePayment, true);
       const durableAttempt = await tx.paymentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
       this.assertAttemptCompatible(durablePayment, durableAttempt);
       const existing = await tx.paymentProviderOrder.findFirst({ where: { paymentId: payment.id, status: { in: CURRENT_ORDER_STATUSES } } });
@@ -156,7 +179,7 @@ export class PaymentProviderOrdersService {
           failureCode: null, safeFailureMessage: null, safeMetadata: { recovered: true, resolution: 'existing-current-order' },
         } });
         await tx.auditLog.create({ data: {
-          companyId: payment.companyId, actorUserId: actor.id,
+          companyId: payment.companyId, actorUserId: actor?.id ?? null,
           action: 'PAYMENT_PROVIDER_ORDER_RECONCILED', entityType: 'Payment', entityId: payment.id,
           metadata: { provider: payment.provider, providerMode: payment.providerMode, providerOrderId: existing.providerOrderId, receipt: existing.providerReceipt },
         } });
@@ -178,7 +201,7 @@ export class PaymentProviderOrdersService {
         failureCode: null, safeFailureMessage: null, safeMetadata: { recovered },
       } });
       await tx.auditLog.create({ data: {
-        companyId: payment.companyId, actorUserId: actor.id,
+        companyId: payment.companyId, actorUserId: actor?.id ?? null,
         action: recovered ? 'PAYMENT_PROVIDER_ORDER_RECONCILED' : 'PAYMENT_PROVIDER_ORDER_CREATED',
         entityType: 'Payment', entityId: payment.id,
         metadata: { provider: payment.provider, providerMode: payment.providerMode, providerOrderId: created.providerOrderId, receipt: created.providerReceipt },
@@ -187,12 +210,12 @@ export class PaymentProviderOrdersService {
     });
   }
 
-  private async handleProviderFailure(payment: PaymentWithSubscription, attempt: PaymentAttempt, error: unknown, actor: AuthenticatedUser): Promise<never> {
+  private async handleProviderFailure(payment: PaymentWithSubscription, attempt: PaymentAttempt, error: unknown, actor: AuthenticatedUser | null): Promise<never> {
     const normalized = error instanceof ProviderOperationError ? error : new ProviderOperationError('AMBIGUOUS', 'PROVIDER_RESULT_UNKNOWN', 'Payment provider result is unknown');
     if (normalized.outcome === 'DEFINITE_FAILURE') {
       await this.prisma.$transaction(async (tx) => {
         const changed = await tx.paymentAttempt.updateMany({ where: { id: attempt.id, status: { in: [PaymentAttemptStatus.PENDING, PaymentAttemptStatus.UNKNOWN] } }, data: { status: PaymentAttemptStatus.FAILED, completedAt: new Date(), failureCode: normalized.safeCode, safeFailureMessage: normalized.safeMessage } });
-        if (changed.count === 1) await tx.auditLog.create({ data: { companyId: payment.companyId, actorUserId: actor.id, action: 'PAYMENT_PROVIDER_ORDER_FAILED', entityType: 'Payment', entityId: payment.id, metadata: { category: normalized.safeCode } } });
+        if (changed.count === 1) await tx.auditLog.create({ data: { companyId: payment.companyId, actorUserId: actor?.id ?? null, action: 'PAYMENT_PROVIDER_ORDER_FAILED', entityType: 'Payment', entityId: payment.id, metadata: { category: normalized.safeCode } } });
       });
       throw new BadGatewayException('Payment provider rejected the order request');
     }
@@ -208,8 +231,11 @@ export class PaymentProviderOrdersService {
     return this.response(payment, order, await this.resolveHistorical(payment, order.credentialVersionId));
   }
 
-  private async loadPayment(id: string, actor: AuthenticatedUser): Promise<PaymentWithSubscription> {
-    const payment = await this.prisma.payment.findUnique({ where: { id }, include: { subscription: { select: { status: true } } } });
+  private async loadPayment(id: string, actor: AuthenticatedUser | null): Promise<PaymentWithSubscription> {
+    const payment = await this.prisma.payment.findUnique({ where: { id }, include: {
+      subscription: { select: { status: true } },
+      renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
+    } });
     if (!payment) throw new NotFoundException('Payment not found');
     this.assertTenantAccess(payment.companyId, actor);
     return payment;
@@ -219,13 +245,40 @@ export class PaymentProviderOrdersService {
   private context(value: EffectiveProviderCredential): PaymentProviderContext { return { provider: value.provider, mode: value.mode, providerConfigurationId: value.providerConfigurationId, credentialVersionId: value.credentialVersionId, credentials: value.material }; }
   private receipt(paymentId: string): string { return `pay_${paymentId.replaceAll('-', '').toLowerCase()}`; }
   private requestReference(paymentId: string): string { return `order-create:${this.receipt(paymentId)}`; }
-  private assertEligiblePayment(payment: PaymentWithSubscription): void {
-    if (payment.status !== PaymentStatus.PENDING || payment.subscription.status !== SubscriptionStatus.PENDING) throw new BadRequestException('Only a pending payment and subscription can create a provider order');
+  private async lockAndRevalidate(paymentId: string, actor: AuthenticatedUser | null): Promise<PaymentWithSubscription> {
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "paymentId" = ${paymentId}::uuid FOR UPDATE`);
+      const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: {
+        subscription: { select: { status: true } },
+        renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
+      } });
+      if (!payment) throw new NotFoundException('Payment not found');
+      this.assertTenantAccess(payment.companyId, actor);
+      this.assertEligiblePayment(payment, true);
+      return payment;
+    });
+  }
+  private assertEligiblePayment(payment: PaymentWithSubscription, requirePreparedRenewal: boolean): void {
+    const eligibleSubscription = payment.purpose === PaymentPurpose.SUBSCRIPTION_ACTIVATION
+      ? payment.subscription.status === SubscriptionStatus.PENDING
+      : payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL
+        ? payment.subscription.status === SubscriptionStatus.ACTIVE
+        : false;
+    if (payment.status !== PaymentStatus.PENDING || !eligibleSubscription) throw new BadRequestException('Payment or subscription is not eligible for provider order creation');
+    if (payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL && requirePreparedRenewal &&
+      (!payment.renewal || payment.renewal.paymentId !== payment.id || payment.renewal.companyId !== payment.companyId ||
+       payment.renewal.subscriptionId !== payment.subscriptionId || payment.renewal.status !== SubscriptionRenewalStatus.PREPARED)) {
+      throw new BadRequestException('Renewal is not eligible for provider order creation');
+    }
     if (payment.provider !== PaymentProviderType.RAZORPAY || payment.providerMode !== PaymentProviderMode.TEST) throw new ConflictException('Provider order execution is available only for Razorpay TEST mode');
     assertPaymentAmount(payment.amountMinor); assertPaymentCurrency(payment.currency);
   }
   private assertAttemptCompatible(payment: Payment, attempt: PaymentAttempt): void {
     if (attempt.paymentId !== payment.id || attempt.providerConfigurationId !== payment.providerConfigurationId || !attempt.credentialVersionId || attempt.amountMinor !== payment.amountMinor || attempt.currency !== payment.currency || attempt.requestReference !== this.requestReference(payment.id)) throw new ConflictException('Provider order attempt evidence is incompatible');
+  }
+  private canRetryFailedRenewal(payment: Payment, attempt: PaymentAttempt): boolean {
+    return payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL && attempt.status === PaymentAttemptStatus.FAILED;
   }
   private assertProviderOrder(payment: Payment, order: ProviderOrder): void {
     if (!order.id.trim() || order.amountMinor !== payment.amountMinor || order.currency !== payment.currency || order.receipt !== this.receipt(payment.id) || !['created', 'attempted', 'paid'].includes(order.status) || !order.createdAt || !Number.isFinite(order.createdAt.getTime())) throw new ProviderOperationError('AMBIGUOUS', 'PROVIDER_ORDER_MISMATCH', 'Payment provider response could not be verified');
@@ -249,5 +302,5 @@ export class PaymentProviderOrdersService {
     if (!keyId) throw new ConflictException('Checkout public key is unavailable');
     return { paymentId: payment.id, providerOrderId: order.providerOrderId, receipt: order.providerReceipt, provider: payment.provider, providerMode: payment.providerMode, status: order.status, providerStatus: order.providerStatus, amountMinor: order.amountMinor.toString(10), currency: order.currency, keyId, providerCreatedAt: order.providerCreatedAt };
   }
-  private assertTenantAccess(companyId: string, actor: AuthenticatedUser): void { if (!isSuperAdmin(actor) && actor.companyId !== companyId) throw new ForbiddenException('Cross-tenant access is not allowed'); }
+  private assertTenantAccess(companyId: string, actor: AuthenticatedUser | null): void { if (actor && !isSuperAdmin(actor) && actor.companyId !== companyId) throw new ForbiddenException('Cross-tenant access is not allowed'); }
 }

@@ -107,6 +107,80 @@ export class PaymentsService {
     return this.toResponse(payment);
   }
 
+  async createForRenewal(
+    tx: Prisma.TransactionClient,
+    input: {
+      companyId: string;
+      subscriptionId: string;
+      cycleStart: Date;
+      recurringTotalPriceMinor: bigint;
+      recurringCurrency: string;
+    },
+    actorUserId: string | null,
+  ): Promise<Payment> {
+    const provider = await tx.billingProviderConfiguration.findFirst({ where: { enabled: true, isDefault: true } });
+    if (!provider) throw new ConflictException('No enabled default payment provider is configured');
+    let tax;
+    try {
+      tax = await this.taxes.resolve(tx, input, new Date());
+    } catch (error) {
+      this.mapTaxError(error);
+    }
+    const amountMinor = tax?.grossTotalMinor ?? input.recurringTotalPriceMinor;
+    assertPaymentAmount(amountMinor);
+    assertPaymentCurrency(input.recurringCurrency);
+    const reference = `subscription-renewal:${input.subscriptionId}:${input.cycleStart.toISOString()}`;
+    const payment = await tx.payment.create({ data: {
+      companyId: input.companyId,
+      subscriptionId: input.subscriptionId,
+      providerConfigurationId: provider.id,
+      purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL,
+      status: PaymentStatus.PENDING,
+      provider: provider.provider,
+      providerMode: provider.mode,
+      amountMinor,
+      currency: input.recurringCurrency,
+      idempotencyKey: reference,
+      businessReference: reference,
+      createdByUserId: actorUserId,
+      ...(tax ? { taxSnapshot: { create: {
+        company: { connect: { id: input.companyId } },
+        sourceSubscription: { connect: { id_companyId: { id: input.subscriptionId, companyId: input.companyId } } },
+        policyVersion: { connect: { id: tax.policyVersionId } },
+        treatment: tax.treatment, calculationVersion: tax.calculationVersion, decisionAt: tax.decisionAt,
+        currency: tax.currency, taxableSubtotalMinor: tax.taxableSubtotalMinor, totalTaxMinor: tax.totalTaxMinor,
+        grossTotalMinor: tax.grossTotalMinor, jurisdictionClassification: tax.jurisdictionClassification,
+        serviceClassification: tax.serviceClassification, roundingMode: tax.roundingMode, sellerGstin: tax.sellerGstin,
+        sellerLegalName: tax.sellerLegalName, sellerRegisteredState: tax.sellerRegisteredState,
+        sellerRegisteredStateCode: tax.sellerRegisteredStateCode, buyerRegistrationStatus: tax.buyerRegistrationStatus,
+        buyerGstin: tax.buyerGstin, buyerBillingState: tax.buyerBillingState,
+        buyerBillingStateCode: tax.buyerBillingStateCode, placeOfSupplyState: tax.placeOfSupplyState,
+        placeOfSupplyStateCode: tax.placeOfSupplyStateCode,
+        components: { create: tax.components.map(component => component) },
+      } } } : {}),
+    } });
+    await tx.auditLog.create({ data: {
+      companyId: input.companyId, actorUserId, action: 'PAYMENT_CREATED', entityType: 'Payment', entityId: payment.id,
+      metadata: { subscriptionId: input.subscriptionId, purpose: payment.purpose, provider: payment.provider, providerMode: payment.providerMode },
+    } });
+    return payment;
+  }
+
+  async assertRenewalPayment(
+    tx: Prisma.TransactionClient,
+    payment: Payment,
+    authority: { recurringTotalPriceMinor: bigint; recurringCurrency: string },
+  ): Promise<void> {
+    if (payment.purpose !== PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+      throw new ConflictException('Existing renewal Payment purpose is incompatible');
+    }
+    try {
+      await this.taxes.assertPersistedPayment(tx, payment, authority);
+    } catch (error) {
+      this.mapTaxError(error);
+    }
+  }
+
   async findOne(id: string, actor: AuthenticatedUser): Promise<PaymentResponseDto> {
     const payment = await this.prisma.payment.findUnique({ where: { id } });
     if (!payment) throw new NotFoundException('Payment not found');

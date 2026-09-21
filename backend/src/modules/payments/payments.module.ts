@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { ProviderRuntimeModule } from './provider-runtime.module';
@@ -10,5 +10,5 @@ import { PaymentWebhooksController } from './payment-webhooks.controller';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { SubscriptionTaxCalculationService } from './subscription-tax-calculation.service';
 
-@Module({ imports: [ProviderRuntimeModule, SubscriptionsModule], controllers: [PaymentsController, PaymentWebhooksController], providers: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService, PaymentProviderEventRecoveryScheduler], exports: [PaymentsService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService] })
+@Module({ imports: [ProviderRuntimeModule, forwardRef(() => SubscriptionsModule)], controllers: [PaymentsController, PaymentWebhooksController], providers: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService, PaymentProviderEventRecoveryScheduler], exports: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService] })
 export class PaymentsModule {}

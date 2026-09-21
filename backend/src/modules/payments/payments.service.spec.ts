@@ -65,10 +65,31 @@ function harness(options: { subscription?: typeof subscription; provider?: typeo
       throw new ConflictException('Persisted Payment tax evidence is contradictory');
     }
   } };
-  return { service: new PaymentsService(prisma as never, taxes as never), data: () => createdData, audits: () => auditCount, events };
+  return { service: new PaymentsService(prisma as never, taxes as never), tx, data: () => createdData, audits: () => auditCount, events };
 }
 
 describe('PaymentsService E1.2 creation runtime', () => {
+  it('creates renewal Payment gross from the shared GST authority and preserves GST-off base semantics', async () => {
+    const input = { companyId, subscriptionId, cycleStart: new Date('2030-01-31T00:00:00Z'),
+      recurringTotalPriceMinor: 49500n, recurringCurrency: 'INR' };
+    const off = harness();
+    const basePayment = await off.service.createForRenewal(off.tx as never, input, actor.id);
+    assert.equal(basePayment.purpose, PaymentPurpose.SUBSCRIPTION_RENEWAL);
+    assert.equal(basePayment.amountMinor, 49500n);
+
+    const tax = { policyVersionId: '00000000-0000-4000-8000-000000000009', treatment: 'TAXABLE', calculationVersion: 1,
+      decisionAt: new Date(), currency: 'INR', taxableSubtotalMinor: 49500n, totalTaxMinor: 8910n, grossTotalMinor: 58410n,
+      jurisdictionClassification: 'INTER_STATE', serviceClassification: 'TEST-SAC', roundingMode: 'HALF_UP_MINOR_UNIT_PER_COMPONENT',
+      sellerGstin: '27ABCDE1234F1Z5', sellerLegalName: 'Seller', sellerRegisteredState: 'Maharashtra', sellerRegisteredStateCode: '27',
+      buyerRegistrationStatus: 'UNREGISTERED', buyerGstin: null, buyerBillingState: 'Karnataka', buyerBillingStateCode: '29',
+      placeOfSupplyState: 'Karnataka', placeOfSupplyStateCode: '29', components: [{ type: 'IGST', rateBasisPoints: 1800,
+        taxableAmountMinor: 49500n, taxAmountMinor: 8910n, currency: 'INR' }] };
+    const taxable = harness({ tax });
+    const grossPayment = await taxable.service.createForRenewal(taxable.tx as never, input, actor.id);
+    assert.equal(grossPayment.amountMinor, 58410n);
+    assert.ok((taxable.data()?.taxSnapshot as { create?: unknown })?.create);
+  });
+
   it('creates from the immutable subscription snapshot without consulting Plan pricing', async () => {
     const h = harness();
     const result = await h.service.createForSubscription(subscriptionId, actor);

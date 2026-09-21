@@ -109,6 +109,15 @@ describe('SubscriptionPaymentActivationService', () => {
     }
   });
 
+  it('never applies a CAPTURED renewal Payment through activation', async () => {
+    const h = harness({ purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL });
+    const result = await h.service.activate(ids.payment);
+    assert.deepEqual(result, { outcome: 'PERMANENTLY_BLOCKED', reason: 'wrong_purpose', subscriptionId: ids.subscription });
+    assert.equal(h.subscription.status, SubscriptionStatus.PENDING);
+    assert.equal(h.subscription.currentPeriodStart, null);
+    assert.deepEqual(h.generated, []);
+  });
+
   it('permanently blocks incomplete capture, money, interval, period, entitlement, and live-subscription conflicts', async () => {
     for (const [options, reason] of [
       [{ captureId: null }, 'missing_capture_evidence'], [{ capturedAt: null }, 'missing_capture_evidence'],

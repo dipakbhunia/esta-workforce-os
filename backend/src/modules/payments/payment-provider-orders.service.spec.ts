@@ -5,6 +5,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderMode, PaymentProviderOrderStatus,
   PaymentProviderType, PaymentPurpose, PaymentStatus, RoleName, SubscriptionStatus, UserStatus,
+  SubscriptionRenewalStatus,
 } from '@prisma/client';
 import { CreateProviderOrderDto } from './dto/create-provider-order.dto';
 import { PaymentProviderOrdersService } from './payment-provider-orders.service';
@@ -22,12 +23,15 @@ const basePayment = {
   amountMinor: 49500n, currency: 'INR', idempotencyKey: 'subscription-activation:x', businessReference: 'subscription-activation:x',
   capturedProviderPaymentId: null, providerStatus: null, failureCode: null, safeFailureMessage: null,
   authorizedAt: null, capturedAt: null, failedAt: null, createdByUserId: actor.id,
-  createdAt: new Date(), updatedAt: new Date(), subscription: { status: SubscriptionStatus.PENDING },
+  createdAt: new Date(), updatedAt: new Date(), subscription: { status: SubscriptionStatus.PENDING }, renewal: null,
 };
 const receipt = `pay_${paymentId.replaceAll('-', '')}`;
 const rawOrder = { id: 'order_ABC123', amountMinor: 49500n, currency: 'INR', receipt, status: 'created', createdAt: new Date() };
+function renewalEvidence(status = SubscriptionRenewalStatus.PREPARED) {
+  return { paymentId, companyId, subscriptionId, status };
+}
 
-function harness(options: { payment?: typeof basePayment; enabled?: boolean; missingCredential?: boolean; createResult?: typeof rawOrder | Error; reconcile?: typeof rawOrder[]; competingOrder?: Partial<any> } = {}) {
+function harness(options: { payment?: typeof basePayment; enabled?: boolean; missingCredential?: boolean; createResult?: typeof rawOrder | Error; reconcile?: typeof rawOrder[]; competingOrder?: Partial<any>; transitionOnLock?: SubscriptionRenewalStatus } = {}) {
   const payment = options.payment ?? { ...basePayment };
   const attempts: any[] = [];
   const orders: any[] = [];
@@ -35,8 +39,10 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
   const resolutions: string[] = [];
   let currentVersion = 1;
   let providerCalls = 0;
+  let createResult = options.createResult;
   let historicalResolutionCalls = 0;
   let historicalFailureAtCall: number | null = null;
+  let lockQueries = 0;
   const configuration = { id: configurationId, provider: payment.provider, mode: payment.providerMode, enabled: options.enabled ?? true };
   const credentialsById = new Map([
     ['credential-v1', { providerConfigurationId: configurationId, provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST, credentialVersionId: 'credential-v1', credentialVersion: 1, material: { keyId: 'rzp_test_v1', keySecret: 'secret-v1', webhookSecret: 'webhook-v1' } }],
@@ -60,7 +66,11 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
     create: async ({ data }: any) => { const value = { id: `order-record-${orders.length + 1}`, createdAt: new Date(), updatedAt: new Date(), usableUntil: null, closedAt: null, ...data }; orders.push(value); return value; },
   };
   const tx = {
-    $queryRaw: async () => [{ id: paymentId }], payment: { findUnique: async () => payment }, paymentAttempt, paymentProviderOrder,
+    $queryRaw: async () => {
+      lockQueries += 1;
+      if (lockQueries === 2 && options.transitionOnLock && payment.renewal) payment.renewal.status = options.transitionOnLock;
+      return [{ id: paymentId }];
+    }, payment: { findUnique: async () => payment }, paymentAttempt, paymentProviderOrder,
     billingProviderConfiguration: { findUnique: async () => configuration },
     billingProviderCredential: { findFirst: async ({ where }: any) => where.id === `credential-v${currentVersion}` ? { id: where.id, retiredAt: null } : { id: where.id, retiredAt: new Date() } },
     auditLog: { create: async ({ data }: any) => { audits.push(data); return data; } },
@@ -81,7 +91,7 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
   const adapter = {
     createOrder: async (context: any) => {
       providerCalls += 1; resolutions.push(`create:${context.credentialVersionId}`);
-      if (options.createResult instanceof Error) throw options.createResult;
+      if (createResult instanceof Error) throw createResult;
       if (options.competingOrder) orders.push({
         id: 'order-record-competing', paymentId, providerConfigurationId: configurationId,
         credentialVersionId: 'credential-v1', sequence: 1, status: PaymentProviderOrderStatus.CREATED,
@@ -90,7 +100,7 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
         safeMetadata: {}, usableUntil: null, closedAt: null, createdAt: new Date(), updatedAt: new Date(),
         ...options.competingOrder,
       });
-      return options.createResult ?? rawOrder;
+      return createResult ?? rawOrder;
     },
     findOrdersByReceipt: async (context: any) => { resolutions.push(`reconcile:${context.credentialVersionId}`); return options.reconcile ?? []; },
   };
@@ -98,12 +108,58 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
   return {
     service, payment, attempts, orders, audits, resolutions, providerCalls: () => providerCalls,
     rotate: () => { currentVersion = 2; },
+    setCreateResult: (value: typeof rawOrder | Error) => { createResult = value; },
     failNextHistoricalResolution: () => { historicalFailureAtCall = historicalResolutionCalls + 1; },
     failHistoricalResolutionAtCall: (call: number) => { historicalFailureAtCall = call; },
   };
 }
 
 describe('PaymentProviderOrdersService E1.4', () => {
+  it('prepares a renewal order from persisted Payment evidence for an ACTIVE subscription', async () => {
+    const renewalPayment = { ...basePayment, purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL,
+      subscription: { status: SubscriptionStatus.ACTIVE }, renewal: renewalEvidence() } as typeof basePayment;
+    const h = harness({ payment: renewalPayment });
+    const result = await h.service.prepareSystem(paymentId);
+    assert.equal(result.amountMinor, '49500');
+    assert.equal(h.providerCalls(), 1);
+    assert.equal(h.payment.purpose, PaymentPurpose.SUBSCRIPTION_RENEWAL);
+  });
+
+  it('retries a definitely failed renewal order with a new attempt and the same Payment', async () => {
+    const renewalPayment = { ...basePayment, purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL,
+      subscription: { status: SubscriptionStatus.ACTIVE }, renewal: renewalEvidence() } as typeof basePayment;
+    const h = harness({ payment: renewalPayment,
+      createResult: new ProviderOperationError('DEFINITE_FAILURE', 'REJECTED', 'rejected') });
+    await assert.rejects(() => h.service.prepareSystem(paymentId), BadGatewayException);
+    assert.equal(h.attempts[0].status, PaymentAttemptStatus.FAILED);
+    h.setCreateResult(rawOrder);
+    const result = await h.service.prepareSystem(paymentId);
+    assert.equal(result.paymentId, paymentId);
+    assert.equal(h.attempts.length, 2);
+    assert.equal(h.attempts[1].status, PaymentAttemptStatus.SUCCEEDED);
+  });
+
+  it('rejects BLOCKED and APPLIED renewal lifecycle without attempts or provider dispatch', async () => {
+    for (const status of [SubscriptionRenewalStatus.BLOCKED, SubscriptionRenewalStatus.APPLIED]) {
+      const renewalPayment = { ...basePayment, purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL,
+        subscription: { status: SubscriptionStatus.ACTIVE }, renewal: renewalEvidence(status) } as typeof basePayment;
+      const h = harness({ payment: renewalPayment });
+      await assert.rejects(() => h.service.prepareSystem(paymentId), BadRequestException);
+      assert.equal(h.providerCalls(), 0);
+      assert.equal(h.attempts.length, 0);
+      assert.equal(h.orders.length, 0);
+    }
+  });
+
+  it('rejects a renewal lifecycle transition at the locked pre-dispatch recheck', async () => {
+    const renewalPayment = { ...basePayment, purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL,
+      subscription: { status: SubscriptionStatus.ACTIVE }, renewal: renewalEvidence() } as typeof basePayment;
+    const h = harness({ payment: renewalPayment, transitionOnLock: SubscriptionRenewalStatus.BLOCKED });
+    await assert.rejects(() => h.service.prepareSystem(paymentId), BadRequestException);
+    assert.equal(h.providerCalls(), 0);
+    assert.equal(h.attempts.length, 0);
+  });
+
   it('creates from Payment evidence, binds one credential version, and leaves Payment/subscription pending', async () => {
     const h = harness();
     const result = await h.service.prepare(paymentId, actor);
