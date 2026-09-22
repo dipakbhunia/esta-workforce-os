@@ -99,10 +99,12 @@ export class InvoiceIssuanceService {
         if (!payment) throw new InvoiceIssuanceError('PAYMENT_NOT_FOUND', 'Source Payment was not found');
         this.validatePayment(payment);
         const subscription = payment.subscription;
-        this.validateSubscription(payment, subscription);
+        const renewal = payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL
+          ? await tx.subscriptionRenewal.findUnique({ where: { paymentId: payment.id } }) : null;
+        const authority = this.validateSubscription(payment, subscription, renewal);
         const tax = payment.taxSnapshot;
-        if (tax) this.validateTaxEvidence(payment, subscription, tax);
-        else if (payment.amountMinor !== subscription.recurringTotalPriceMinor) {
+        if (tax) this.validateTaxEvidence(payment, authority, tax);
+        else if (payment.amountMinor !== authority.recurringTotalPriceMinor) {
           throw new InvoiceIssuanceError('COMMERCIAL_MISMATCH', 'Legacy Payment does not match the subscription commercial snapshot');
         }
 
@@ -134,10 +136,10 @@ export class InvoiceIssuanceService {
 
         const padded = sequence.lastAllocatedSequence.toString().padStart(6, '0');
         const invoiceNumber = `${prefix}/${scope.label}${padded}`;
-        const quantity = subscription.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT
-          ? subscription.seatQuantity : 1;
-        const unitAmount = subscription.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT
-          ? subscription.recurringUnitPriceMinor! : subscription.recurringTotalPriceMinor!;
+        const quantity = authority.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT
+          ? authority.seatQuantity : 1;
+        const unitAmount = authority.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT
+          ? authority.recurringUnitPriceMinor! : authority.recurringTotalPriceMinor;
 
         const createdInvoice = await tx.invoice.create({
           data: {
@@ -155,8 +157,8 @@ export class InvoiceIssuanceService {
             invoiceNumber,
             issuedAt,
             dueAt: null,
-            servicePeriodStart: subscription.currentPeriodStart!,
-            servicePeriodEnd: subscription.currentPeriodEnd!,
+            servicePeriodStart: authority.servicePeriodStart,
+            servicePeriodEnd: authority.servicePeriodEnd,
             sellerLegalName: settings.sellerLegalName!.trim(),
             sellerBillingEmail: this.optionalText(settings.sellerBillingEmail),
             sellerAddressLine1: settings.sellerAddressLine1!.trim(),
@@ -247,21 +249,38 @@ export class InvoiceIssuanceService {
     purpose: PaymentPurpose; status: PaymentStatus; capturedAt: Date | null; capturedProviderPaymentId: string | null;
     amountMinor: bigint; currency: string;
   }) {
-    if (payment.purpose !== PaymentPurpose.SUBSCRIPTION_ACTIVATION) throw new InvoiceIssuanceError('WRONG_PAYMENT_PURPOSE', 'Payment is not a subscription activation payment');
+    if (payment.purpose !== PaymentPurpose.SUBSCRIPTION_ACTIVATION && payment.purpose !== PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+      throw new InvoiceIssuanceError('WRONG_PAYMENT_PURPOSE', 'Payment purpose is not eligible for subscription invoicing');
+    }
     if (payment.status !== PaymentStatus.CAPTURED) throw new InvoiceIssuanceError('PAYMENT_NOT_CAPTURED', 'Payment is not captured');
     if (!payment.capturedAt || !payment.capturedProviderPaymentId?.trim()) throw new InvoiceIssuanceError('CAPTURE_EVIDENCE_MISSING', 'Payment capture evidence is incomplete');
     if (payment.amountMinor <= 0n || !/^[A-Z]{3}$/.test(payment.currency)) throw new InvoiceIssuanceError('INVALID_PAYMENT_AMOUNT', 'Payment commercial evidence is invalid');
   }
 
-  private validateSubscription(payment: { id: string; companyId: string; subscriptionId: string; amountMinor: bigint; currency: string }, subscription: {
+  private validateSubscription(payment: { id: string; companyId: string; subscriptionId: string; purpose: PaymentPurpose; amountMinor: bigint; currency: string }, subscription: {
     id: string; companyId: string; planId: string; activationSource: SubscriptionActivationSource; activatedByPaymentId: string | null;
     billingModelSnapshot: PlanBillingModel; billingInterval: BillingInterval; pricingInterval: BillingInterval | null; pricingResolvedAt: Date | null;
     planCodeSnapshot: string; planNameSnapshot: string; recurringPriceBasis: RecurringPriceBasis | null;
     recurringUnitPriceMinor: bigint | null; recurringTotalPriceMinor: bigint | null; recurringCurrency: string | null;
     currency: string; seatQuantity: number; currentPeriodStart: Date | null; currentPeriodEnd: Date | null;
-  }) {
+  }, renewal: {
+    id: string; companyId: string; subscriptionId: string; paymentId: string; status: string;
+    cycleStart: Date; cycleEnd: Date; billingInterval: BillingInterval; recurringPriceBasis: RecurringPriceBasis;
+    recurringUnitPriceMinor: bigint | null; recurringTotalPriceMinor: bigint; currency: string; seatQuantity: number;
+  } | null) {
     if (subscription.id !== payment.subscriptionId || subscription.companyId !== payment.companyId) throw new InvoiceIssuanceError('OWNERSHIP_MISMATCH', 'Payment and subscription ownership do not match');
-    if (subscription.activationSource !== SubscriptionActivationSource.PAYMENT || subscription.activatedByPaymentId !== payment.id) throw new InvoiceIssuanceError('ACTIVATION_LINK_MISMATCH', 'Subscription is not activated by the source Payment');
+    if (subscription.activationSource !== SubscriptionActivationSource.PAYMENT) throw new InvoiceIssuanceError('ACTIVATION_LINK_MISMATCH', 'Subscription does not use payment billing');
+    if (payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+      if (!renewal || renewal.paymentId !== payment.id || renewal.subscriptionId !== subscription.id || renewal.companyId !== subscription.companyId ||
+          renewal.status !== 'APPLIED') {
+        throw new InvoiceIssuanceError('RENEWAL_LINK_MISMATCH', 'Applied renewal evidence does not match the source Payment and subscription period');
+      }
+      this.validateCommercialAuthority(payment, subscription, renewal);
+      return { recurringPriceBasis: renewal.recurringPriceBasis, recurringUnitPriceMinor: renewal.recurringUnitPriceMinor,
+        recurringTotalPriceMinor: renewal.recurringTotalPriceMinor, recurringCurrency: renewal.currency,
+        seatQuantity: renewal.seatQuantity, servicePeriodStart: renewal.cycleStart, servicePeriodEnd: renewal.cycleEnd };
+    }
+    if (subscription.activatedByPaymentId !== payment.id) throw new InvoiceIssuanceError('ACTIVATION_LINK_MISMATCH', 'Subscription is not activated by the source Payment');
     if (!subscription.pricingResolvedAt || !subscription.pricingInterval || subscription.billingInterval !== subscription.pricingInterval ||
       !subscription.recurringPriceBasis || subscription.recurringTotalPriceMinor === null || !subscription.recurringCurrency ||
       subscription.recurringTotalPriceMinor <= 0n || subscription.seatQuantity < 1 ||
@@ -284,6 +303,27 @@ export class InvoiceIssuanceService {
     if (!subscription.currentPeriodStart || !subscription.currentPeriodEnd || subscription.currentPeriodStart >= subscription.currentPeriodEnd) {
       throw new InvoiceIssuanceError('SERVICE_PERIOD_INVALID', 'Subscription service period is missing or invalid');
     }
+    return { recurringPriceBasis: subscription.recurringPriceBasis, recurringUnitPriceMinor: subscription.recurringUnitPriceMinor,
+      recurringTotalPriceMinor: subscription.recurringTotalPriceMinor, recurringCurrency: subscription.recurringCurrency,
+      seatQuantity: subscription.seatQuantity, servicePeriodStart: subscription.currentPeriodStart, servicePeriodEnd: subscription.currentPeriodEnd };
+  }
+
+  private validateCommercialAuthority(payment: { amountMinor: bigint; currency: string }, subscription: {
+    planCodeSnapshot: string; planNameSnapshot: string; billingModelSnapshot: PlanBillingModel;
+  }, authority: { billingInterval: BillingInterval; recurringPriceBasis: RecurringPriceBasis; recurringUnitPriceMinor: bigint | null;
+    recurringTotalPriceMinor: bigint; currency: string; seatQuantity: number; cycleStart: Date; cycleEnd: Date }) {
+    if (!subscription.planCodeSnapshot.trim() || !subscription.planNameSnapshot.trim() || authority.cycleStart >= authority.cycleEnd ||
+        authority.recurringTotalPriceMinor <= 0n || authority.seatQuantity < 1 || payment.currency !== authority.currency) {
+      throw new InvoiceIssuanceError('COMMERCIAL_SNAPSHOT_INVALID', 'Renewal commercial snapshot is invalid');
+    }
+    if (authority.recurringPriceBasis === RecurringPriceBasis.PER_USER_UNIT) {
+      if (subscription.billingModelSnapshot !== PlanBillingModel.PER_USER || authority.recurringUnitPriceMinor === null || authority.recurringUnitPriceMinor <= 0n ||
+          authority.recurringUnitPriceMinor * BigInt(authority.seatQuantity) !== authority.recurringTotalPriceMinor) {
+        throw new InvoiceIssuanceError('COMMERCIAL_SNAPSHOT_INVALID', 'Renewal per-user snapshot arithmetic is invalid');
+      }
+    } else if (authority.recurringPriceBasis !== RecurringPriceBasis.FIXED_TOTAL || subscription.billingModelSnapshot !== PlanBillingModel.CUSTOM || authority.recurringUnitPriceMinor !== null) {
+      throw new InvoiceIssuanceError('COMMERCIAL_SNAPSHOT_INVALID', 'Renewal fixed-total snapshot is invalid');
+    }
   }
 
   private validateSeller(settings: { sellerLegalName: string | null; sellerAddressLine1: string | null; sellerCity: string | null; sellerPostalCode: string | null; sellerCountry: string | null }) {
@@ -291,7 +331,7 @@ export class InvoiceIssuanceService {
     catch { throw new InvoiceIssuanceError('SELLER_PROFILE_INCOMPLETE', 'Billing Settings seller identity is incomplete'); }
   }
 
-  private validateTaxEvidence(payment: { id: string; companyId: string; subscriptionId: string; amountMinor: bigint; currency: string }, subscription: { recurringTotalPriceMinor: bigint | null; recurringCurrency: string | null }, tax: {
+  private validateTaxEvidence(payment: { id: string; companyId: string; subscriptionId: string; amountMinor: bigint; currency: string }, authority: { recurringTotalPriceMinor: bigint; recurringCurrency: string }, tax: {
     companyId: string; sourceSubscriptionId: string; treatment: string; currency: string; taxableSubtotalMinor: bigint; totalTaxMinor: bigint;
     grossTotalMinor: bigint; jurisdictionClassification: string | null; serviceClassification: string | null; sellerGstin: string | null;
     sellerLegalName: string | null; sellerRegisteredState: string | null; sellerRegisteredStateCode: string | null;
@@ -303,7 +343,7 @@ export class InvoiceIssuanceService {
     const invalidComponent = tax.components.some((component) => !Number.isInteger(component.rateBasisPoints) || component.rateBasisPoints < 0 ||
       component.rateBasisPoints > 10_000 || component.taxAmountMinor !== (component.taxableAmountMinor * BigInt(component.rateBasisPoints) + 5_000n) / 10_000n);
     if (tax.companyId !== payment.companyId || tax.sourceSubscriptionId !== payment.subscriptionId || tax.currency !== payment.currency ||
-      tax.currency !== subscription.recurringCurrency || tax.taxableSubtotalMinor !== subscription.recurringTotalPriceMinor ||
+      tax.currency !== authority.recurringCurrency || tax.taxableSubtotalMinor !== authority.recurringTotalPriceMinor ||
       tax.totalTaxMinor !== componentTotal || tax.grossTotalMinor !== tax.taxableSubtotalMinor + tax.totalTaxMinor ||
       tax.grossTotalMinor !== payment.amountMinor || invalidComponent || tax.components.some((component) => component.currency !== tax.currency || component.taxableAmountMinor !== tax.taxableSubtotalMinor)) {
       throw new InvoiceIssuanceError('PAYMENT_TAX_EVIDENCE_CONFLICT', 'Payment GST evidence does not reconcile');

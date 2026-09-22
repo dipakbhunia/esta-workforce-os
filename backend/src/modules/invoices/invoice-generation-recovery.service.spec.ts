@@ -26,7 +26,8 @@ describe('InvoiceGenerationRecoveryService', () => {
     const query = sql(h.queries[0]);
     assert.match(query.text, /^SELECT payment\."id" FROM "Payment" payment/);
     for (const predicate of [
-      `payment."purpose" = 'SUBSCRIPTION_ACTIVATION'`, `payment."status" = 'CAPTURED'`,
+      `payment."purpose" = 'SUBSCRIPTION_ACTIVATION'`, `payment."purpose" = 'SUBSCRIPTION_RENEWAL'`,
+      `renewal."status" = 'APPLIED'`, `payment."status" = 'CAPTURED'`,
       `payment."capturedAt" IS NOT NULL`, `payment."capturedProviderPaymentId" IS NOT NULL`,
       `BTRIM(payment."capturedProviderPaymentId") <> ''`,
       `subscription."id" = payment."subscriptionId"`, `subscription."companyId" = payment."companyId"`,
@@ -34,9 +35,11 @@ describe('InvoiceGenerationRecoveryService', () => {
       `subscription."activationSource" = 'PAYMENT'`, `subscription."status" IN ('ACTIVE', 'SUSPENDED')`,
       `subscription."currentPeriodStart" IS NOT NULL`, `subscription."currentPeriodEnd" IS NOT NULL`,
       `subscription."currentPeriodStart" < subscription."currentPeriodEnd"`,
+      `payment."purpose" = 'SUBSCRIPTION_RENEWAL'`, `renewal."status" = 'APPLIED'`,
       `NOT EXISTS ( SELECT 1 FROM "Invoice" invoice WHERE invoice."sourcePaymentId" = payment."id" )`,
       `ORDER BY payment."createdAt" ASC, payment."id" ASC`,
     ]) assert.ok(query.text.includes(predicate), predicate);
+    assert.match(query.text, /payment\."purpose" = 'SUBSCRIPTION_ACTIVATION'[\s\S]*subscription\."status" IN \('ACTIVE', 'SUSPENDED'\)[\s\S]*OR \(payment\."purpose" = 'SUBSCRIPTION_RENEWAL' AND renewal\."status" = 'APPLIED'\)/);
     assert.doesNotMatch(query.text, /OFFSET|encryptedPayload|webhook|signature|credential|metadata/i);
     assert.deepEqual(query.values, [25]);
   });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { PaymentProviderEventStatus, PaymentProviderMode, PaymentProviderOrderStatus, PaymentProviderType, PaymentStatus, Prisma, SubscriptionStatus } from '@prisma/client';
+import { PaymentProviderEventStatus, PaymentProviderMode, PaymentProviderOrderStatus, PaymentProviderType, PaymentPurpose, PaymentStatus, Prisma, SubscriptionStatus } from '@prisma/client';
 import { PaymentProviderEventsService } from './payment-provider-events.service';
 
 const now = new Date('2026-08-28T10:00:00.000Z');
@@ -8,7 +8,7 @@ const ids = { event: '00000000-0000-4000-8000-000000000001', payment: '00000000-
 
 function harness(status = PaymentStatus.PENDING, truth = 'PAYMENT_CAPTURED', subscriptionStatus = SubscriptionStatus.PENDING) {
   const event: Record<string, any> = { id: ids.event, paymentId: null, providerOrderRecordId: null, providerConfigurationId: ids.config, credentialVersionId: 'credential', provider: PaymentProviderType.RAZORPAY, providerMode: PaymentProviderMode.TEST, providerEventId: 'evt-1', eventType: 'payment.captured', providerOrderId: 'order_ABC', providerPaymentId: 'pay_ABC', providerCreatedAt: now, status: PaymentProviderEventStatus.RECEIVED, payloadHash: 'a'.repeat(64), normalizedPayloadVersion: 1, normalizedPayload: { sourceEventType: 'payment.captured', truth, providerOrderId: 'order_ABC', providerPaymentId: 'pay_ABC', providerPaymentStatus: truth === 'PAYMENT_FAILED' ? 'failed' : truth === 'PAYMENT_AUTHORIZED' ? 'authorized' : 'captured', captured: truth === 'PAYMENT_CAPTURED', amountMinor: '99000', currency: 'INR', occurredAt: now.toISOString(), safeFailureCode: truth === 'PAYMENT_FAILED' ? 'DECLINED' : null, safeFailureMessage: truth === 'PAYMENT_FAILED' ? 'Payment failed' : null }, signatureVerifiedAt: now, attemptCount: 0, receivedAt: now, processingStartedAt: null, processedAt: null, nextRetryAt: null, safeErrorMessage: null };
-  const payment: Record<string, any> = { id: ids.payment, companyId: ids.company, subscriptionId: ids.subscription, providerConfigurationId: ids.config, provider: PaymentProviderType.RAZORPAY, providerMode: PaymentProviderMode.TEST, status, amountMinor: 99000n, currency: 'INR', providerStatus: status === PaymentStatus.FAILED ? 'failed' : null, capturedProviderPaymentId: status === PaymentStatus.CAPTURED ? 'pay_ABC' : null, authorizedAt: status === PaymentStatus.AUTHORIZED ? now : null, capturedAt: status === PaymentStatus.CAPTURED ? now : null, failedAt: status === PaymentStatus.FAILED ? now : null, failureCode: status === PaymentStatus.FAILED ? 'OLD_FAILURE' : null, safeFailureMessage: status === PaymentStatus.FAILED ? 'Old failure' : null, attempts: [], subscription: { id: ids.subscription, companyId: ids.company, status: subscriptionStatus, activatedByPaymentId: null } };
+  const payment: Record<string, any> = { id: ids.payment, companyId: ids.company, subscriptionId: ids.subscription, providerConfigurationId: ids.config, purpose: PaymentPurpose.SUBSCRIPTION_ACTIVATION, provider: PaymentProviderType.RAZORPAY, providerMode: PaymentProviderMode.TEST, status, amountMinor: 99000n, currency: 'INR', providerStatus: status === PaymentStatus.FAILED ? 'failed' : null, capturedProviderPaymentId: status === PaymentStatus.CAPTURED ? 'pay_ABC' : null, authorizedAt: status === PaymentStatus.AUTHORIZED ? now : null, capturedAt: status === PaymentStatus.CAPTURED ? now : null, failedAt: status === PaymentStatus.FAILED ? now : null, failureCode: status === PaymentStatus.FAILED ? 'OLD_FAILURE' : null, safeFailureMessage: status === PaymentStatus.FAILED ? 'Old failure' : null, attempts: [], subscription: { id: ids.subscription, companyId: ids.company, status: subscriptionStatus, activatedByPaymentId: null } };
   const order: Record<string, any> = { id: ids.order, paymentId: ids.payment, providerConfigurationId: ids.config, providerOrderId: 'order_ABC', status: PaymentProviderOrderStatus.CREATED, providerStatus: 'created', amountMinor: 99000n, currency: 'INR', closedAt: null };
   const audits: Record<string, any>[] = [];
   const activations: string[] = [];
@@ -25,8 +25,11 @@ function harness(status = PaymentStatus.PENDING, truth = 'PAYMENT_CAPTURED', sub
     auditLog: { create: async ({ data }: any) => { audits.push(data); return data; } },
   };
   client.$transaction = async (callback: (tx: any) => unknown) => callback(client);
-  const service = new PaymentProviderEventsService(client as never, {} as never, {} as never, { activate: async (id: string) => { activations.push(id); } } as never);
-  return { service, event, payment, order, audits, activations };
+  const renewals: string[] = [];
+  const service = new PaymentProviderEventsService(client as never, {} as never, {} as never,
+    { activate: async (id: string) => { activations.push(id); } } as never,
+    { apply: async (id: string) => { renewals.push(id); } } as never);
+  return { service, event, payment, order, audits, activations, renewals };
 }
 
 describe('PaymentProviderEventsService truth processing', () => {
@@ -35,6 +38,12 @@ describe('PaymentProviderEventsService truth processing', () => {
     assert.equal(h.payment.status, PaymentStatus.CAPTURED); assert.equal(h.payment.capturedProviderPaymentId, 'pay_ABC'); assert.equal(h.payment.capturedAt.toISOString(), now.toISOString());
     assert.equal(h.order.status, PaymentProviderOrderStatus.PAID); assert.equal(h.payment.subscription.status, SubscriptionStatus.PENDING); assert.equal(h.payment.subscription.activatedByPaymentId, null); assert.equal(h.event.status, PaymentProviderEventStatus.PROCESSED);
     assert.deepEqual(h.activations, [ids.payment]);
+  });
+
+  it('routes verified captured renewal truth only to renewal application', async () => {
+    const h = harness(); h.payment.purpose = PaymentPurpose.SUBSCRIPTION_RENEWAL;
+    await h.service.process(ids.event);
+    assert.deepEqual(h.activations, []); assert.deepEqual(h.renewals, [ids.payment]);
   });
 
   it('keeps committed CAPTURED truth durable when immediate subscription activation fails', async () => {
@@ -86,7 +95,7 @@ describe('PaymentProviderEventsService recovery selection', () => {
   it('selects bounded eligible work and isolates one poisoned event from the rest of the batch', async () => {
     const calls: any[] = []; const processed: string[] = [];
     const prisma: any = { paymentProviderEvent: { findMany: async (args: any) => { calls.push(args); return calls.length === 1 ? [] : [{ id: 'poison' }, { id: 'healthy' }]; } } };
-    const service = new PaymentProviderEventsService(prisma, {} as never, {} as never, { activate: async () => undefined } as never);
+    const service = new PaymentProviderEventsService(prisma, {} as never, {} as never, { activate: async () => undefined } as never, { apply: async () => undefined } as never);
     (service as any).process = async (id: string) => { processed.push(id); if (id === 'poison') throw new Error('poisoned'); };
     await service.recoverDue(25);
     assert.deepEqual(processed, ['poison', 'healthy']); assert.equal(calls[1].take, 25);
@@ -96,7 +105,7 @@ describe('PaymentProviderEventsService recovery selection', () => {
 
   it('allows only one claimant in an immediate-processor versus scheduler race', async () => {
     let claims = 0; const prisma: any = { paymentProviderEvent: { updateMany: async () => ({ count: claims++ === 0 ? 1 : 0 }), findUnique: async () => null, update: async () => ({}) }, $transaction: async (callback: (tx: any) => unknown) => callback(prisma) };
-    const service = new PaymentProviderEventsService(prisma, {} as never, {} as never, { activate: async () => undefined } as never); (service as any).applyTruth = async () => undefined;
+    const service = new PaymentProviderEventsService(prisma, {} as never, {} as never, { activate: async () => undefined } as never, { apply: async () => undefined } as never); (service as any).applyTruth = async () => undefined;
     await Promise.all([service.process(ids.event), service.process(ids.event)]); assert.equal(claims, 2);
   });
 });
@@ -120,7 +129,7 @@ function collisionHarness(kind: 'exact' | 'event-id' | 'payload-id' | 'split') {
   const credentials = { resolveWebhookCandidates: async () => [{ providerConfigurationId: ids.config, provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST, credentialVersionId: 'credential', credentialVersion: 1, material: {} }] };
   const provider = { verifyWebhookSignature: () => true, normalizeWebhookEvent: () => ({ ...normalized, ...(kind === 'event-id' ? { payloadHash: 'b'.repeat(64) } : {}), ...(kind === 'payload-id' ? { providerEventId: 'evt-other' } : {}) }) };
   const registry = { resolve: () => provider };
-  return { service: new PaymentProviderEventsService(store, credentials as never, registry as never, { activate: async () => undefined } as never), audits, row };
+  return { service: new PaymentProviderEventsService(store, credentials as never, registry as never, { activate: async () => undefined } as never, { apply: async () => undefined } as never), audits, row };
 }
 
 describe('PaymentProviderEventsService collision classification', () => {

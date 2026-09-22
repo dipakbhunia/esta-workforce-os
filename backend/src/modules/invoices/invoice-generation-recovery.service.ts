@@ -24,17 +24,20 @@ export class InvoiceGenerationRecoveryService {
       INNER JOIN "CompanySubscription" subscription
         ON subscription."id" = payment."subscriptionId"
        AND subscription."companyId" = payment."companyId"
-       AND subscription."activatedByPaymentId" = payment."id"
-      WHERE payment."purpose" = 'SUBSCRIPTION_ACTIVATION'
+      LEFT JOIN "SubscriptionRenewal" renewal ON renewal."paymentId" = payment."id"
+       AND renewal."subscriptionId" = payment."subscriptionId" AND renewal."companyId" = payment."companyId"
+      WHERE ((payment."purpose" = 'SUBSCRIPTION_ACTIVATION'
+          AND subscription."activatedByPaymentId" = payment."id"
+          AND subscription."status" IN ('ACTIVE', 'SUSPENDED')
+          AND subscription."currentPeriodStart" IS NOT NULL
+          AND subscription."currentPeriodEnd" IS NOT NULL
+          AND subscription."currentPeriodStart" < subscription."currentPeriodEnd")
+        OR (payment."purpose" = 'SUBSCRIPTION_RENEWAL' AND renewal."status" = 'APPLIED'))
         AND payment."status" = 'CAPTURED'
         AND payment."capturedAt" IS NOT NULL
         AND payment."capturedProviderPaymentId" IS NOT NULL
         AND BTRIM(payment."capturedProviderPaymentId") <> ''
         AND subscription."activationSource" = 'PAYMENT'
-        AND subscription."status" IN ('ACTIVE', 'SUSPENDED')
-        AND subscription."currentPeriodStart" IS NOT NULL
-        AND subscription."currentPeriodEnd" IS NOT NULL
-        AND subscription."currentPeriodStart" < subscription."currentPeriodEnd"
         AND NOT EXISTS (
           SELECT 1 FROM "Invoice" invoice WHERE invoice."sourcePaymentId" = payment."id"
         )

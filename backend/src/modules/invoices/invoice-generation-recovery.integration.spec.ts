@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import {
   BillingInterval, PaymentProviderMode, PaymentProviderType, PaymentPurpose, PaymentStatus,
   PlanBillingModel, PrismaClient, RecurringPriceBasis, SubscriptionActivationSource,
-  SubscriptionStatus,
+  SubscriptionRenewalStatus, SubscriptionStatus,
 } from '@prisma/client';
 import { InvoiceGenerationRecoveryService } from './invoice-generation-recovery.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
@@ -13,7 +13,7 @@ import { INVOICE_ISSUED, InvoiceIssuanceService } from './invoice-issuance.servi
 const enabled = process.env.RUN_INVOICE_GENERATION_RECOVERY_DB_INTEGRATION === '1';
 const REQUIRED_TABLES = [
   'Company', 'Plan', 'CompanySubscription', 'BillingSettings', 'CompanyBillingProfile',
-  'BillingProviderConfiguration', 'Payment', 'InvoiceNumberSequence', 'Invoice', 'InvoiceLine', 'AuditLog',
+  'BillingProviderConfiguration', 'Payment', 'SubscriptionRenewal', 'InvoiceNumberSequence', 'Invoice', 'InvoiceLine', 'AuditLog',
   'GstTaxPolicyVersion', 'PaymentTaxSnapshot', 'PaymentTaxComponent', 'InvoiceGstEvidence',
   'InvoiceLineGstEvidence', 'InvoiceLineTaxComponent',
 ] as const;
@@ -93,6 +93,15 @@ describe('IG-C PostgreSQL invoice generation recovery', () => {
       for (const fixture of [first, last]) await assertIssuedEvidence(prisma, fixture);
       assert.equal(await prisma.invoice.count({ where: { sourcePaymentId: alreadyInvoiced.paymentId } }), 1);
       assert.equal(await prisma.auditLog.count({ where: { action: INVOICE_ISSUED, entityId: existing.id } }), 1);
+
+      const historical = await Promise.all([
+        createHistoricalRenewalFixture(prisma, provider.id, SubscriptionStatus.EXPIRED),
+        createHistoricalRenewalFixture(prisma, provider.id, SubscriptionStatus.CANCELLED),
+        createHistoricalRenewalFixture(prisma, provider.id, SubscriptionStatus.SUPERSEDED),
+        createHistoricalRenewalFixture(prisma, provider.id, SubscriptionStatus.ACTIVE),
+      ]);
+      assert.deepEqual(await recovery.recoverDue(), { scanned: 5, succeeded: 4, failed: 1 });
+      for (const fixture of historical) await assertIssuedEvidence(prisma, fixture);
     } finally {
       try {
         await prisma?.$disconnect();
@@ -154,6 +163,36 @@ async function createPayment(prisma: PrismaClient, fixture: { companyId: string;
     capturedProviderPaymentId: captured ? `pay_${suffix.replaceAll('-', '')}` : null,
     providerStatus: captured ? 'captured' : 'created', capturedAt: captured ? new Date('2026-09-01T00:00:00.000Z') : null,
   } });
+}
+
+async function createHistoricalRenewalFixture(prisma: PrismaClient, providerConfigurationId: string, status: SubscriptionStatus): Promise<Fixture> {
+  const fixture = await createFixture(prisma, providerConfigurationId, { profile: true });
+  await new InvoiceIssuanceService(prisma as never).issue(fixture.paymentId);
+  const suffix = randomUUID();
+  const periodStart = new Date('2026-10-01T00:00:00.000Z');
+  const periodEnd = new Date('2026-11-01T00:00:00.000Z');
+  const payment = await prisma.payment.create({ data: {
+    companyId: fixture.companyId, subscriptionId: fixture.subscriptionId, providerConfigurationId,
+    purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL, status: PaymentStatus.CAPTURED,
+    provider: PaymentProviderType.RAZORPAY, providerMode: PaymentProviderMode.TEST,
+    amountMinor: 1000n, currency: 'INR', idempotencyKey: `igc-renewal-${suffix}`,
+    businessReference: `igc-renewal-${suffix}`, capturedProviderPaymentId: `pay_${suffix.replaceAll('-', '')}`,
+    providerStatus: 'captured', capturedAt: new Date('2026-10-01T00:00:00.000Z'),
+  } });
+  await prisma.subscriptionRenewal.create({ data: {
+    companyId: fixture.companyId, subscriptionId: fixture.subscriptionId, paymentId: payment.id,
+    cycleStart: periodStart, cycleEnd: periodEnd, billingInterval: BillingInterval.MONTHLY,
+    recurringPriceBasis: RecurringPriceBasis.PER_USER_UNIT, recurringUnitPriceMinor: 100n,
+    recurringTotalPriceMinor: 1000n, currency: 'INR', seatQuantity: 10,
+    status: SubscriptionRenewalStatus.APPLIED, appliedAt: new Date('2026-10-01T00:00:00.000Z'),
+    applicationAttemptCount: 1, lastApplicationAttemptAt: new Date('2026-10-01T00:00:00.000Z'),
+  } });
+  await prisma.companySubscription.update({ where: { id: fixture.subscriptionId }, data: {
+    status, currentPeriodStart: new Date('2026-12-01T00:00:00.000Z'), currentPeriodEnd: new Date('2027-01-01T00:00:00.000Z'),
+    endedAt: status === SubscriptionStatus.EXPIRED ? new Date('2027-01-01T00:00:00.000Z') : null,
+    cancelledAt: status === SubscriptionStatus.CANCELLED ? new Date('2027-01-01T00:00:00.000Z') : null,
+  } });
+  return { ...fixture, paymentId: payment.id, periodStart, periodEnd };
 }
 
 async function assertIssuedEvidence(prisma: PrismaClient, fixture: Fixture): Promise<void> {

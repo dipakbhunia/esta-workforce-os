@@ -13,7 +13,7 @@ import { INVOICE_ISSUED, InvoiceIssuanceService } from './invoice-issuance.servi
 const enabled = process.env.RUN_INVOICE_GENERATION_CONCURRENCY_DB_INTEGRATION === '1';
 const REQUIRED_TABLES = [
   'Company', 'Plan', 'CompanySubscription', 'BillingSettings', 'CompanyBillingProfile',
-  'BillingProviderConfiguration', 'Payment', 'InvoiceNumberSequence', 'Invoice', 'InvoiceLine',
+  'BillingProviderConfiguration', 'Payment', 'SubscriptionRenewal', 'InvoiceNumberSequence', 'Invoice', 'InvoiceLine',
   'User', 'AuditLog', 'GstTaxPolicyVersion', 'PaymentTaxSnapshot', 'PaymentTaxComponent',
   'InvoiceGstEvidence', 'InvoiceLineGstEvidence', 'InvoiceLineTaxComponent',
 ] as const;

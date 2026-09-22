@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
-import { PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderEventStatus, PaymentProviderOrderStatus, PaymentProviderType, PaymentStatus, Prisma } from '@prisma/client';
+import { PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderEventStatus, PaymentProviderOrderStatus, PaymentProviderType, PaymentPurpose, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BillingProviderCredentialsService } from '../billing-settings/billing-provider-credentials.service';
 import { transitionPaymentState } from './payment-state-machine';
 import type { StoredNormalizedProviderEvent } from './payment-provider-event.types';
 import { ProviderRegistryService } from './providers/provider-registry.service';
 import { SubscriptionPaymentActivationService } from '../subscriptions/subscription-payment-activation.service';
+import { SubscriptionRenewalApplicationService } from '../subscriptions/subscription-renewal-application.service';
 
 const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 30 * 60_000;
@@ -16,7 +17,7 @@ class ProviderOrderNotFoundError extends Error {}
 
 @Injectable()
 export class PaymentProviderEventsService {
-  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService, private readonly providers: ProviderRegistryService, private readonly activation: SubscriptionPaymentActivationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService, private readonly providers: ProviderRegistryService, private readonly activation: SubscriptionPaymentActivationService, private readonly renewal: SubscriptionRenewalApplicationService) {}
 
   async ingest(provider: PaymentProviderType, configurationId: string, rawBody: Buffer, signature: string, providerEventId?: string) {
     let candidates;
@@ -75,7 +76,13 @@ export class PaymentProviderEventsService {
     let capturedPaymentId: string | null = null;
     try { capturedPaymentId = await this.applyTruth(eventId); }
     catch (error) { if (this.isUniqueViolation(error)) await this.markPermanentConflict(eventId); else await this.markRetryableFailure(eventId, error); return; }
-    if (capturedPaymentId) { try { await this.activation.activate(capturedPaymentId); } catch { /* CAPTURED truth is committed; durable recovery remains authoritative */ } }
+    if (capturedPaymentId) {
+      try {
+        const payment = await this.prisma.payment.findUnique({ where: { id: capturedPaymentId }, select: { purpose: true } });
+        if (payment?.purpose === PaymentPurpose.SUBSCRIPTION_ACTIVATION) await this.activation.activate(capturedPaymentId);
+        else if (payment?.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL) await this.renewal.apply(capturedPaymentId);
+      } catch { /* CAPTURED truth is committed; durable recovery remains authoritative */ }
+    }
   }
 
   async recoverDue(limit = 25): Promise<void> {

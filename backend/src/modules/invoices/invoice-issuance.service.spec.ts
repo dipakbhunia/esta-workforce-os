@@ -43,6 +43,31 @@ describe('Invoice issuance eligibility', () => {
     },
   });
 
+  it('accepts only an APPLIED renewal whose immutable cycle and commercial evidence match the subscription period', () => {
+    const payment: any = valid();
+    payment.purpose = PaymentPurpose.SUBSCRIPTION_RENEWAL;
+    payment.subscription.activatedByPaymentId = 'original-activation-payment';
+    const renewal = {
+      id: '55555555-5555-4555-8555-555555555555', paymentId: payment.id,
+      companyId: payment.companyId, subscriptionId: payment.subscriptionId, status: 'APPLIED',
+      cycleStart: payment.subscription.currentPeriodStart, cycleEnd: payment.subscription.currentPeriodEnd,
+      billingInterval: BillingInterval.MONTHLY, recurringPriceBasis: RecurringPriceBasis.PER_USER_UNIT,
+      recurringUnitPriceMinor: 100n, recurringTotalPriceMinor: 1_000n, currency: 'INR', seatQuantity: 10,
+    };
+    const service = new InvoiceIssuanceService({} as never);
+    (service as any).validatePayment(payment);
+    const authority = (service as any).validateSubscription(payment, payment.subscription, renewal);
+    assert.equal(authority.recurringTotalPriceMinor, 1_000n);
+    assert.equal(authority.servicePeriodStart, renewal.cycleStart);
+    payment.subscription.currentPeriodStart = new Date('2026-10-01T00:00:00Z');
+    payment.subscription.currentPeriodEnd = new Date('2026-11-01T00:00:00Z');
+    assert.equal((service as any).validateSubscription(payment, payment.subscription, renewal).servicePeriodStart, renewal.cycleStart);
+    assert.throws(() => (service as any).validateSubscription(payment, payment.subscription, { ...renewal, status: 'PREPARED' }),
+      (error: unknown) => error instanceof InvoiceIssuanceError && error.code === 'RENEWAL_LINK_MISMATCH');
+    assert.throws(() => (service as any).validateSubscription(payment, payment.subscription, { ...renewal, status: 'BLOCKED' }),
+      (error: unknown) => error instanceof InvoiceIssuanceError && error.code === 'RENEWAL_LINK_MISMATCH');
+  });
+
   for (const [name, mutate, code] of [
     ['wrong purpose', (p: any) => { p.purpose = 'OTHER'; }, 'WRONG_PAYMENT_PURPOSE'],
     ['non-captured status', (p: any) => { p.status = PaymentStatus.PENDING; }, 'PAYMENT_NOT_CAPTURED'],
