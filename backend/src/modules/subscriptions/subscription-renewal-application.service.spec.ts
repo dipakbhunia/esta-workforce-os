@@ -40,6 +40,7 @@ function harness(options: Record<string, any> = {}) {
     $queryRaw: async () => [{ id: 'locked' }],
     subscriptionRenewal: {
       findUnique: async () => renewal,
+      findMany: async () => options.laterRenewals ?? [],
       update: async ({ data }: any) => { events.push(`renewal:${data.status ?? 'attempt'}`); if (data.applicationAttemptCount?.increment) renewal.applicationAttemptCount += data.applicationAttemptCount.increment; Object.assign(renewal, data, { applicationAttemptCount: renewal.applicationAttemptCount }); return renewal; },
     },
     companySubscription: {
@@ -82,7 +83,38 @@ describe('SubscriptionRenewalApplicationService', () => {
     const result = await h.service.apply(ids.payment);
     assert.equal(result.outcome, 'ALREADY_APPLIED'); assert.equal(h.renewal.applicationAttemptCount, 0);
     assert.deepEqual(h.audits, []); assert.equal(h.events.includes('subscription:update'), false);
-    assert.deepEqual(h.generated, [ids.payment]);
+    assert.deepEqual(h.generated, []);
+  });
+
+  it('fails closed on inconsistent APPLIED Payment, commercial, currency, or GST evidence without Invoice generation', async () => {
+    const tax = { companyId: ids.company, sourceSubscriptionId: ids.subscription, currency: 'INR', taxableSubtotalMinor: 1000n,
+      totalTaxMinor: 180n, grossTotalMinor: 1180n, components: [{ taxableAmountMinor: 1000n, taxAmountMinor: 180n, currency: 'INR' }] };
+    for (const options of [
+      { paymentStatus: PaymentStatus.PENDING }, { purpose: PaymentPurpose.SUBSCRIPTION_ACTIVATION },
+      { amountMinor: 999n }, { paymentCurrency: 'USD' },
+      { amountMinor: 1180n, taxSnapshot: { ...tax, totalTaxMinor: 179n } },
+    ]) {
+      const h = harness({ ...options, renewalStatus: SubscriptionRenewalStatus.APPLIED });
+      h.subscription.currentPeriodStart = cycleStart; h.subscription.currentPeriodEnd = cycleEnd;
+      await assert.rejects(() => h.service.apply(ids.payment), /Applied renewal evidence conflicts/);
+      assert.deepEqual(h.generated, []); assert.equal(h.events.includes('subscription:update'), false);
+    }
+  });
+
+  it('reconciles an older APPLIED renewal through contiguous later captured renewal evidence without mutation or Invoice generation', async () => {
+    const laterStart = cycleEnd; const laterEnd = new Date('2026-12-01T00:00:00.000Z');
+    const laterPayment = { id: 'later-payment', companyId: ids.company, subscriptionId: ids.subscription,
+      purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL, status: PaymentStatus.CAPTURED, amountMinor: 1000n, currency: 'INR',
+      capturedAt: new Date('2026-10-31T00:00:00Z'), capturedProviderPaymentId: 'pay_later', taxSnapshot: null };
+    const laterRenewal = { id: 'later-renewal', companyId: ids.company, subscriptionId: ids.subscription,
+      paymentId: laterPayment.id, cycleStart: laterStart, cycleEnd: laterEnd, billingInterval: BillingInterval.MONTHLY,
+      recurringPriceBasis: RecurringPriceBasis.PER_USER_UNIT, recurringUnitPriceMinor: 100n,
+      recurringTotalPriceMinor: 1000n, currency: 'INR', seatQuantity: 10,
+      status: SubscriptionRenewalStatus.APPLIED, payment: laterPayment };
+    const h = harness({ renewalStatus: SubscriptionRenewalStatus.APPLIED, laterRenewals: [laterRenewal] });
+    h.subscription.currentPeriodStart = laterStart; h.subscription.currentPeriodEnd = laterEnd;
+    assert.equal((await h.service.apply(ids.payment)).outcome, 'ALREADY_APPLIED');
+    assert.equal(h.events.includes('subscription:update'), false); assert.deepEqual(h.generated, []);
   });
 
   it('does not apply non-captured truth or a previously BLOCKED renewal', async () => {

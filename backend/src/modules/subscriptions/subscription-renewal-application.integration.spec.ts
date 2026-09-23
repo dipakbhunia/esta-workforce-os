@@ -87,6 +87,45 @@ describeDb('Renewal-E PostgreSQL application concurrency', () => {
       assert.equal(await prisma.companySubscription.count({ where: { companyId: blocked.companyId, status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED] } } }), 1);
     } finally { await cleanup(blocked.companyId, blocked.planId); }
   });
+
+  it('reconciles an older APPLIED renewal after a later captured cycle without mutation or Invoice replay', async () => {
+    const first = await createFixture();
+    const generated: string[] = [];
+    const service = new SubscriptionRenewalApplicationService(prisma as unknown as PrismaService,
+      new SeatUsageService(prisma as unknown as PrismaService),
+      { generate: async (paymentId: string) => { generated.push(paymentId); return { outcome: 'ISSUED' }; } } as never);
+    try {
+      assert.equal((await service.apply(first.paymentId)).outcome, 'APPLIED');
+      const provider = await prisma.billingProviderConfiguration.findFirstOrThrow({ where: { enabled: true, isDefault: true } });
+      const laterEnd = new Date('2031-03-01T00:00:00.000Z');
+      let laterPaymentId = '';
+      await prisma.$transaction(async tx => {
+        const payment = await tx.payment.create({ data: {
+          companyId: first.companyId, subscriptionId: first.subscriptionId, providerConfigurationId: provider.id,
+          purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL, status: PaymentStatus.CAPTURED,
+          provider: provider.provider, providerMode: provider.mode, amountMinor: 1_000n, currency: 'INR',
+          idempotencyKey: `renewal-e-later:${first.renewalId}`, businessReference: `renewal-e-later:${first.renewalId}`,
+          capturedProviderPaymentId: `renewal_e_later_${first.renewalId}`, capturedAt: first.cycleEnd,
+        } });
+        await tx.subscriptionRenewal.create({ data: {
+          companyId: first.companyId, subscriptionId: first.subscriptionId, paymentId: payment.id,
+          cycleStart: first.cycleEnd, cycleEnd: laterEnd, billingInterval: BillingInterval.MONTHLY,
+          recurringPriceBasis: RecurringPriceBasis.PER_USER_UNIT, recurringUnitPriceMinor: 100n,
+          recurringTotalPriceMinor: 1_000n, currency: 'INR', seatQuantity: 10,
+          createdAt: new Date(first.cycleEnd.getTime() - 1),
+        } });
+        laterPaymentId = payment.id;
+      });
+      assert.equal((await service.apply(laterPaymentId)).outcome, 'APPLIED');
+      assert.deepEqual(generated, [first.paymentId, laterPaymentId]);
+
+      assert.equal((await service.apply(first.paymentId)).outcome, 'ALREADY_APPLIED');
+      assert.deepEqual(generated, [first.paymentId, laterPaymentId]);
+      const subscription = await prisma.companySubscription.findUniqueOrThrow({ where: { id: first.subscriptionId } });
+      assert.equal(subscription.currentPeriodStart?.toISOString(), first.cycleEnd.toISOString());
+      assert.equal(subscription.currentPeriodEnd?.toISOString(), laterEnd.toISOString());
+    } finally { await cleanup(first.companyId, first.planId); }
+  });
 });
 
 function application() {

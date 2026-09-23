@@ -64,12 +64,10 @@ export class SubscriptionRenewalApplicationService {
       }
 
       if (renewal.status === SubscriptionRenewalStatus.APPLIED) {
-        if (subscription.status === SubscriptionStatus.ACTIVE &&
-            subscription.currentPeriodStart?.getTime() === renewal.cycleStart.getTime() &&
-            subscription.currentPeriodEnd?.getTime() === renewal.cycleEnd.getTime()) {
-          return { outcome: 'ALREADY_APPLIED' as const, renewalId: renewal.id, subscriptionId: subscription.id, recoveredAfterExpiration: false };
-        }
-        throw new Error('Applied renewal evidence conflicts with subscription state');
+        const evidenceCode = this.evidenceConflict(renewal);
+        if (evidenceCode) throw new Error('Applied renewal evidence conflicts with captured Payment authority');
+        await this.reconcileAppliedPeriod(tx, renewal, subscription);
+        return { outcome: 'ALREADY_APPLIED' as const, renewalId: renewal.id, subscriptionId: subscription.id, recoveredAfterExpiration: false };
       }
       if (renewal.status === SubscriptionRenewalStatus.BLOCKED) {
         return { outcome: 'BLOCKED' as const, renewalId: renewal.id, subscriptionId: subscription.id,
@@ -124,7 +122,7 @@ export class SubscriptionRenewalApplicationService {
       return { outcome: 'APPLIED' as const, renewalId: renewal.id, subscriptionId: subscription.id, recoveredAfterExpiration };
     });
 
-    if (result.outcome === 'APPLIED' || result.outcome === 'ALREADY_APPLIED') {
+    if (result.outcome === 'APPLIED') {
       try { await this.invoices.generate(paymentId); } catch { /* renewal application is already committed */ }
     }
     return result;
@@ -177,6 +175,45 @@ export class SubscriptionRenewalApplicationService {
       return 'COMMERCIAL_EVIDENCE_MISMATCH';
     }
     return null;
+  }
+
+  private async reconcileAppliedPeriod(
+    tx: Prisma.TransactionClient,
+    renewal: {
+      id: string; companyId: string; subscriptionId: string; cycleStart: Date; cycleEnd: Date;
+    },
+    subscription: { status: SubscriptionStatus; currentPeriodStart: Date | null; currentPeriodEnd: Date | null },
+  ): Promise<void> {
+    if (subscription.status !== SubscriptionStatus.ACTIVE || !subscription.currentPeriodStart || !subscription.currentPeriodEnd) {
+      throw new Error('Applied renewal evidence conflicts with subscription state');
+    }
+    if (subscription.currentPeriodStart.getTime() === renewal.cycleStart.getTime() &&
+        subscription.currentPeriodEnd.getTime() === renewal.cycleEnd.getTime()) return;
+
+    const later = await tx.subscriptionRenewal.findMany({
+      where: {
+        companyId: renewal.companyId, subscriptionId: renewal.subscriptionId,
+        id: { not: renewal.id }, status: SubscriptionRenewalStatus.APPLIED,
+        cycleStart: { gte: renewal.cycleEnd },
+      },
+      orderBy: [{ cycleStart: 'asc' }, { id: 'asc' }],
+      include: { payment: { include: { taxSnapshot: { include: { components: true } } } } },
+    });
+    let expectedStart = renewal.cycleEnd;
+    let latestStart: Date | null = null;
+    let latestEnd: Date | null = null;
+    for (const candidate of later) {
+      if (candidate.cycleStart.getTime() !== expectedStart.getTime() || this.evidenceConflict(candidate)) {
+        throw new Error('Applied renewal history does not reconcile');
+      }
+      expectedStart = candidate.cycleEnd;
+      latestStart = candidate.cycleStart;
+      latestEnd = candidate.cycleEnd;
+    }
+    if (!latestStart || !latestEnd || subscription.currentPeriodStart.getTime() !== latestStart.getTime() ||
+        subscription.currentPeriodEnd.getTime() !== latestEnd.getTime()) {
+      throw new Error('Applied renewal evidence conflicts with subscription state');
+    }
   }
 
   private async block(tx: Prisma.TransactionClient, renewal: { id: string; companyId: string; subscriptionId: string; paymentId: string },
