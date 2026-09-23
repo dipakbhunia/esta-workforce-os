@@ -2,14 +2,16 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 import {
-  BillingInterval, PaymentProviderMode, PaymentProviderType, PaymentPurpose, PaymentStatus,
-  PlanBillingModel, PrismaClient, RecurringPriceBasis, SubscriptionActivationSource, SubscriptionStatus,
+  BillingInterval, PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderMode, PaymentProviderType, PaymentPurpose, PaymentStatus,
+  PlanBillingModel, PrismaClient, RecurringPriceBasis, RoleName, SubscriptionActivationSource, SubscriptionStatus, UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { PaymentsService } from '../payments/payments.service';
 import { SubscriptionTaxCalculationService } from '../payments/subscription-tax-calculation.service';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { SubscriptionRenewalPreparationService } from './subscription-renewal-preparation.service';
+import { SubscriptionExpirationService } from './subscription-expiration.service';
+import { SubscriptionsService } from './subscriptions.service';
 
 const enabled = process.env.RUN_RENEWAL_PREPARATION_DB_INTEGRATION === '1';
 const describeDb = enabled ? describe : describe.skip;
@@ -26,7 +28,8 @@ describeDb('Renewal-D PostgreSQL preparation concurrency', () => {
     try {
       const company = await prisma.company.create({ data: { name: 'Renewal-D', slug: `renewal-d-${suffix}` } });
       companyId = company.id;
-      const plan = await prisma.plan.create({ data: { code: `RENEWAL-D-${suffix}`, name: 'Renewal D', billingModel: PlanBillingModel.PER_USER } });
+      const plan = await prisma.plan.create({ data: { code: `RENEWAL-D-${suffix}`, name: 'Renewal D', billingModel: PlanBillingModel.PER_USER,
+        recurringPrices: { create: { billingInterval: BillingInterval.MONTHLY, basis: RecurringPriceBasis.PER_USER_UNIT, amountMinor: 100n, currency: 'INR' } } } });
       planId = plan.id;
       const provider = await prisma.billingProviderConfiguration.findFirst({ where: { enabled: true, isDefault: true } });
       assert.ok(provider, 'an enabled default provider fixture is required');
@@ -71,9 +74,35 @@ describeDb('Renewal-D PostgreSQL preparation concurrency', () => {
       assert.equal(await prisma.paymentTaxSnapshot.count({ where: { payment: { subscriptionId: subscription.id, purpose: PaymentPurpose.SUBSCRIPTION_RENEWAL } } }), 0);
       assert.equal(await prisma.auditLog.count({ where: { action: 'SUBSCRIPTION_RENEWAL_PREPARED', entityId: manual.renewalId } }), 1);
       assert.deepEqual(providerCalls, [manual.paymentId, manual.paymentId]);
+
+      const credential = await prisma.billingProviderCredential.findFirstOrThrow({ where: {
+        providerConfigurationId: provider.id, retiredAt: null,
+      } });
+      const claim = await prisma.paymentAttempt.create({ data: {
+        paymentId: manual.paymentId, providerConfigurationId: provider.id, credentialVersionId: credential.id,
+        sequence: 1, operation: PaymentAttemptOperation.ORDER_CREATE, status: PaymentAttemptStatus.PENDING,
+        amountMinor: 1_000n, currency: 'INR', requestReference: `renewal-h:${manual.paymentId}`,
+      } });
+      const seats = new SeatUsageService(prisma as unknown as PrismaService);
+      const subscriptions = new SubscriptionsService(prisma as unknown as PrismaService, seats,
+        new SubscriptionExpirationService(prisma as unknown as PrismaService, seats));
+      const actor = { id: randomUUID(), companyId: null, email: 'renewal-h@example.test', firstName: 'Renewal', lastName: 'H',
+        status: UserStatus.ACTIVE, roles: [RoleName.SUPER_ADMIN] };
+      await assert.rejects(() => subscriptions.cancel(subscription.id, actor), /dispatch is still unresolved/);
+      await prisma.paymentAttempt.update({ where: { id: claim.id }, data: {
+        status: PaymentAttemptStatus.UNKNOWN, completedAt: new Date(), failureCode: 'DISPATCH_STARTED',
+        safeFailureMessage: 'Provider order dispatch requires confirmation',
+      } });
+      await assert.rejects(() => subscriptions.suspend(subscription.id, actor), /dispatch is still unresolved/);
+      await assert.rejects(() => subscriptions.amend(subscription.id, { seatQuantity: 11 }, actor), /dispatch is still unresolved/);
+      assert.equal((await prisma.companySubscription.findUniqueOrThrow({ where: { id: subscription.id } })).status, SubscriptionStatus.ACTIVE);
+      assert.equal((await prisma.subscriptionRenewal.findUniqueOrThrow({ where: { id: manual.renewalId } })).status, 'PREPARED');
     } finally {
       if (companyId) await cleanup(companyId);
-      if (planId) await prisma.plan.deleteMany({ where: { id: planId } });
+      if (planId) {
+        await prisma.planRecurringPrice.deleteMany({ where: { planId } });
+        await prisma.plan.deleteMany({ where: { id: planId } });
+      }
     }
   });
 });
@@ -86,6 +115,7 @@ async function cleanup(companyId: string) {
   } finally {
     await prisma.$executeRawUnsafe('ALTER TABLE "SubscriptionRenewal" ENABLE TRIGGER "SubscriptionRenewal_immutability"');
   }
+  await prisma.paymentAttempt.deleteMany({ where: { payment: { companyId } } });
   await prisma.companySubscription.updateMany({ where: { companyId }, data: {
     status: SubscriptionStatus.CANCELLED, activatedByPaymentId: null,
   } });

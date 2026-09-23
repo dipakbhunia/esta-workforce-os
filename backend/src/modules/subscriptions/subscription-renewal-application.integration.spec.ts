@@ -6,6 +6,7 @@ import {
   SubscriptionActivationSource, SubscriptionRenewalStatus, SubscriptionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { PaymentProviderOrdersService } from '../payments/payment-provider-orders.service';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { SubscriptionExpirationService } from './subscription-expiration.service';
 import { SubscriptionRenewalApplicationService } from './subscription-renewal-application.service';
@@ -32,6 +33,41 @@ describeDb('Renewal-E PostgreSQL application concurrency', () => {
       assert.equal(subscription.currentPeriodStart?.toISOString(), fixture.cycleStart.toISOString());
       assert.equal(subscription.currentPeriodEnd?.toISOString(), fixture.cycleEnd.toISOString());
       assert.equal(await prisma.auditLog.count({ where: { entityId: fixture.renewalId, action: 'SUBSCRIPTION_RENEWAL_APPLIED' } }), 1);
+    } finally { await cleanup(fixture.companyId, fixture.planId); }
+  });
+
+  it('completes provider dispatch and renewal application concurrently without deadlock or duplicate authority', async () => {
+    const fixture = await createFixture(PaymentStatus.PENDING);
+    try {
+      const payment = await prisma.payment.findUniqueOrThrow({ where: { id: fixture.paymentId } });
+      const credential = await prisma.billingProviderCredential.findFirstOrThrow({ where: {
+        providerConfigurationId: payment.providerConfigurationId, retiredAt: null,
+      } });
+      const effective = { provider: payment.provider, mode: payment.providerMode,
+        providerConfigurationId: payment.providerConfigurationId, credentialVersionId: credential.id,
+        credentialVersion: credential.version, material: { keyId: 'test-key', keySecret: 'test-secret', webhookSecret: 'test-webhook' } };
+      let providerCalls = 0;
+      const providers = { resolve: () => ({
+        createOrder: async (_context: unknown, input: { amountMinor: bigint; currency: string; receipt: string }) => {
+          providerCalls += 1;
+          return { id: `order_${fixture.paymentId}`, amountMinor: input.amountMinor, currency: input.currency,
+            receipt: input.receipt, status: 'created', createdAt: new Date() };
+        },
+        findOrdersByReceipt: async () => [],
+      }) };
+      const orders = new PaymentProviderOrdersService(prisma as unknown as PrismaService,
+        { resolveForOperation: async () => effective, resolveBoundCredentialForRecovery: async () => effective } as never,
+        providers as never);
+      const settled = await Promise.race([
+        Promise.allSettled([orders.prepareSystem(fixture.paymentId), application().apply(fixture.paymentId)]),
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('renewal provider/application deadlock timeout')), 5_000)),
+      ]);
+      assert.equal(settled.length, 2);
+      assert.equal(providerCalls, 1);
+      assert.equal(await prisma.paymentAttempt.count({ where: { paymentId: fixture.paymentId, operation: 'ORDER_CREATE' } }), 1);
+      assert.equal(await prisma.paymentProviderOrder.count({ where: { paymentId: fixture.paymentId } }), 1);
+      assert.equal(await prisma.payment.count({ where: { id: fixture.paymentId } }), 1);
+      assert.equal((await prisma.subscriptionRenewal.findUniqueOrThrow({ where: { id: fixture.renewalId } })).status, SubscriptionRenewalStatus.PREPARED);
     } finally { await cleanup(fixture.companyId, fixture.planId); }
   });
 
@@ -183,6 +219,8 @@ async function createFixture(paymentStatus = PaymentStatus.CAPTURED, subscriptio
 
 async function cleanup(companyId: string, planId: string) {
   await prisma.auditLog.deleteMany({ where: { companyId } });
+  await prisma.paymentAttempt.deleteMany({ where: { payment: { companyId } } });
+  await prisma.paymentProviderOrder.deleteMany({ where: { payment: { companyId } } });
   await prisma.$executeRawUnsafe('ALTER TABLE "SubscriptionRenewal" DISABLE TRIGGER "SubscriptionRenewal_immutability"');
   try { await prisma.subscriptionRenewal.deleteMany({ where: { companyId } }); }
   finally { await prisma.$executeRawUnsafe('ALTER TABLE "SubscriptionRenewal" ENABLE TRIGGER "SubscriptionRenewal_immutability"'); }

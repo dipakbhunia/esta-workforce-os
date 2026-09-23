@@ -37,7 +37,7 @@ function harness(options: Record<string, any> = {}) {
     safeBlockMessage: null, payment };
   const audits: any[] = []; const events: string[] = []; const generated: string[] = [];
   const tx: any = {
-    $queryRaw: async () => [{ id: 'locked' }],
+    $queryRaw: async (query: any) => { const sql = Array.isArray(query?.strings) ? query.strings.join('?') : String(query); for (const table of ['CompanySubscription', 'Payment', 'SubscriptionRenewal']) if (sql.includes(`FROM "${table}"`)) events.push(`lock:${table}`); return [{ id: 'locked' }]; },
     subscriptionRenewal: {
       findUnique: async () => renewal,
       findMany: async () => options.laterRenewals ?? [],
@@ -75,6 +75,7 @@ describe('SubscriptionRenewalApplicationService', () => {
     assert.deepEqual(h.audits.map(audit => audit.action), [SUBSCRIPTION_RENEWAL_APPLIED]);
     assert.ok(h.events.indexOf('transaction:commit') < h.events.indexOf('invoice:generate'));
     assert.deepEqual(h.generated, [ids.payment]);
+    assert.deepEqual(h.events.filter(event => event.startsWith('lock:')), ['lock:CompanySubscription', 'lock:Payment', 'lock:SubscriptionRenewal']);
   });
 
   it('returns APPLIED replay idempotently without another period mutation, attempt, or audit', async () => {

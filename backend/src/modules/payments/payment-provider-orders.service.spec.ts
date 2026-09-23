@@ -42,7 +42,7 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
   let createResult = options.createResult;
   let historicalResolutionCalls = 0;
   let historicalFailureAtCall: number | null = null;
-  let lockQueries = 0;
+  const lockOrder: string[] = [];
   const configuration = { id: configurationId, provider: payment.provider, mode: payment.providerMode, enabled: options.enabled ?? true };
   const credentialsById = new Map([
     ['credential-v1', { providerConfigurationId: configurationId, provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST, credentialVersionId: 'credential-v1', credentialVersion: 1, material: { keyId: 'rzp_test_v1', keySecret: 'secret-v1', webhookSecret: 'webhook-v1' } }],
@@ -66,9 +66,12 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
     create: async ({ data }: any) => { const value = { id: `order-record-${orders.length + 1}`, createdAt: new Date(), updatedAt: new Date(), usableUntil: null, closedAt: null, ...data }; orders.push(value); return value; },
   };
   const tx = {
-    $queryRaw: async () => {
-      lockQueries += 1;
-      if (lockQueries === 2 && options.transitionOnLock && payment.renewal) payment.renewal.status = options.transitionOnLock;
+    $queryRaw: async (query: any) => {
+      const sql = Array.isArray(query?.strings) ? query.strings.join('?') : String(query);
+      for (const table of ['Company', 'CompanySubscription', 'Payment', 'SubscriptionRenewal']) {
+        if (sql.includes(`FROM "${table}"`)) lockOrder.push(table);
+      }
+      if (sql.includes('FROM "SubscriptionRenewal"') && options.transitionOnLock && payment.renewal) payment.renewal.status = options.transitionOnLock;
       return [{ id: paymentId }];
     }, payment: { findUnique: async () => payment }, paymentAttempt, paymentProviderOrder,
     billingProviderConfiguration: { findUnique: async () => configuration },
@@ -106,7 +109,7 @@ function harness(options: { payment?: typeof basePayment; enabled?: boolean; mis
   };
   const service = new PaymentProviderOrdersService(prisma as never, credentials as never, { resolve: () => adapter } as never);
   return {
-    service, payment, attempts, orders, audits, resolutions, providerCalls: () => providerCalls,
+    service, payment, attempts, orders, audits, resolutions, lockOrder, providerCalls: () => providerCalls,
     rotate: () => { currentVersion = 2; },
     setCreateResult: (value: typeof rawOrder | Error) => { createResult = value; },
     failNextHistoricalResolution: () => { historicalFailureAtCall = historicalResolutionCalls + 1; },
@@ -123,6 +126,7 @@ describe('PaymentProviderOrdersService E1.4', () => {
     assert.equal(result.amountMinor, '49500');
     assert.equal(h.providerCalls(), 1);
     assert.equal(h.payment.purpose, PaymentPurpose.SUBSCRIPTION_RENEWAL);
+    assert.match(h.lockOrder.join('>'), /Company>CompanySubscription>Payment>SubscriptionRenewal/);
   });
 
   it('retries a definitely failed renewal order with a new attempt and the same Payment', async () => {

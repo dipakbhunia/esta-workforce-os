@@ -68,8 +68,18 @@ export class PaymentProviderOrdersService {
 
   private async reserve(paymentId: string, effective: EffectiveProviderCredential, actor: AuthenticatedUser | null): Promise<ReservedOperation> {
     return this.prisma.$transaction(async (tx) => {
+      const identity = await tx.payment.findUnique({ where: { id: paymentId }, select: {
+        companyId: true, subscriptionId: true, purpose: true,
+      } });
+      if (!identity) throw new NotFoundException('Payment not found');
+      if (identity.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Company" WHERE "id" = ${identity.companyId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "CompanySubscription" WHERE "id" = ${identity.subscriptionId}::uuid FOR UPDATE`);
+      }
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "paymentId" = ${paymentId}::uuid FOR UPDATE`);
+      if (identity.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "paymentId" = ${paymentId}::uuid FOR UPDATE`);
+      }
       const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: {
         subscription: { select: { status: true } },
         renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
@@ -162,7 +172,7 @@ export class PaymentProviderOrdersService {
         renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
       } });
       if (!durablePayment) throw new NotFoundException('Payment not found');
-      this.assertEligiblePayment(durablePayment, true);
+      this.assertEligiblePayment(durablePayment, true, true);
       const durableAttempt = await tx.paymentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
       this.assertAttemptCompatible(durablePayment, durableAttempt);
       const existing = await tx.paymentProviderOrder.findFirst({ where: { paymentId: payment.id, status: { in: CURRENT_ORDER_STATUSES } } });
@@ -247,8 +257,18 @@ export class PaymentProviderOrdersService {
   private requestReference(paymentId: string): string { return `order-create:${this.receipt(paymentId)}`; }
   private async lockAndRevalidate(paymentId: string, actor: AuthenticatedUser | null): Promise<PaymentWithSubscription> {
     return this.prisma.$transaction(async tx => {
+      const identity = await tx.payment.findUnique({ where: { id: paymentId }, select: {
+        companyId: true, subscriptionId: true, purpose: true,
+      } });
+      if (!identity) throw new NotFoundException('Payment not found');
+      if (identity.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Company" WHERE "id" = ${identity.companyId}::uuid FOR UPDATE`);
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "CompanySubscription" WHERE "id" = ${identity.subscriptionId}::uuid FOR UPDATE`);
+      }
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "paymentId" = ${paymentId}::uuid FOR UPDATE`);
+      if (identity.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL) {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "paymentId" = ${paymentId}::uuid FOR UPDATE`);
+      }
       const payment = await tx.payment.findUnique({ where: { id: paymentId }, include: {
         subscription: { select: { status: true } },
         renewal: { select: { paymentId: true, companyId: true, subscriptionId: true, status: true } },
@@ -259,11 +279,12 @@ export class PaymentProviderOrdersService {
       return payment;
     });
   }
-  private assertEligiblePayment(payment: PaymentWithSubscription, requirePreparedRenewal: boolean): void {
+  private assertEligiblePayment(payment: PaymentWithSubscription, requirePreparedRenewal: boolean, allowExpiredRenewal = false): void {
     const eligibleSubscription = payment.purpose === PaymentPurpose.SUBSCRIPTION_ACTIVATION
       ? payment.subscription.status === SubscriptionStatus.PENDING
       : payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL
-        ? payment.subscription.status === SubscriptionStatus.ACTIVE
+        ? payment.subscription.status === SubscriptionStatus.ACTIVE ||
+          allowExpiredRenewal && payment.subscription.status === SubscriptionStatus.EXPIRED
         : false;
     if (payment.status !== PaymentStatus.PENDING || !eligibleSubscription) throw new BadRequestException('Payment or subscription is not eligible for provider order creation');
     if (payment.purpose === PaymentPurpose.SUBSCRIPTION_RENEWAL && requirePreparedRenewal &&

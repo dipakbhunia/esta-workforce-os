@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { BillingInterval, CompanySubscription, Plan, PlanBillingModel, PlanStatus, Prisma, SubscriptionActivationSource, SubscriptionStatus } from '@prisma/client';
+import { BillingInterval, CompanySubscription, PaymentAttemptOperation, PaymentAttemptStatus, Plan, PlanBillingModel, PlanStatus, Prisma, SubscriptionActivationSource, SubscriptionRenewalStatus, SubscriptionStatus } from '@prisma/client';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import { paginatedResult, paginationArgs } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
@@ -132,6 +132,7 @@ export class SubscriptionsService {
       await this.seatUsage.lockCompany(tx, source.companyId);
       const locked = await tx.companySubscription.findUnique({ where: { id } });
       if (!locked || locked.status !== source.status) throw new ConflictException('Subscription changed while the amendment was being prepared');
+      await this.assertNoUnresolvedRenewalDispatch(tx, id);
       if (isSubscriptionPeriodDue(locked, effectiveAt)) throw new BadRequestException('An elapsed subscription cannot be amended');
       await this.assertNoEffectiveTrial(tx, source.companyId);
       await this.assertNoLive(tx, source.companyId, source.id);
@@ -225,6 +226,7 @@ export class SubscriptionsService {
       const current = await tx.companySubscription.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Subscription not found');
       if (current.status !== from) throw new BadRequestException(`Cannot transition subscription from ${current.status} to ${to}`);
+      if (to === SubscriptionStatus.SUSPENDED) await this.assertNoUnresolvedRenewalDispatch(tx, id);
       const now = new Date();
       if ((to === SubscriptionStatus.ACTIVE || to === SubscriptionStatus.SUSPENDED) && isSubscriptionPeriodDue(current, now)) {
         throw new BadRequestException('An elapsed subscription cannot remain commercially live');
@@ -244,6 +246,7 @@ export class SubscriptionsService {
       const current = await tx.companySubscription.findUnique({ where: { id } });
       if (!current) throw new NotFoundException('Subscription not found');
       if (current.status !== SubscriptionStatus.PENDING && current.status !== SubscriptionStatus.ACTIVE && current.status !== SubscriptionStatus.SUSPENDED) throw new BadRequestException(`Cannot cancel a ${current.status} subscription`);
+      await this.assertNoUnresolvedRenewalDispatch(tx, id);
       const now = new Date();
       const updated = await tx.companySubscription.update({
         where: { id },
@@ -255,6 +258,17 @@ export class SubscriptionsService {
     });
   }
   private async assertNoLive(tx: Prisma.TransactionClient, companyId: string, excludeId?: string) { const live = await tx.companySubscription.findFirst({ where: { companyId, ...(excludeId ? { id: { not: excludeId } } : {}), status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.SUSPENDED] } } }); if (live) throw new ConflictException('Company already has an active or suspended subscription'); }
+  private async assertNoUnresolvedRenewalDispatch(tx: Prisma.TransactionClient, subscriptionId: string) {
+    const unresolved = await tx.subscriptionRenewal.findFirst({
+      where: {
+        subscriptionId,
+        status: SubscriptionRenewalStatus.PREPARED,
+        payment: { attempts: { some: { operation: PaymentAttemptOperation.ORDER_CREATE, status: { in: [PaymentAttemptStatus.PENDING, PaymentAttemptStatus.UNKNOWN] } } } },
+      },
+      select: { id: true },
+    });
+    if (unresolved) throw new ConflictException('Subscription renewal provider dispatch is still unresolved');
+  }
   private async assertNoEffectiveTrial(tx: Prisma.TransactionClient, companyId: string) { const now = new Date(); const trial = await tx.companyTrial.findFirst({ where: { companyId, status: 'ACTIVE', startsAt: { lte: now }, endsAt: { gt: now } } }); if (trial) throw new ConflictException('Company already has an effective active Trial'); }
   private resolvePricing(plan: PlanWithRecurringPrices, billingInterval: BillingInterval, seatQuantity: number, complimentary: boolean) { try { return resolveRecurringPricing({ billingModel: plan.billingModel, billingInterval, seatQuantity, planCurrency: plan.currency, recurringPrices: plan.recurringPrices, complimentary }); } catch (error) { if (error instanceof CommercialPricingError || error instanceof Error && error.name === 'PaymentMoneyError') throw new BadRequestException(error.message); throw error; } }
   private legacyInteger(value: bigint | null): number | null { if (value === null || value > 2_147_483_647n) return null; return Number(value); }

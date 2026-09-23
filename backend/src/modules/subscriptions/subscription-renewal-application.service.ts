@@ -39,7 +39,7 @@ export class SubscriptionRenewalApplicationService {
 
   async apply(paymentId: string): Promise<RenewalApplicationResult> {
     const identity = await this.prisma.payment.findUnique({
-      where: { id: paymentId }, select: { companyId: true, renewal: { select: { id: true } } },
+      where: { id: paymentId }, select: { companyId: true, subscriptionId: true, renewal: { select: { id: true } } },
     });
     if (!identity?.renewal) {
       return { outcome: 'BLOCKED', renewalId: '', subscriptionId: '', code: 'OWNERSHIP_MISMATCH' };
@@ -47,8 +47,9 @@ export class SubscriptionRenewalApplicationService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       await this.seats.lockCompany(tx, identity.companyId);
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "id" = ${identity.renewal!.id}::uuid FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "CompanySubscription" WHERE "id" = ${identity.subscriptionId}::uuid FOR UPDATE`);
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Payment" WHERE "id" = ${paymentId}::uuid FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SubscriptionRenewal" WHERE "id" = ${identity.renewal!.id}::uuid FOR UPDATE`);
       const renewal = await tx.subscriptionRenewal.findUnique({
         where: { id: identity.renewal!.id },
         include: { payment: { include: { taxSnapshot: { include: { components: true } } } } },
@@ -56,7 +57,6 @@ export class SubscriptionRenewalApplicationService {
       if (!renewal || renewal.paymentId !== paymentId || renewal.companyId !== identity.companyId) {
         return { outcome: 'BLOCKED' as const, renewalId: identity.renewal!.id, subscriptionId: '', code: 'OWNERSHIP_MISMATCH' as const };
       }
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "CompanySubscription" WHERE "id" = ${renewal.subscriptionId}::uuid FOR UPDATE`);
       const subscription = await tx.companySubscription.findUnique({ where: { id: renewal.subscriptionId } });
       if (!subscription || subscription.companyId !== renewal.companyId || renewal.payment.subscriptionId !== renewal.subscriptionId ||
           renewal.payment.companyId !== renewal.companyId) {
