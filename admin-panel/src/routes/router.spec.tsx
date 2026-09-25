@@ -46,6 +46,7 @@ const tenantDeniedPlatformPaths = [
   '/billing/payments',
   '/billing/invoices',
   '/billing/gst-invoices',
+  '/billing/renewals',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -135,6 +136,14 @@ describe('application router direct-entry isolation', () => {
     expect(await screen.findByRole('heading', { name: 'GST Invoices' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'GST Transactions' })).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('routes Renewals to the functional Super Admin register', async () => {
+    await router.navigate('/billing/renewals');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Renewals' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
     view.unmount();
   });
 
