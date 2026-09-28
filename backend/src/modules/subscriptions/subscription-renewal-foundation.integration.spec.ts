@@ -20,6 +20,7 @@ describeDb('Renewal-C PostgreSQL data foundation', () => {
     const companyIds: string[] = [];
     let planId: string | undefined;
     let providerId: string | undefined;
+    let providerSnapshot: Awaited<ReturnType<typeof ensureProvider>>['configuration'] | undefined;
 
     try {
       const company = await prisma.company.create({ data: { name: 'Renewal-C A', slug: `renewal-c-a-${suffix}` } });
@@ -29,10 +30,10 @@ describeDb('Renewal-C PostgreSQL data foundation', () => {
       planId = plan.id;
       const subscription = await prisma.companySubscription.create({ data: subscriptionData(company.id, plan.id) });
       const otherSubscription = await prisma.companySubscription.create({ data: subscriptionData(otherCompany.id, plan.id) });
-      const provider = await prisma.billingProviderConfiguration.create({
-        data: { provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST },
-      });
-      providerId = provider.id;
+      const providerFixture = await ensureProvider();
+      const provider = providerFixture.configuration;
+      providerId = providerFixture.created ? provider.id : undefined;
+      providerSnapshot = providerFixture.created ? undefined : provider;
       const cycleStart = new Date('2030-01-31T12:34:56.789Z');
       const cycleEnd = new Date('2030-02-28T12:34:56.789Z');
       const paymentFirstId = randomUUID();
@@ -115,6 +116,9 @@ describeDb('Renewal-C PostgreSQL data foundation', () => {
 
     assert.equal(await prisma.subscriptionRenewal.count({ where: { companyId: { in: companyIds } } }), 0);
     assert.ok((await renewalTriggers()).every(trigger => trigger.enabled === 'O'));
+    if (providerSnapshot) {
+      assert.deepEqual(await prisma.billingProviderConfiguration.findUnique({ where: { id: providerSnapshot.id } }), providerSnapshot);
+    }
   });
 
   async function createCycle(companyId: string, subscriptionId: string, providerConfigurationId: string, cycleStart: Date, cycleEnd: Date, override: Record<string, unknown> = {}) {
@@ -125,6 +129,21 @@ describeDb('Renewal-C PostgreSQL data foundation', () => {
     });
   }
 });
+
+async function ensureProvider() {
+  const where = { provider_mode: { provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST } } as const;
+  const existing = await prisma.billingProviderConfiguration.findUnique({ where });
+  if (existing) return { configuration: existing, created: false };
+  try {
+    return { configuration: await prisma.billingProviderConfiguration.create({
+      data: { provider: PaymentProviderType.RAZORPAY, mode: PaymentProviderMode.TEST },
+    }), created: true };
+  } catch (error) {
+    const concurrentlyCreated = await prisma.billingProviderConfiguration.findUnique({ where });
+    if (concurrentlyCreated) return { configuration: concurrentlyCreated, created: false };
+    throw error;
+  }
+}
 
 async function cleanupFixtures(companyIds: string[], planId?: string, providerId?: string) {
   if (companyIds.length > 0) {
