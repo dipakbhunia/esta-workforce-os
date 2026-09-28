@@ -1,11 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformRenewalDetails } from '../platform-renewals.types';
 
-const { get } = vi.hoisted(() => ({ get: vi.fn() }));
-vi.mock('../platform-renewals-api', async (original) => ({ ...(await original<typeof import('../platform-renewals-api')>()), getPlatformRenewal: get }));
+const { get, recover } = vi.hoisted(() => ({ get: vi.fn(), recover: vi.fn() }));
+vi.mock('../platform-renewals-api', async (original) => ({ ...(await original<typeof import('../platform-renewals-api')>()), getPlatformRenewal: get, recoverPlatformRenewal: recover }));
 import PlatformRenewalDetailsPage from './PlatformRenewalDetailsPage';
 
 const renewalId = '11111111-1111-4111-8111-111111111111';
@@ -20,7 +20,7 @@ const renewal: PlatformRenewalDetails = {
 };
 
 describe('PlatformRenewalDetailsPage', () => {
-  beforeEach(() => { get.mockReset(); });
+  beforeEach(() => { get.mockReset(); recover.mockReset(); });
 
   it('renders persisted Renewal, Payment, tax, provider-order, Invoice, and audit evidence', async () => {
     get.mockResolvedValue({ data: renewal }); renderPage();
@@ -56,11 +56,39 @@ describe('PlatformRenewalDetailsPage', () => {
     expect(await screen.findByText("We couldn't refresh the Renewal details. Showing the most recent available evidence.")).toBeInTheDocument(); expect(screen.getByText(renewal.invoice!.invoiceNumber)).toBeInTheDocument(); expect(screen.queryByText('RAW REFRESH SECRET')).not.toBeInTheDocument();
   });
 
-  it('does not render invented internal evidence or mutation actions', async () => {
+  it('does not render invented internal evidence or forbidden mutation actions', async () => {
     get.mockResolvedValue({ data: { ...renewal, providerPayload: 'RAW PROVIDER SECRET', credentialId: 'CREDENTIAL SECRET', attemptHistory: ['INTERNAL'] } }); renderPage(); await screen.findByText(renewal.id);
     for (const hidden of ['RAW PROVIDER SECRET', 'CREDENTIAL SECRET', 'INTERNAL']) expect(screen.queryByText(hidden)).not.toBeInTheDocument();
-    for (const action of ['Prepare Renewal', 'Recover', 'Reconcile', 'Capture Payment', 'Generate Invoice']) expect(screen.queryByRole('button', { name: action })).not.toBeInTheDocument();
+    for (const action of ['Prepare Renewal', 'Recover Renewal', 'Reconcile', 'Capture Payment', 'Generate Invoice']) expect(screen.queryByRole('button', { name: action })).not.toBeInTheDocument();
+  });
+
+  it('offers confirmed recovery only for PREPARED and refreshes details and lists after APPLIED', async () => {
+    get.mockResolvedValue({ data: { ...renewal, status: 'PREPARED', blockedAt: null, blockCode: null, safeBlockMessage: null } }); recover.mockResolvedValue({ data: { outcome: 'APPLIED', renewalId, subscriptionId: renewal.subscription.id, recoveredAfterExpiration: false } }); const { client } = renderPage(); const invalidate = vi.spyOn(client, 'invalidateQueries');
+    fireEvent.click(await screen.findByRole('button', { name: 'Recover Renewal' })); const dialog = screen.getByRole('dialog'); expect(dialog).toHaveTextContent('does not capture a Payment'); expect(dialog).toHaveAttribute('aria-describedby', 'recover-renewal-description'); expect(document.getElementById('recover-renewal-description')).toHaveTextContent('apply the captured Renewal Payment'); fireEvent.click(screen.getByRole('button', { name: 'Recover Renewal' }));
+    await waitFor(() => expect(recover).toHaveBeenCalledWith(renewalId)); expect(await screen.findByText('Renewal applied successfully.')).toBeInTheDocument();
+    for (const key of [['platform-renewals', 'details', renewalId], ['platform-renewals', 'list'], ['subscription', renewal.subscription.id], ['subscriptions'], ['platform-invoices', 'list'], ['platform-dashboard']]) expect(invalidate).toHaveBeenCalledWith({ queryKey: key });
+  });
+
+  it('prevents duplicate recovery while the confirmed request is pending', async () => {
+    let resolve!: (value: unknown) => void; get.mockResolvedValue({ data: { ...renewal, status: 'PREPARED', blockedAt: null } }); recover.mockImplementation(() => new Promise(done => { resolve = done; })); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Recover Renewal' })); fireEvent.click(screen.getByRole('button', { name: 'Recover Renewal' })); expect(await screen.findByRole('button', { name: 'Working...' })).toBeDisabled(); fireEvent.click(screen.getByRole('button', { name: 'Working...' })); expect(recover).toHaveBeenCalledTimes(1); expect(screen.getByText(renewal.invoice!.invoiceNumber)).toBeInTheDocument(); resolve({ data: { outcome: 'APPLIED', renewalId, subscriptionId: renewal.subscription.id, recoveredAfterExpiration: false } });
+  });
+
+  it('treats ALREADY_APPLIED as successful reconciliation and invalidates authoritative surfaces', async () => {
+    get.mockResolvedValue({ data: { ...renewal, status: 'PREPARED', blockedAt: null } }); recover.mockResolvedValue({ data: { outcome: 'ALREADY_APPLIED', renewalId, subscriptionId: renewal.subscription.id, recoveredAfterExpiration: false } }); const { client } = renderPage(); const invalidate = vi.spyOn(client, 'invalidateQueries'); fireEvent.click(await screen.findByRole('button', { name: 'Recover Renewal' })); fireEvent.click(screen.getByRole('button', { name: 'Recover Renewal' })); expect(await screen.findByText(/already applied/i)).toBeInTheDocument(); expect(screen.queryByText(/failed|duplicate/i)).not.toBeInTheDocument(); await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['platform-invoices', 'list'] })); expect(invalidate).toHaveBeenCalledWith({ queryKey: ['platform-dashboard'] });
+  });
+
+  it('maps PAYMENT_NOT_CAPTURED without exposing raw server details', async () => {
+    get.mockResolvedValue({ data: { ...renewal, status: 'PREPARED', blockedAt: null } }); recover.mockRejectedValue({ isAxiosError: true, response: { status: 409, data: { code: 'PAYMENT_NOT_CAPTURED', message: 'RAW SECRET' } } }); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Recover Renewal' })); fireEvent.click(screen.getByRole('button', { name: 'Recover Renewal' })); expect(await screen.findByText(/Payment is not captured yet/i)).toBeInTheDocument(); expect(screen.queryByText('RAW SECRET')).not.toBeInTheDocument();
+  });
+
+  it('sanitizes a backend block conflict and keeps current details usable', async () => {
+    get.mockResolvedValue({ data: { ...renewal, status: 'PREPARED', blockedAt: null } }); recover.mockRejectedValue(axiosError(409, { code: 'INCOMPATIBLE_SUBSCRIPTION_STATE', message: 'RAW PROVIDER DETAIL' })); renderPage(); fireEvent.click(await screen.findByRole('button', { name: 'Recover Renewal' })); fireEvent.click(screen.getByRole('button', { name: 'Recover Renewal' })); expect(await screen.findByText(/blocked by the current durable state/i)).toBeInTheDocument(); expect(screen.queryByText(/RAW PROVIDER DETAIL/i)).not.toBeInTheDocument(); expect(screen.getByText(renewal.invoice!.invoiceNumber)).toBeInTheDocument(); expect(recover).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps current details usable on network failure without success invalidation', async () => {
+    get.mockResolvedValue({ data: { ...renewal, status: 'PREPARED', blockedAt: null } }); recover.mockRejectedValue(axiosError(undefined, undefined)); const { client } = renderPage(); const invalidate = vi.spyOn(client, 'invalidateQueries'); fireEvent.click(await screen.findByRole('button', { name: 'Recover Renewal' })); fireEvent.click(screen.getByRole('button', { name: 'Recover Renewal' })); expect(await screen.findByText(/Check connectivity and refresh/i)).toBeInTheDocument(); expect(screen.getByText(renewal.invoice!.invoiceNumber)).toBeInTheDocument(); expect(screen.getAllByText('PREPARED').length).toBeGreaterThan(0); expect(invalidate).not.toHaveBeenCalled();
   });
 });
 
-function renderPage() { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/billing/renewals/${renewalId}`]}><Routes><Route path="/billing/renewals/:renewalId" element={<><PlatformRenewalDetailsPage /><button onClick={() => void client.refetchQueries({ queryKey: ['platform-renewals', 'details', renewalId] })}>Refresh query</button></>} /></Routes></MemoryRouter></QueryClientProvider>); }
+function renderPage() { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); const view = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/billing/renewals/${renewalId}`]}><Routes><Route path="/billing/renewals/:renewalId" element={<><PlatformRenewalDetailsPage /><button onClick={() => void client.refetchQueries({ queryKey: ['platform-renewals', 'details', renewalId] })}>Refresh query</button></>} /></Routes></MemoryRouter></QueryClientProvider>); return { ...view, client }; }
+function axiosError(status: number | undefined, data: object | undefined) { return Object.assign(new Error('request failed'), { isAxiosError: true, response: status === undefined ? undefined : { status, data } }); }

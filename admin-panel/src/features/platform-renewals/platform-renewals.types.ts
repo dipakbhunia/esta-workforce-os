@@ -18,6 +18,8 @@ export interface PlatformRenewal {
   blockCode: string | null; safeBlockMessage: string | null; createdAt: string; updatedAt: string;
 }
 export interface PlatformRenewalListResponse { data: PlatformRenewal[]; meta: { page: number; limit: number; total: number; totalPages: number } }
+export interface PreparePlatformRenewalResult { renewalId: string; paymentId: string; subscriptionId: string; cycleStart: string; cycleEnd: string; created: boolean }
+export type RecoverPlatformRenewalResult = { outcome: 'APPLIED' | 'ALREADY_APPLIED'; renewalId: string; subscriptionId: string; recoveredAfterExpiration: boolean };
 export type RenewalTaxTreatment = 'NON_TAXABLE' | 'TAXABLE';
 export type RenewalTaxClassification = 'INTRA_STATE' | 'INTER_STATE';
 export type RenewalTaxComponentType = 'CGST' | 'SGST' | 'IGST';

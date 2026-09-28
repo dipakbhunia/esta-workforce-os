@@ -1,5 +1,5 @@
 import { http } from '@/services/http';
-import type { PlatformRenewalDetails, PlatformRenewalListQuery, PlatformRenewalListResponse } from './platform-renewals.types';
+import type { PlatformRenewalDetails, PlatformRenewalListQuery, PlatformRenewalListResponse, PreparePlatformRenewalResult, RecoverPlatformRenewalResult } from './platform-renewals.types';
 
 const LIST_PARAMETERS = ['page', 'limit', 'companyId', 'subscriptionId', 'paymentId', 'status', 'billingInterval', 'from', 'to'] as const;
 export const platformRenewalKeys = { all: ['platform-renewals'] as const, list: (query: PlatformRenewalListQuery) => [...platformRenewalKeys.all, 'list', query] as const, details: (renewalId: string) => [...platformRenewalKeys.all, 'details', renewalId] as const };
@@ -8,3 +8,5 @@ export function listPlatformRenewals(query: PlatformRenewalListQuery) {
   return http.get<PlatformRenewalListResponse>('/platform/renewals', { params });
 }
 export const getPlatformRenewal = (renewalId: string) => http.get<PlatformRenewalDetails>(`/platform/renewals/${encodeURIComponent(renewalId)}`);
+export const preparePlatformRenewal = (subscriptionId: string) => http.post<PreparePlatformRenewalResult>(`/platform/renewals/subscriptions/${encodeURIComponent(subscriptionId)}/prepare`);
+export const recoverPlatformRenewal = (renewalId: string) => http.post<RecoverPlatformRenewalResult>(`/platform/renewals/${encodeURIComponent(renewalId)}/recover`);

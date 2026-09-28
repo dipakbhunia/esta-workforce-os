@@ -1,30 +1,52 @@
 import { Alert, Box, Button, Divider, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useState, type ReactNode } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { PageHeader } from '@/components/page-header';
 import { PageLayout } from '@/components/page-layout';
 import { SectionCard } from '@/components/section-card';
 import { StatusChip, type StatusTone } from '@/components/status-chip';
-import { getPlatformRenewal, platformRenewalKeys } from '../platform-renewals-api';
+import { getPlatformRenewal, platformRenewalKeys, recoverPlatformRenewal } from '../platform-renewals-api';
 import { formatPlatformRenewalAmount, formatPlatformRenewalDate } from '../platform-renewals-format';
 import type { PlatformRenewalDetails, RenewalPaymentStatus, RenewalStatus } from '../platform-renewals.types';
 
 export default function PlatformRenewalDetailsPage() {
   const { renewalId = '' } = useParams();
+  const location = useLocation();
+  const client = useQueryClient();
+  const [confirm, setConfirm] = useState(false);
+  const [success, setSuccess] = useState((location.state as { success?: string } | null)?.success ?? '');
   const query = useQuery({ queryKey: platformRenewalKeys.details(renewalId), queryFn: () => getPlatformRenewal(renewalId), enabled: Boolean(renewalId), placeholderData: (previous) => previous });
   const renewal = query.data?.data;
+  const recovery = useMutation({ mutationFn: () => recoverPlatformRenewal(renewalId), onSuccess: async ({ data }) => {
+    setConfirm(false); setSuccess(data.outcome === 'ALREADY_APPLIED' ? 'Renewal was already applied. Current evidence has been refreshed.' : 'Renewal applied successfully.');
+    await Promise.all([
+      client.invalidateQueries({ queryKey: platformRenewalKeys.details(renewalId) }),
+      client.invalidateQueries({ queryKey: [...platformRenewalKeys.all, 'list'] }),
+      client.invalidateQueries({ queryKey: ['subscription', data.subscriptionId] }),
+      client.invalidateQueries({ queryKey: ['subscriptions'] }),
+      client.invalidateQueries({ queryKey: ['platform-invoices', 'list'] }),
+      client.invalidateQueries({ queryKey: ['platform-dashboard'] }),
+    ]);
+  } });
   return <PageLayout>
     <PageHeader title="Renewal Details" description="Read-only persisted Renewal, Payment, tax, provider-order, and Invoice evidence." breadcrumbs={['Admin', 'Billing', { label: 'Renewals', to: '/billing/renewals' }, 'Details']} />
-    <Button component={Link} to="/billing/renewals" variant="outlined" sx={{ alignSelf: 'flex-start' }}>Back to Renewals</Button>
+    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', sm: 'center' }, gap: 1.5 }}>
+      <Button component={Link} to="/billing/renewals" variant="outlined" sx={{ width: { xs: '100%', sm: 'auto' } }}>Back to Renewals</Button>
+      {renewal?.status === 'PREPARED' ? <Button variant="contained" onClick={() => { recovery.reset(); setConfirm(true); }} sx={{ width: { xs: '100%', sm: 'auto' } }}>Recover Renewal</Button> : null}
+    </Box>
+    {success ? <Alert severity="success" onClose={() => setSuccess('')}>{success}</Alert> : null}
+    {recovery.isError ? <Alert severity="error">{recoveryError(recovery.error)}</Alert> : null}
     {!renewalId ? <Alert severity="warning">The Renewal reference is missing.</Alert> : null}
     {query.isLoading ? <><Box role="status" sx={hidden}>Loading Renewal details</Box><LoadingSkeleton rows={10} /></> : null}
     {query.isFetching && !query.isLoading ? <LinearProgress aria-label="Updating Renewal details" /> : null}
     {query.isRefetchError && renewal ? <Alert severity="warning" action={<Button color="inherit" onClick={() => void query.refetch()}>Retry</Button>}>We couldn't refresh the Renewal details. Showing the most recent available evidence.</Alert> : null}
     {query.isError && !renewal ? <DetailsError error={query.error} retry={() => void query.refetch()} /> : null}
     {renewal ? <Details renewal={renewal} /> : null}
+    <ConfirmDialog open={confirm} title="Recover Renewal?" description="This asks the backend to apply the captured Renewal Payment. It does not capture a Payment or create replacement commercial evidence." descriptionId="recover-renewal-description" confirmLabel="Recover Renewal" loading={recovery.isPending} onClose={() => { if (!recovery.isPending) setConfirm(false); }} onConfirm={() => recovery.mutate()} />
   </PageLayout>;
 }
 
@@ -44,6 +66,7 @@ function Details({ renewal }: { renewal: PlatformRenewalDetails }) {
 
 function TaxEvidence({ renewal }: { renewal: PlatformRenewalDetails }) { const tax = renewal.tax; return <SectionCard title="GST / Tax Evidence" description="Persisted historical tax evidence; no tax is recalculated.">{!tax ? <Empty>No persisted tax evidence available.</Empty> : <Stack gap={1.5}><Grid><Fact name="Treatment" value={label(tax.treatment)} /><Fact name="Jurisdiction" value={tax.jurisdictionClassification ? label(tax.jurisdictionClassification) : 'Not available'} /><Fact name="Service classification" value={available(tax.serviceClassification)} /><Fact name="Place of supply" value={[tax.placeOfSupplyState, tax.placeOfSupplyStateCode].filter(Boolean).join(' / ') || 'Not available'} /><Fact name="Taxable subtotal" value={formatPlatformRenewalAmount(tax.taxableSubtotalMinor, tax.currency)} /><Fact name="Total tax" value={formatPlatformRenewalAmount(tax.totalTaxMinor, tax.currency)} /><Fact name="Gross total" value={formatPlatformRenewalAmount(tax.grossTotalMinor, tax.currency)} /><TimeFact name="Decision time" value={tax.decisionAt} /></Grid>{tax.components.length ? <Stack divider={<Divider flexItem />} gap={1}>{tax.components.map((component) => <Grid key={component.type}><Fact name="Component" value={component.type} /><Fact name="Rate (basis points)" value={String(component.rateBasisPoints)} /><Fact name="Taxable amount" value={formatPlatformRenewalAmount(component.taxableAmountMinor, component.currency)} /><Fact name="Tax amount" value={formatPlatformRenewalAmount(component.taxAmountMinor, component.currency)} /></Grid>)}</Stack> : <Empty>No tax components available.</Empty>}</Stack>}</SectionCard>; }
 function DetailsError({ error, retry }: { error: unknown; retry: () => void }) { const status = axios.isAxiosError(error) ? error.response?.status : undefined; if (status === 404) return <Alert severity="warning">Renewal not found. <Button component={Link} color="inherit" to="/billing/renewals">Back to Renewals</Button></Alert>; if (status === 403) return <Alert severity="error">Access restricted. You do not have permission to view this Renewal.</Alert>; if (status === 400) return <Alert severity="warning">The Renewal reference is invalid. <Button component={Link} color="inherit" to="/billing/renewals">Back to Renewals</Button></Alert>; return <Alert severity="error" action={<Button color="inherit" onClick={retry}>Retry loading</Button>}>Renewal details could not be loaded. Check connectivity and try again.</Alert>; }
+function recoveryError(error: unknown) { if (axios.isAxiosError(error)) { const code = error.response?.data?.code; if (code === 'PAYMENT_NOT_CAPTURED') return 'The Renewal Payment is not captured yet. No Renewal period was applied.'; if (error.response?.status === 404) return 'The Renewal was not found. Return to the register and refresh.'; if (error.response?.status === 409) return 'Renewal recovery is blocked by the current durable state. Refresh the details before retrying.'; } return 'Renewal recovery failed. Check connectivity and refresh the current evidence.'; }
 function Grid({ children }: { children: ReactNode }) { return <Box sx={grid}>{children}</Box>; }
 function Fact({ name, value, exact = false }: { name: string; value: string; exact?: boolean }) { const content = <Typography variant="body2" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{value}</Typography>; return <Box minWidth={0}><Typography variant="caption" color="text.secondary">{name}</Typography>{exact ? <Tooltip title={value}>{content}</Tooltip> : content}</Box>; }
 function LinkFact({ name, text, to }: { name: string; text: string; to: string }) { return <Box minWidth={0}><Typography variant="caption" color="text.secondary">{name}</Typography><Typography component={Link} to={to} display="block" variant="body2" fontWeight={700} color="text.primary" sx={{ overflowWrap: 'anywhere' }}>{text}</Typography></Box>; }

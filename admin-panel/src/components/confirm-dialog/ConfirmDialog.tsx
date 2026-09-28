@@ -5,6 +5,7 @@ interface ConfirmDialogProps {
   open?: boolean;
   title?: string;
   description?: string;
+  descriptionId?: string;
   confirmLabel?: string;
   loading?: boolean;
   confirmDisabled?: boolean;
@@ -17,6 +18,7 @@ export function ConfirmDialog({
   open = false,
   title = 'Confirm action',
   description = 'This is a reusable confirmation placeholder.',
+  descriptionId,
   confirmLabel = 'Confirm',
   loading = false,
   confirmDisabled = false,
@@ -25,9 +27,9 @@ export function ConfirmDialog({
   onConfirm,
 }: ConfirmDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth aria-describedby={descriptionId}>
       <DialogTitle>{title}</DialogTitle>
-      <DialogContent><Typography color="text.secondary">{description}</Typography>{children}</DialogContent>
+      <DialogContent><Typography id={descriptionId} color="text.secondary">{description}</Typography>{children}</DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
         <Button color="error" variant="contained" onClick={onConfirm ?? onClose} disabled={loading || confirmDisabled}>{loading ? 'Working...' : confirmLabel}</Button>

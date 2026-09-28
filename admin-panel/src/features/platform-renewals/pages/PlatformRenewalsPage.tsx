@@ -2,16 +2,19 @@ import { Alert, Box, Button, LinearProgress } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/page-header';
 import { PageLayout } from '@/components/page-layout';
 import { PlatformRenewalFilters, type PlatformRenewalFilterDraft } from '../components/PlatformRenewalFilters';
 import { PlatformRenewalList } from '../components/PlatformRenewalList';
+import { PrepareRenewalDialog } from '../components/PrepareRenewalDialog';
 import { listPlatformRenewals, platformRenewalKeys } from '../platform-renewals-api';
 import type { PlatformRenewalListQuery } from '../platform-renewals.types';
 import { localDateTimeToRenewalIso, parsePlatformRenewalsUrl, renewalIsoToLocal, serializePlatformRenewalsUrl } from '../platform-renewals-url';
 
 export default function PlatformRenewalsPage() {
+  const navigate = useNavigate();
+  const [prepareOpen, setPrepareOpen] = useState(false);
   const [params, setParams] = useSearchParams();
   const parsed = useMemo(() => parsePlatformRenewalsUrl(params), [params]);
   const applied = parsed.query;
@@ -24,11 +27,13 @@ export default function PlatformRenewalsPage() {
   const reset = () => setParams(serializePlatformRenewalsUrl({ page: 1, limit: applied.limit }, params));
   const paginate = (page: number, limit: number) => setParams(serializePlatformRenewalsUrl({ ...applied, page: limit === applied.limit ? page : 1, limit }, params));
   return <PageLayout><PageHeader title="Renewals" description="Review authoritative subscription Renewal records and payment state." breadcrumbs={['Admin', 'Billing', 'Renewals']} />
+    <Box sx={{ display: 'flex', justifyContent: { xs: 'stretch', sm: 'flex-end' } }}><Button variant="contained" onClick={() => setPrepareOpen(true)} sx={{ width: { xs: '100%', sm: 'auto' } }}>Prepare Renewal</Button></Box>
     <PlatformRenewalFilters draft={draft} filtered={filtered} fetching={query.isFetching} summary={total ? `${total} Renewal${total === 1 ? '' : 's'}` : filtered ? 'No renewals match the applied filters.' : 'No Renewal records available.'} onChange={setDraft} onApply={apply} onClear={reset} onRefresh={() => void query.refetch()} />
     {query.isLoading ? <Box role="status" sx={hidden}>Loading renewals</Box> : null}
     {query.isFetching && !query.isLoading ? <LinearProgress aria-label="Updating Renewal register" /> : null}
     {query.isRefetchError && retained ? <Alert severity="warning" action={<Button color="inherit" onClick={() => void query.refetch()}>Retry</Button>}>We couldn't refresh the Renewal list. Showing the most recent available data.</Alert> : null}
     {query.isError && !retained ? <Alert severity="error" action={<Button onClick={() => void query.refetch()}>Retry</Button>}>{errorMessage(query.error)}</Alert> : <PlatformRenewalList rows={rows} total={total} page={applied.page} limit={applied.limit} loading={query.isLoading} filtered={filtered} onPaginationChange={paginate} />}
+    <PrepareRenewalDialog open={prepareOpen} onClose={() => setPrepareOpen(false)} onPrepared={(id, created) => navigate(`/billing/renewals/${id}`, { state: { success: created ? 'Renewal prepared.' : 'Existing prepared Renewal reused.' } })} />
   </PageLayout>;
 }
 function toDraft(q: PlatformRenewalListQuery): PlatformRenewalFilterDraft { return { companyId: q.companyId ?? '', subscriptionId: q.subscriptionId ?? '', paymentId: q.paymentId ?? '', status: q.status ?? '', billingInterval: q.billingInterval ?? '', from: q.from ? renewalIsoToLocal(q.from) : '', to: q.to ? renewalIsoToLocal(q.to) : '' }; }
