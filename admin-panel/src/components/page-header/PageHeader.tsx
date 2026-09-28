@@ -1,12 +1,12 @@
 import { Box, Button, Stack, Typography } from '@mui/material';
 import { Plus } from 'lucide-react';
 import { Link as RouterLink } from 'react-router-dom';
-import { AppBreadcrumb } from '@/components/breadcrumb';
+import { AppBreadcrumb, type AppBreadcrumbItem } from '@/components/breadcrumb';
 
 interface PageHeaderProps {
   title: string;
   description?: string;
-  breadcrumbs?: string[];
+  breadcrumbs?: AppBreadcrumbItem[];
   primaryActionLabel?: string;
   primaryActionTo?: string;
 }

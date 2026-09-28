@@ -47,6 +47,7 @@ const tenantDeniedPlatformPaths = [
   '/billing/invoices',
   '/billing/gst-invoices',
   '/billing/renewals',
+  '/billing/renewals/11111111-1111-4111-8111-111111111111',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -144,6 +145,17 @@ describe('application router direct-entry isolation', () => {
     const view = renderRouter();
     expect(await screen.findByRole('heading', { name: 'Renewals' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('routes read-only Renewal details with platform metadata', async () => {
+    expect(getRouteMeta('/billing/renewals/11111111-1111-4111-8111-111111111111')).toEqual({
+      title: 'Renewal Details', breadcrumbs: ['Billing', 'Renewals', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/renewals/:renewalId',
+    });
+    await router.navigate('/billing/renewals/11111111-1111-4111-8111-111111111111');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Renewal Details' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to Renewals' })).toHaveAttribute('href', '/billing/renewals');
     view.unmount();
   });
 

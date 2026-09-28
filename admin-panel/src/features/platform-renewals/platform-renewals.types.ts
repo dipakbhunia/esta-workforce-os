@@ -18,3 +18,12 @@ export interface PlatformRenewal {
   blockCode: string | null; safeBlockMessage: string | null; createdAt: string; updatedAt: string;
 }
 export interface PlatformRenewalListResponse { data: PlatformRenewal[]; meta: { page: number; limit: number; total: number; totalPages: number } }
+export type RenewalTaxTreatment = 'NON_TAXABLE' | 'TAXABLE';
+export type RenewalTaxClassification = 'INTRA_STATE' | 'INTER_STATE';
+export type RenewalTaxComponentType = 'CGST' | 'SGST' | 'IGST';
+export type RenewalProviderOrderStatus = 'CREATED' | 'PAID' | 'CLOSED';
+export interface PlatformRenewalDetails extends PlatformRenewal {
+  tax: null | { treatment: RenewalTaxTreatment; decisionAt: string; currency: string; taxableSubtotalMinor: string; totalTaxMinor: string; grossTotalMinor: string; jurisdictionClassification: RenewalTaxClassification | null; serviceClassification: string | null; placeOfSupplyState: string | null; placeOfSupplyStateCode: string | null; components: Array<{ type: RenewalTaxComponentType; rateBasisPoints: number; taxableAmountMinor: string; taxAmountMinor: string; currency: string }> };
+  providerOrder: null | { id: string; sequence: number; providerOrderId: string; status: RenewalProviderOrderStatus; providerStatus: string; createdAt: string; updatedAt: string };
+  invoice: null | { id: string; invoiceNumber: string; issuedAt: string; servicePeriodStart: string; servicePeriodEnd: string; currency: string; subtotalMinor: string; totalTaxMinor: string | null; totalMinor: string };
+}
