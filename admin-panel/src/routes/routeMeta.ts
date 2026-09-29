@@ -25,6 +25,7 @@ const explicitRoutePatterns: RoutePatternMeta[] = [
   { pattern: '/billing/payments/:id', title: 'Payment Details', breadcrumbs: ['Billing', 'Payments', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/payments/:id' },
   { pattern: '/billing/invoices/:invoiceId', title: 'Invoice Details', breadcrumbs: ['Billing', 'Invoices', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/invoices/:invoiceId' },
   { pattern: '/billing/renewals/:renewalId', title: 'Renewal Details', breadcrumbs: ['Billing', 'Renewals', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/renewals/:renewalId' },
+  { pattern: '/billing/dunning/:renewalId', title: 'Dunning Details', breadcrumbs: ['Billing', 'Dunning', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/dunning/:renewalId' },
   { pattern: '/billing/gst-invoices/transactions/:transactionId', title: 'GST Transaction Details', breadcrumbs: ['Billing', 'GST Invoices', 'Transaction Details'], moduleName: 'Billing', canonicalPath: '/billing/gst-invoices/transactions/:transactionId' },
   { pattern: '/billing/gst-invoices/policies/:policyId', title: 'GST Policy Details', breadcrumbs: ['Billing', 'GST Invoices', 'Policy Details'], moduleName: 'Billing', canonicalPath: '/billing/gst-invoices/policies/:policyId' },
   { pattern: '/organization/branches/create', title: 'Create Branch', breadcrumbs: ['Organization', 'Branches', 'Create'], moduleName: 'Organization', canonicalPath: '/organization/branches/create' },

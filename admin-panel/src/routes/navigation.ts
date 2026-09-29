@@ -80,6 +80,7 @@ export const navigation: NavGroup[] = [
       { label: 'Invoices', path: '/billing/invoices', icon: FileText, permission: 'settings:view', roles: superAdminRoles },
       { label: 'GST Invoices', path: '/billing/gst-invoices', icon: FileText, permission: 'settings:view', roles: superAdminRoles },
       { label: 'Renewals', path: '/billing/renewals', icon: TimerReset, permission: 'settings:view', roles: superAdminRoles },
+      { label: 'Dunning', path: '/billing/dunning', icon: AlertTriangle, permission: 'settings:view', roles: superAdminRoles },
       { label: 'Billing Settings', path: '/billing/settings', icon: Settings, permission: 'settings:view', roles: superAdminRoles },
     ],
   },

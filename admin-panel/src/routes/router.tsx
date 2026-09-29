@@ -45,6 +45,8 @@ const PlatformGstPage = lazy(() => import('@/features/platform-gst/pages/Platfor
 const PlatformGstDetailsPage = lazy(() => import('@/features/platform-gst/pages/PlatformGstDetailsPage'));
 const PlatformRenewalsPage = lazy(() => import('@/features/platform-renewals/pages/PlatformRenewalsPage'));
 const PlatformRenewalDetailsPage = lazy(() => import('@/features/platform-renewals/pages/PlatformRenewalDetailsPage'));
+const PlatformDunningPage = lazy(() => import('@/features/platform-dunning/pages/PlatformDunningPage'));
+const PlatformDunningDetailsPage = lazy(() => import('@/features/platform-dunning/pages/PlatformDunningDetailsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -302,6 +304,8 @@ export const router = createBrowserRouter([
           { path: 'billing/gst-invoices/policies/:policyId', element: protectedElement(<PlatformGstDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'billing/renewals', element: protectedElement(<PlatformRenewalsPage />, 'settings:view', superAdminRoles) },
           { path: 'billing/renewals/:renewalId', element: protectedElement(<PlatformRenewalDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/dunning', element: protectedElement(<PlatformDunningPage />, 'settings:view', superAdminRoles) },
+          { path: 'billing/dunning/:renewalId', element: protectedElement(<PlatformDunningDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

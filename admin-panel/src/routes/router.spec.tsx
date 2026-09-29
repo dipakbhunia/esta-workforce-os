@@ -48,6 +48,8 @@ const tenantDeniedPlatformPaths = [
   '/billing/gst-invoices',
   '/billing/renewals',
   '/billing/renewals/11111111-1111-4111-8111-111111111111',
+  '/billing/dunning',
+  '/billing/dunning/11111111-1111-4111-8111-111111111111',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -157,6 +159,23 @@ describe('application router direct-entry isolation', () => {
     expect(await screen.findByRole('heading', { name: 'Renewal Details' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back to Renewals' })).toHaveAttribute('href', '/billing/renewals');
     view.unmount();
+  });
+
+  it('routes Dunning to the open register and reserves details metadata', async () => {
+    await router.navigate('/billing/dunning');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Dunning' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    view.unmount();
+    expect(getRouteMeta('/billing/dunning/11111111-1111-4111-8111-111111111111')).toEqual({
+      title: 'Dunning Details', breadcrumbs: ['Billing', 'Dunning', 'Details'], moduleName: 'Billing', canonicalPath: '/billing/dunning/:renewalId',
+    });
+    await router.navigate('/billing/dunning/11111111-1111-4111-8111-111111111111');
+    const detailView = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Dunning Details' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Back to Dunning' })).toHaveAttribute('href', '/billing/dunning');
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    detailView.unmount();
   });
 
   it('does not introduce a /platform-payments frontend route', async () => {

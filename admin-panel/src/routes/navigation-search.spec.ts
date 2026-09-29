@@ -16,6 +16,7 @@ const functionalSuperAdminRoots = [
   '/billing/payments',
   '/billing/invoices',
   '/billing/renewals',
+  '/billing/dunning',
 ];
 
 const platformPlaceholders = [
@@ -49,8 +50,8 @@ const dynamicRoutes = [
 ];
 
 describe('navigation search indexing', () => {
-  it('keeps exactly 43 implemented stable navigation roots', () => {
-    expect(implementedNavPaths.size).toBe(44);
+  it('keeps exactly 45 implemented stable navigation roots', () => {
+    expect(implementedNavPaths.size).toBe(45);
   });
 
   it('classifies all functional Super Admin roots as implemented navigation destinations', () => {
