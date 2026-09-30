@@ -1,0 +1,26 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlatformUserFilterDraft } from '../components/PlatformUserFilters';
+
+const { listUsers, listRoles, filterProps, listProps } = vi.hoisted(() => ({ listUsers: vi.fn(), listRoles: vi.fn(), filterProps: { current: null as Record<string, unknown> | null }, listProps: { current: null as Record<string, unknown> | null } }));
+vi.mock('../platform-access-api', async (original) => ({ ...(await original<typeof import('../platform-access-api')>()), listPlatformUsers: listUsers, listPlatformRoles: listRoles }));
+vi.mock('../components/PlatformUserFilters', () => ({ PlatformUserFilters: (props: Record<string, unknown>) => { filterProps.current = props; return <div><button onClick={() => (props.onApply as () => void)()}>Apply mock</button><button onClick={() => (props.onReset as () => void)()}>Reset mock</button><button onClick={() => (props.onRefresh as () => void)()}>Refresh mock</button></div>; } }));
+vi.mock('../components/PlatformUserList', () => ({ PlatformUserList: (props: Record<string, unknown>) => { listProps.current = props; return props.loading ? <div>Loading users</div> : <div>Users: {(props.rows as Array<{ id: string }>).map((row) => row.id).join(', ')}</div>; } }));
+vi.mock('../components/CreatePlatformUserDialog', () => ({ CreatePlatformUserDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Create dialog</div> : null }));
+vi.mock('../components/PlatformUserDetailsDialog', () => ({ PlatformUserDetailsDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Details dialog</div> : null }));
+import PlatformUsersPage from './PlatformUsersPage';
+
+const empty = { data: { data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0 } } };
+describe('PlatformUsersPage', () => {
+  beforeEach(() => { listUsers.mockReset().mockResolvedValue(empty); listRoles.mockReset().mockResolvedValue(empty); filterProps.current = null; listProps.current = null; });
+  it('normalizes the URL and hydrates supported filters', async () => { renderPage('/?page=x&search=%20Alice%20&status=SUSPENDED&keep=yes'); await waitFor(() => expect(listUsers).toHaveBeenCalledWith({ page: 1, limit: 20, search: 'Alice', status: 'SUSPENDED' })); expect(screen.getByTestId('location')).toHaveTextContent('keep=yes'); expect(screen.getByTestId('location')).toHaveTextContent('page=1'); });
+  it('keeps drafts silent, then applies at page one', async () => { renderPage('/?page=3'); await waitFor(() => expect(listUsers).toHaveBeenCalledTimes(1)); act(() => (filterProps.current?.onChange as (draft: PlatformUserFilterDraft) => void)({ search: 'admin', status: 'ACTIVE' })); expect(listUsers).toHaveBeenCalledTimes(1); fireEvent.click(screen.getByText('Apply mock')); await waitFor(() => expect(listUsers).toHaveBeenLastCalledWith({ page: 1, limit: 20, search: 'admin', status: 'ACTIVE' })); });
+  it('resets filters, refreshes, and maps pagination', async () => { renderPage('/?page=2&status=ACTIVE'); await waitFor(() => expect(listProps.current).not.toBeNull()); fireEvent.click(screen.getByText('Reset mock')); await waitFor(() => expect(listUsers).toHaveBeenLastCalledWith({ page: 1, limit: 20 })); act(() => (listProps.current?.onPaginationChange as (page: number) => void)(2)); await waitFor(() => expect(listUsers).toHaveBeenLastCalledWith({ page: 2, limit: 20 })); const calls = listUsers.mock.calls.length; fireEvent.click(screen.getByText('Refresh mock')); await waitFor(() => expect(listUsers.mock.calls.length).toBeGreaterThan(calls)); });
+  it('retains rows and warns on background failure', async () => { let reject!: (reason: unknown) => void; listUsers.mockResolvedValueOnce({ data: { data: [{ id: 'user-1' }], meta: { page: 1, limit: 20, total: 1, totalPages: 1 } } }).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; })); renderPage(); expect(await screen.findByText('Users: user-1')).toBeInTheDocument(); fireEvent.click(screen.getByText('Refresh mock')); reject(new Error('secret')); expect(await screen.findByText(/Showing the most recent available data/)).toBeInTheDocument(); expect(screen.queryByText('secret')).not.toBeInTheDocument(); });
+  it('shows safe initial errors and opens create/manage dialogs', async () => { listUsers.mockRejectedValueOnce(new Error('secret')); renderPage(); expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument(); fireEvent.click(screen.getByText('Retry')); await waitFor(() => expect(listUsers).toHaveBeenCalledTimes(2)); fireEvent.click(screen.getByRole('button', { name: 'Create Platform User' })); expect(screen.getByRole('dialog')).toHaveTextContent('Create dialog'); });
+});
+
+function renderPage(initial = '/') { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[initial]}><PlatformUsersPage /><Location /></MemoryRouter></QueryClientProvider>); }
+function Location() { const location = useLocation(); return <span data-testid="location">{location.pathname}{location.search}</span>; }

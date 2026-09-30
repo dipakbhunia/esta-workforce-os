@@ -62,6 +62,7 @@ export const implementedNavPaths = new Set([
   '/billing/invoices',
   '/billing/renewals',
   '/billing/dunning',
+  '/platform/access/users',
   '/settings/users',
   '/settings/roles',
   '/settings/permissions',

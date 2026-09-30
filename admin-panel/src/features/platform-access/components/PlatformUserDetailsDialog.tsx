@@ -1,0 +1,48 @@
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { LoadingSkeleton } from '@/components/loading-skeleton';
+import { assignPlatformUserRole, deletePlatformUser, getPlatformUser, platformAccessKeys, removePlatformUserRole, updatePlatformUser, updatePlatformUserStatus } from '../platform-access-api';
+import type { PlatformRole, PlatformUserStatus } from '../platform-access.types';
+import { platformAccessError } from './platform-access-errors';
+
+interface Props { open: boolean; userId: string | null; roles: PlatformRole[]; onClose: () => void }
+type ConfirmAction = { kind: 'status'; status: PlatformUserStatus } | { kind: 'remove-role'; roleId: string; label: string } | { kind: 'delete' };
+
+export function PlatformUserDetailsDialog({ open, userId, roles, onClose }: Props) {
+  const client = useQueryClient(); const [profile, setProfile] = useState({ email: '', firstName: '', lastName: '' }); const [roleId, setRoleId] = useState(''); const [confirm, setConfirm] = useState<ConfirmAction | null>(null); const [confirmError, setConfirmError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const query = useQuery({ queryKey: platformAccessKeys.user(userId ?? ''), queryFn: () => getPlatformUser(userId!), enabled: open && Boolean(userId) });
+  const user = query.data?.data;
+  useEffect(() => { if (user) setProfile({ email: user.email, firstName: user.firstName, lastName: user.lastName }); }, [user]);
+  useEffect(() => { setConfirm(null); setConfirmError(null); setNotice(null); setRoleId(''); }, [open, userId]);
+  const refresh = async () => { if (userId) await client.invalidateQueries({ queryKey: platformAccessKeys.user(userId) }); await client.invalidateQueries({ queryKey: platformAccessKeys.users() }); };
+  const profileMutation = useMutation({ mutationFn: () => updatePlatformUser(userId!, { email: profile.email.trim(), firstName: profile.firstName.trim(), lastName: profile.lastName.trim() }), onSuccess: async () => { setNotice('Profile updated.'); await refresh(); } });
+  const statusMutation = useMutation({ mutationFn: (status: PlatformUserStatus) => updatePlatformUserStatus(userId!, { status }), onSuccess: async () => { setConfirm(null); setConfirmError(null); setNotice('Status updated.'); await refresh(); }, onError: (error) => { setConfirmError(platformAccessError(error, 'The platform user status could not be updated.')); void refresh(); } });
+  const assignMutation = useMutation({ mutationFn: () => assignPlatformUserRole(userId!, { roleId }), onSuccess: async () => { setRoleId(''); setNotice('Role assigned.'); await refresh(); } });
+  const removeMutation = useMutation({ mutationFn: (id: string) => removePlatformUserRole(userId!, id), onSuccess: async () => { setConfirm(null); setConfirmError(null); setNotice('Role removed.'); await refresh(); }, onError: (error) => { setConfirmError(platformAccessError(error, 'The global role could not be removed.')); void refresh(); } });
+  const deleteMutation = useMutation({ mutationFn: () => deletePlatformUser(userId!), onSuccess: async () => { await client.invalidateQueries({ queryKey: platformAccessKeys.users() }); setConfirm(null); setConfirmError(null); onClose(); }, onError: (error) => { setConfirmError(platformAccessError(error, 'The platform user could not be deleted.')); void refresh(); } });
+  const assigned = new Set(user?.roles.map(({ role }) => role.id)); const available = useMemo(() => roles.filter((role) => !assigned.has(role.id)), [roles, assigned]);
+  const error = profileMutation.error ?? assignMutation.error;
+  const pending = profileMutation.isPending || statusMutation.isPending || assignMutation.isPending || removeMutation.isPending || deleteMutation.isPending;
+  const clearFeedback = () => { setNotice(null); profileMutation.reset(); statusMutation.reset(); assignMutation.reset(); removeMutation.reset(); deleteMutation.reset(); };
+  const beginConfirm = (action: ConfirmAction) => { clearFeedback(); setConfirmError(null); setConfirm(action); };
+  const closeConfirm = () => { setConfirm(null); setConfirmError(null); statusMutation.reset(); removeMutation.reset(); deleteMutation.reset(); };
+  const performConfirm = () => { if (!confirm) return; setConfirmError(null); if (confirm.kind === 'status') statusMutation.mutate(confirm.status); else if (confirm.kind === 'remove-role') removeMutation.mutate(confirm.roleId); else deleteMutation.mutate(); };
+  return <><Dialog open={open} onClose={pending ? undefined : onClose} maxWidth="md" fullWidth><DialogTitle>Manage Platform User</DialogTitle><DialogContent>
+    {query.isLoading ? <LoadingSkeleton rows={4} /> : query.isError ? <Alert severity="error" action={<Button onClick={() => void query.refetch()}>Retry</Button>}>{platformAccessError(query.error, 'The platform user could not be loaded.')}</Alert> : user ? <Stack gap={3} sx={{ pt: 1 }}>
+      {error ? <Alert severity="error">{platformAccessError(error, 'The platform user could not be updated.')}</Alert> : null}{notice ? <Alert severity="success">{notice}</Alert> : null}
+      <Box><Typography variant="caption" color="text.secondary">User ID</Typography><Typography sx={{ overflowWrap: 'anywhere' }}>{user.id}</Typography></Box>
+      <Stack component="form" gap={2} onSubmit={(event) => { event.preventDefault(); clearFeedback(); profileMutation.mutate(); }}><Typography variant="h4">Profile</Typography><TextField required label="Email" type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /><Stack direction={{ xs: 'column', sm: 'row' }} gap={2}><TextField fullWidth required label="First name" value={profile.firstName} onChange={(e) => setProfile({ ...profile, firstName: e.target.value })} /><TextField fullWidth required label="Last name" value={profile.lastName} onChange={(e) => setProfile({ ...profile, lastName: e.target.value })} /></Stack><Button type="submit" variant="outlined" disabled={pending || !profile.email.trim() || !profile.firstName.trim() || !profile.lastName.trim()}>Save Profile</Button></Stack>
+      <Stack gap={1}><Typography variant="h4">Status</Typography><Stack direction={{ xs: 'column', sm: 'row' }} gap={1}>{(['ACTIVE', 'INACTIVE', 'SUSPENDED'] as const).map((status) => <Button key={status} variant={user.status === status ? 'contained' : 'outlined'} disabled={pending || user.status === status} onClick={() => beginConfirm({ kind: 'status', status })}>{status}</Button>)}</Stack></Stack>
+      <Stack gap={1}><Typography variant="h4">Global Roles</Typography><Stack direction="row" gap={1} flexWrap="wrap">{user.roles.map(({ role }) => <Chip key={role.id} label={role.name} onDelete={() => beginConfirm({ kind: 'remove-role', roleId: role.id, label: role.name })} deleteIcon={<span aria-label={`Remove ${role.name}`}>×</span>} />)}</Stack>{available.length ? <Stack direction={{ xs: 'column', sm: 'row' }} gap={1}><FormControl fullWidth size="small"><InputLabel id="assign-role-label">Assign global role</InputLabel><Select labelId="assign-role-label" id="assign-role" label="Assign global role" value={roleId} onChange={(e) => setRoleId(e.target.value)}>{available.map((role) => <MenuItem key={role.id} value={role.id}>{role.name}</MenuItem>)}</Select></FormControl><Button variant="outlined" disabled={!roleId || pending} onClick={() => { clearFeedback(); assignMutation.mutate(); }}>Assign Role</Button></Stack> : <Typography variant="body2" color="text.secondary">All available global roles are assigned.</Typography>}</Stack>
+      <Box><Typography variant="body2">Last login: {formatDate(user.lastLoginAt)}</Typography><Typography variant="body2">Created: {formatDate(user.createdAt)}</Typography><Typography variant="body2">Updated: {formatDate(user.updatedAt)}</Typography></Box>
+      <Button color="error" variant="outlined" disabled={pending} onClick={() => beginConfirm({ kind: 'delete' })}>Delete Platform User</Button>
+    </Stack> : null}
+  </DialogContent><DialogActions><Button onClick={onClose} disabled={pending}>Close</Button></DialogActions></Dialog>
+  <ConfirmDialog open={Boolean(confirm)} title={confirmTitle(confirm)} description={confirmDescription(confirm, user ? `${user.firstName} ${user.lastName} (${user.email})` : 'this user')} descriptionId="platform-user-confirm-description" confirmLabel={confirm?.kind === 'delete' ? 'Delete User' : 'Confirm'} loading={pending} onClose={closeConfirm} onConfirm={performConfirm}>{confirmError ? <Alert severity="error" role="alert" sx={{ mt: 2 }}>{confirmError}</Alert> : null}</ConfirmDialog></>;
+}
+
+function confirmTitle(action: ConfirmAction | null) { return action?.kind === 'delete' ? 'Soft delete platform user?' : action?.kind === 'remove-role' ? 'Remove global role?' : 'Change platform user status?'; }
+function confirmDescription(action: ConfirmAction | null, identity: string) { if (action?.kind === 'delete') return `${identity} will no longer be able to access the platform. This is a soft deletion.`; if (action?.kind === 'remove-role') return `Remove ${action.label} from ${identity}?`; if (action?.kind === 'status') return `Change ${identity} to ${action.status}?`; return ''; }
+function formatDate(value: string | null) { if (!value) return 'Never'; const date = new Date(value); return Number.isNaN(date.valueOf()) ? 'Not available' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date); }

@@ -24,6 +24,7 @@ export const platformAccessKeys = {
   userList: (query: PlatformUserListQuery) => [...platformAccessKeys.users(), 'list', normalizeUserQuery(query)] as const,
   user: (id: string) => [...platformAccessKeys.users(), 'details', id] as const,
   roles: () => [...platformAccessKeys.all, 'roles'] as const,
+  roleCatalog: () => [...platformAccessKeys.roles(), 'catalog'] as const,
   roleList: (query: PlatformRoleListQuery) => [...platformAccessKeys.roles(), 'list', normalizeRoleQuery(query)] as const,
   role: (id: string) => [...platformAccessKeys.roles(), 'details', id] as const,
   permissions: () => [...platformAccessKeys.roles(), 'permissions'] as const,
