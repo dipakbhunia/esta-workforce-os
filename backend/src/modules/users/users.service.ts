@@ -24,6 +24,7 @@ import { UserQueryDto } from './dto/user-query.dto';
 import { UserStatusDto } from './dto/user-status.dto';
 
 const SALT_ROUNDS = 12;
+export const PLATFORM_ADMIN_LOCK_KEY = 871_220_041;
 const hrManageableRoles: RoleName[] = [
   RoleName.MANAGER,
   RoleName.EMPLOYEE,
@@ -102,6 +103,12 @@ export class UsersService {
             roleId: role.id,
           })),
         });
+        if (isSuperAdmin(actor) && companyId === null) {
+          await this.writePlatformAudit(tx, actor, created.id, 'PLATFORM_USER_CREATED', {
+            status: dto.status ?? UserStatus.ACTIVE,
+            roleIds: roles.map((role) => role.id),
+          });
+        }
         return tx.user.findUniqueOrThrow({
           where: { id: created.id },
           select: userSelect,
@@ -147,28 +154,36 @@ export class UsersService {
     await this.validateOrganizationReferences(dto, user.companyId);
 
     try {
-      return await this.prisma.user.update({
-        where: { id },
-        data: {
-          ...(dto.email !== undefined
-            ? { email: dto.email.trim().toLowerCase() }
-            : {}),
-          ...(dto.firstName !== undefined
-            ? { firstName: dto.firstName.trim() }
-            : {}),
-          ...(dto.lastName !== undefined
-            ? { lastName: dto.lastName.trim() }
-            : {}),
-          ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
-          ...(dto.departmentId !== undefined
-            ? { departmentId: dto.departmentId }
-            : {}),
-          ...(dto.designationId !== undefined
-            ? { designationId: dto.designationId }
-            : {}),
-          ...(dto.shiftId !== undefined ? { shiftId: dto.shiftId } : {}),
-        },
-        select: userSelect,
+      return await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.user.update({
+          where: { id },
+          data: {
+            ...(dto.email !== undefined
+              ? { email: dto.email.trim().toLowerCase() }
+              : {}),
+            ...(dto.firstName !== undefined
+              ? { firstName: dto.firstName.trim() }
+              : {}),
+            ...(dto.lastName !== undefined
+              ? { lastName: dto.lastName.trim() }
+              : {}),
+            ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+            ...(dto.departmentId !== undefined
+              ? { departmentId: dto.departmentId }
+              : {}),
+            ...(dto.designationId !== undefined
+              ? { designationId: dto.designationId }
+              : {}),
+            ...(dto.shiftId !== undefined ? { shiftId: dto.shiftId } : {}),
+          },
+          select: userSelect,
+        });
+        if (isSuperAdmin(actor) && user.companyId === null) {
+          await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_UPDATED', {
+            changedFields: Object.keys(dto).sort(),
+          });
+        }
+        return updated;
       });
     } catch (error) {
       this.throwUserConflict(error);
@@ -180,6 +195,7 @@ export class UsersService {
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
     return this.prisma.$transaction(async (tx) => {
+      await this.assertPlatformAdminSurvives(tx, id, 'DELETE');
       const deleted = await tx.user.update({
         where: { id },
         data: {
@@ -192,6 +208,11 @@ export class UsersService {
         where: { userId: id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      if (isSuperAdmin(actor) && user.companyId === null) {
+        await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_DELETED', {
+          previousStatus: user.status,
+        });
+      }
       return deleted;
     });
   }
@@ -205,6 +226,9 @@ export class UsersService {
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
     return this.prisma.$transaction(async (tx) => {
+      if (dto.status !== UserStatus.ACTIVE) {
+        await this.assertPlatformAdminSurvives(tx, id, 'STATUS');
+      }
       const updated = await tx.user.update({
         where: { id },
         data: { status: dto.status },
@@ -214,6 +238,12 @@ export class UsersService {
         await tx.refreshToken.updateMany({
           where: { userId: id, revokedAt: null },
           data: { revokedAt: new Date() },
+        });
+      }
+      if (isSuperAdmin(actor) && user.companyId === null) {
+        await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_STATUS_CHANGED', {
+          previousStatus: user.status,
+          status: dto.status,
         });
       }
       return updated;
@@ -232,10 +262,17 @@ export class UsersService {
       user.companyId,
       actor,
     );
-    await this.prisma.userRole.upsert({
-      where: { userId_roleId: { userId: id, roleId: role.id } },
-      create: { userId: id, roleId: role.id },
-      update: {},
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userRole.upsert({
+        where: { userId_roleId: { userId: id, roleId: role.id } },
+        create: { userId: id, roleId: role.id },
+        update: {},
+      });
+      if (isSuperAdmin(actor) && user.companyId === null) {
+        await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_ROLE_ASSIGNED', {
+          roleId: role.id,
+        });
+      }
     });
     return this.findOne(id, actor);
   }
@@ -244,14 +281,24 @@ export class UsersService {
     const user = await this.findOne(id, actor);
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
-    await this.getAssignableRoles([roleId], user.companyId, actor);
+    const [role] = await this.getAssignableRoles([roleId], user.companyId, actor);
     if (user.roles.length <= 1) {
       throw new BadRequestException('A user must retain at least one role');
     }
-    const removed = await this.prisma.userRole.deleteMany({
-      where: { userId: id, roleId },
+    await this.prisma.$transaction(async (tx) => {
+      if (role.systemName === RoleName.SUPER_ADMIN) {
+        await this.assertPlatformAdminSurvives(tx, id, 'ROLE');
+      }
+      const removed = await tx.userRole.deleteMany({
+        where: { userId: id, roleId },
+      });
+      if (!removed.count) throw new NotFoundException('User role not found');
+      if (isSuperAdmin(actor) && user.companyId === null) {
+        await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_ROLE_REMOVED', {
+          roleId,
+        });
+      }
     });
-    if (!removed.count) throw new NotFoundException('User role not found');
     return this.findOne(id, actor);
   }
 
@@ -263,7 +310,26 @@ export class UsersService {
     const user = await this.findOne(id, actor);
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
-    await this.updatePasswordAndRevokeTokens(id, dto.newPassword);
+    const passwordHash = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id },
+        data: { passwordHash },
+      });
+      await tx.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (isSuperAdmin(actor) && user.companyId === null) {
+        await this.writePlatformAudit(
+          tx,
+          actor,
+          id,
+          'PLATFORM_USER_PASSWORD_RESET',
+          {},
+        );
+      }
+    });
     return { success: true as const };
   }
 
@@ -485,5 +551,68 @@ export class UsersService {
       throw new ConflictException('A user with this email already exists');
     }
     throw error;
+  }
+
+  private async assertPlatformAdminSurvives(
+    tx: Prisma.TransactionClient,
+    targetUserId: string,
+    operation: 'DELETE' | 'STATUS' | 'ROLE',
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(${PLATFORM_ADMIN_LOCK_KEY})::text`;
+    const target = await tx.user.findUnique({
+      where: { id: targetUserId },
+      select: {
+        companyId: true,
+        status: true,
+        deletedAt: true,
+        roles: { select: { role: { select: { systemName: true, companyId: true, deletedAt: true } } } },
+      },
+    });
+    const isActivePlatformAdmin = Boolean(
+      target && target.companyId === null && target.status === UserStatus.ACTIVE && !target.deletedAt &&
+      target.roles.some(({ role }) => role.companyId === null && !role.deletedAt && role.systemName === RoleName.SUPER_ADMIN),
+    );
+    if (!isActivePlatformAdmin) return;
+    const activeAdmins = await tx.user.count({
+      where: this.platformAdminPopulationWhere(),
+    });
+    if (activeAdmins <= 1) {
+      throw new ForbiddenException(`Cannot ${operation.toLowerCase()} the final active super admin`);
+    }
+  }
+
+  protected platformAdminPopulationWhere(): Prisma.UserWhereInput {
+    return {
+      companyId: null,
+      status: UserStatus.ACTIVE,
+      deletedAt: null,
+      roles: {
+        some: {
+          role: {
+            companyId: null,
+            systemName: RoleName.SUPER_ADMIN,
+            deletedAt: null,
+          },
+        },
+      },
+    };
+  }
+
+  private writePlatformAudit(
+    tx: Prisma.TransactionClient,
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    action: string,
+    metadata: Prisma.InputJsonValue,
+  ) {
+    return tx.auditLog.create({
+      data: {
+        actorUserId: actor.id,
+        action,
+        entityType: 'User',
+        entityId: targetUserId,
+        metadata,
+      },
+    });
   }
 }
