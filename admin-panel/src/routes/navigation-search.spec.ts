@@ -18,6 +18,7 @@ const functionalSuperAdminRoots = [
   '/billing/renewals',
   '/billing/dunning',
   '/platform/access/users',
+  '/platform/access/roles-permissions',
 ];
 
 const platformPlaceholders = [
@@ -25,7 +26,6 @@ const platformPlaceholders = [
   '/platform-communication/email-configuration',
   '/platform-communication/email-templates',
   '/platform-communication/email-delivery-logs',
-  '/platform/access/roles-permissions',
   '/platform/access/audit-logs',
   '/platform/reports/revenue',
   '/platform/reports/subscriptions',
@@ -50,8 +50,8 @@ const dynamicRoutes = [
 ];
 
 describe('navigation search indexing', () => {
-  it('keeps exactly 46 implemented stable navigation roots', () => {
-    expect(implementedNavPaths.size).toBe(46);
+  it('keeps exactly 47 implemented stable navigation roots', () => {
+    expect(implementedNavPaths.size).toBe(47);
   });
 
   it('classifies all functional Super Admin roots as implemented navigation destinations', () => {

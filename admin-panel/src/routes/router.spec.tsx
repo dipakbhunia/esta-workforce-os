@@ -50,6 +50,7 @@ const tenantDeniedPlatformPaths = [
   '/billing/renewals/11111111-1111-4111-8111-111111111111',
   '/billing/dunning',
   '/billing/dunning/11111111-1111-4111-8111-111111111111',
+  '/platform/access/roles-permissions',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -176,6 +177,15 @@ describe('application router direct-entry isolation', () => {
     expect(screen.getByRole('link', { name: 'Back to Dunning' })).toHaveAttribute('href', '/billing/dunning');
     expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
     detailView.unmount();
+  });
+
+  it('routes Roles & Permissions to the read-only platform authority', async () => {
+    await router.navigate('/platform/access/roles-permissions');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Roles & Permissions' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Read-only reference/)).toBeInTheDocument();
+    view.unmount();
   });
 
   it('does not introduce a /platform-payments frontend route', async () => {
