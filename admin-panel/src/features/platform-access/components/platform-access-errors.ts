@@ -10,3 +10,13 @@ export function platformAccessError(error: unknown, fallback: string) {
   if (status === 409) return 'That email address is already assigned to another user.';
   return fallback;
 }
+
+export function platformAuditError(error: unknown, fallback: string) {
+  if (!axios.isAxiosError(error)) return fallback;
+  const status = error.response?.status;
+  if (status === 400) return 'The audit request is invalid.';
+  if (status === 401) return 'Your session has expired. Sign in again.';
+  if (status === 403) return 'Audit logs are restricted to authorized platform administrators.';
+  if (status === 404) return 'The platform audit record no longer exists.';
+  return fallback;
+}

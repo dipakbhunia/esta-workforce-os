@@ -9,8 +9,10 @@ import {
   createPlatformUser,
   deletePlatformUser,
   getPlatformRole,
+  getPlatformAuditLog,
   getPlatformUser,
   listPlatformPermissions,
+  listPlatformAuditLogs,
   listPlatformRoles,
   listPlatformUsers,
   platformAccessKeys,
@@ -77,5 +79,17 @@ describe('platform access API', () => {
     expect(platformAccessKeys.roleList({ page: 1, limit: 20, systemName: 'SUPER_ADMIN' })).not.toEqual(platformAccessKeys.roleList({ page: 1, limit: 20, systemName: 'HR' }));
     expect(platformAccessKeys.roleList({ page: 1, limit: 20, search: '   ' })).toEqual(platformAccessKeys.roleList({ page: 1, limit: 20 }));
     expect(platformAccessKeys.roleList({ page: 1, limit: 20, search: ' Admin ' })).toEqual(platformAccessKeys.roleList({ page: 1, limit: 20, search: 'Admin' }));
+    expect(platformAccessKeys.auditList({ page: 1, limit: 20, action: 'ONE' })).not.toEqual(platformAccessKeys.auditList({ page: 1, limit: 20, action: 'TWO' }));
+    expect(platformAccessKeys.audit('one')).not.toEqual(platformAccessKeys.audit('two'));
+  });
+
+  it('uses exact read-only audit endpoints and only supported list parameters', async () => {
+    await listPlatformAuditLogs({ page: 2, limit: 20, action: 'PLATFORM_USER_UPDATED', entityType: 'User', actorUserId: '11111111-1111-4111-8111-111111111111', search: 'forbidden' } as never);
+    expect(get).toHaveBeenLastCalledWith('/platform/access/audit-logs', { params: { page: 2, limit: 20, action: 'PLATFORM_USER_UPDATED', entityType: 'User', actorUserId: '11111111-1111-4111-8111-111111111111' } });
+    await getPlatformAuditLog('audit/id');
+    expect(get).toHaveBeenLastCalledWith('/platform/access/audit-logs/audit%2Fid');
+    expect(post).not.toHaveBeenCalledWith(expect.stringContaining('/audit-logs'), expect.anything());
+    expect(patch).not.toHaveBeenCalledWith(expect.stringContaining('/audit-logs'), expect.anything());
+    expect(remove).not.toHaveBeenCalledWith(expect.stringContaining('/audit-logs'));
   });
 });

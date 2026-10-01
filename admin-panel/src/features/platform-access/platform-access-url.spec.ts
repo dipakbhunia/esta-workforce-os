@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   defaultPlatformRoleQuery,
+  defaultPlatformAuditQuery,
   defaultPlatformUserQuery,
   parsePlatformRolesUrl,
+  parsePlatformAuditUrl,
   parsePlatformUsersUrl,
   serializePlatformRolesUrl,
+  serializePlatformAuditUrl,
   serializePlatformUsersUrl,
 } from './platform-access-url';
 
@@ -49,5 +52,40 @@ describe('platform access URL state', () => {
     for (const page of ['-1', '-200', '1.5']) {
       expect(parsePlatformRolesUrl(new URLSearchParams(`page=${page}`)).query).toEqual(defaultPlatformRoleQuery());
     }
+  });
+
+  it('hydrates exact valid audit filters and preserves unrelated parameters', () => {
+    const parsed = parsePlatformAuditUrl(new URLSearchParams('page=3&action=PLATFORM_USER_UPDATED&entityType=User&actorUserId=11111111-1111-4111-8111-111111111111&keep=yes'));
+    expect(parsed.query).toEqual({ page: 3, limit: 20, action: 'PLATFORM_USER_UPDATED', entityType: 'User', actorUserId: '11111111-1111-4111-8111-111111111111' });
+    expect(parsed.normalized.get('keep')).toBe('yes');
+    expect(parsed.query).not.toHaveProperty('keep');
+  });
+
+  it('removes invalid owned audit values and serializes only canonical authority', () => {
+    const parsed = parsePlatformAuditUrl(new URLSearchParams('page=0&action=bad-action&entityType=9User&actorUserId=nope&keep=yes'));
+    expect(parsed.query).toEqual(defaultPlatformAuditQuery());
+    expect(parsed.normalized.toString()).toBe('keep=yes&page=1');
+    expect(serializePlatformAuditUrl({ page: 2, limit: 20, action: 'AUTH_LOGIN', entityType: 'User', actorUserId: '11111111-1111-4111-8111-111111111111' }).toString()).toBe('page=2&action=AUTH_LOGIN&entityType=User&actorUserId=11111111-1111-4111-8111-111111111111');
+  });
+
+  it.each([
+    { length: 1, value: 'A', accepted: false },
+    { length: 2, value: 'AA', accepted: true },
+    { length: 100, value: 'A'.repeat(100), accepted: true },
+    { length: 101, value: 'A'.repeat(101), accepted: false },
+  ])('enforces the exact audit action length boundary at $length characters', ({ value, accepted }) => {
+    const parsed = parsePlatformAuditUrl(new URLSearchParams({ action: value }));
+    expect(parsed.query.action).toBe(accepted ? value : undefined);
+    expect(parsed.normalized.has('action')).toBe(accepted);
+  });
+
+  it.each([
+    { length: 1, value: 'A', accepted: true },
+    { length: 100, value: 'A'.repeat(100), accepted: true },
+    { length: 101, value: 'A'.repeat(101), accepted: false },
+  ])('enforces the exact audit entity type length boundary at $length characters', ({ value, accepted }) => {
+    const parsed = parsePlatformAuditUrl(new URLSearchParams({ entityType: value }));
+    expect(parsed.query.entityType).toBe(accepted ? value : undefined);
+    expect(parsed.normalized.has('entityType')).toBe(accepted);
   });
 });

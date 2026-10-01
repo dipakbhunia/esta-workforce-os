@@ -64,6 +64,7 @@ export const implementedNavPaths = new Set([
   '/billing/dunning',
   '/platform/access/users',
   '/platform/access/roles-permissions',
+  '/platform/access/audit-logs',
   '/settings/users',
   '/settings/roles',
   '/settings/permissions',

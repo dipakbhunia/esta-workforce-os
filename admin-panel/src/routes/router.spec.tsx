@@ -188,6 +188,15 @@ describe('application router direct-entry isolation', () => {
     view.unmount();
   });
 
+  it('routes Audit Logs to the guarded read-only platform authority', async () => {
+    await router.navigate('/platform/access/audit-logs');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Audit Logs' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Read-only platform audit evidence/)).toBeInTheDocument();
+    view.unmount();
+  });
+
   it('does not introduce a /platform-payments frontend route', async () => {
     await router.navigate('/platform-payments');
     const view = renderRouter();

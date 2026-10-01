@@ -129,6 +129,35 @@ export interface PlatformRoleListQuery {
   systemName?: PlatformRoleSystemName;
 }
 
+export interface PlatformAuditActor {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  status: PlatformUserStatus;
+}
+
+export interface PlatformAuditRecord {
+  id: string;
+  companyId: null;
+  actorUserId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  actor: PlatformAuditActor | null;
+}
+
+export interface PlatformAuditListQuery {
+  page: number;
+  limit: number;
+  action?: string;
+  entityType?: string;
+  actorUserId?: string;
+}
+
 export interface CreatePlatformUserRequest {
   email: string;
   password: string;
@@ -154,3 +183,4 @@ export interface AssignPlatformUserRoleRequest {
 
 export type PlatformUserListResponse = PaginatedResponse<PlatformUser>;
 export type PlatformRoleListResponse = PaginatedResponse<PlatformRole>;
+export type PlatformAuditListResponse = PaginatedResponse<PlatformAuditRecord>;

@@ -1,13 +1,17 @@
 import { normalizePlatformAccessSearch } from './platform-access.types';
-import type { PlatformRoleListQuery, PlatformRoleSystemName, PlatformUserListQuery, PlatformUserStatus } from './platform-access.types';
+import type { PlatformAuditListQuery, PlatformRoleListQuery, PlatformRoleSystemName, PlatformUserListQuery, PlatformUserStatus } from './platform-access.types';
 
 export const PLATFORM_ACCESS_DEFAULT_PAGE = 1;
 export const PLATFORM_ACCESS_DEFAULT_LIMIT = 20;
 
 const USER_OWNED = ['page', 'search', 'status'] as const;
 const ROLE_OWNED = ['page', 'search', 'systemName'] as const;
+const AUDIT_OWNED = ['page', 'action', 'entityType', 'actorUserId'] as const;
 const USER_STATUSES = new Set<PlatformUserStatus>(['ACTIVE', 'INACTIVE', 'SUSPENDED']);
 const ROLE_SYSTEM_NAMES = new Set<PlatformRoleSystemName>(['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'MANAGER', 'EMPLOYEE']);
+const AUDIT_ACTION = /^[A-Z][A-Z0-9_]{1,99}$/;
+const AUDIT_ENTITY = /^[A-Za-z][A-Za-z0-9_]{0,99}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function parsePlatformUsersUrl(input: URLSearchParams) {
   const query: PlatformUserListQuery = { page: positive(input.get('page')) ?? PLATFORM_ACCESS_DEFAULT_PAGE, limit: PLATFORM_ACCESS_DEFAULT_LIMIT };
@@ -52,6 +56,31 @@ export function defaultPlatformUserQuery(): PlatformUserListQuery {
 }
 
 export function defaultPlatformRoleQuery(): PlatformRoleListQuery {
+  return { page: PLATFORM_ACCESS_DEFAULT_PAGE, limit: PLATFORM_ACCESS_DEFAULT_LIMIT };
+}
+
+export function parsePlatformAuditUrl(input: URLSearchParams) {
+  const query: PlatformAuditListQuery = { page: positive(input.get('page')) ?? PLATFORM_ACCESS_DEFAULT_PAGE, limit: PLATFORM_ACCESS_DEFAULT_LIMIT };
+  const action = input.get('action')?.trim();
+  const entityType = input.get('entityType')?.trim();
+  const actorUserId = input.get('actorUserId')?.trim();
+  if (action && AUDIT_ACTION.test(action)) query.action = action;
+  if (entityType && AUDIT_ENTITY.test(entityType)) query.entityType = entityType;
+  if (actorUserId && UUID.test(actorUserId)) query.actorUserId = actorUserId;
+  const normalized = serializePlatformAuditUrl(query, input);
+  return { query, normalized, shouldNormalize: normalized.toString() !== input.toString() };
+}
+
+export function serializePlatformAuditUrl(query: PlatformAuditListQuery, current = new URLSearchParams()) {
+  const params = withoutOwned(current, AUDIT_OWNED);
+  params.set('page', String(validPage(query.page)));
+  if (query.action && AUDIT_ACTION.test(query.action)) params.set('action', query.action);
+  if (query.entityType && AUDIT_ENTITY.test(query.entityType)) params.set('entityType', query.entityType);
+  if (query.actorUserId && UUID.test(query.actorUserId)) params.set('actorUserId', query.actorUserId);
+  return params;
+}
+
+export function defaultPlatformAuditQuery(): PlatformAuditListQuery {
   return { page: PLATFORM_ACCESS_DEFAULT_PAGE, limit: PLATFORM_ACCESS_DEFAULT_LIMIT };
 }
 

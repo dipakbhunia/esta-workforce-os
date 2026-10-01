@@ -2,6 +2,9 @@ import { http } from '@/services/http';
 import type {
   AssignPlatformUserRoleRequest,
   CreatePlatformUserRequest,
+  PlatformAuditListQuery,
+  PlatformAuditListResponse,
+  PlatformAuditRecord,
   PlatformPermission,
   PlatformRole,
   PlatformRoleListQuery,
@@ -17,6 +20,7 @@ import { normalizePlatformAccessSearch } from './platform-access.types';
 
 const USER_LIST_PARAMETERS = ['page', 'limit', 'search', 'status'] as const;
 const ROLE_LIST_PARAMETERS = ['page', 'limit', 'search', 'systemName'] as const;
+const AUDIT_LIST_PARAMETERS = ['page', 'limit', 'action', 'entityType', 'actorUserId'] as const;
 
 export const platformAccessKeys = {
   all: ['platform-access'] as const,
@@ -28,6 +32,9 @@ export const platformAccessKeys = {
   roleList: (query: PlatformRoleListQuery) => [...platformAccessKeys.roles(), 'list', normalizeRoleQuery(query)] as const,
   role: (id: string) => [...platformAccessKeys.roles(), 'details', id] as const,
   permissions: () => [...platformAccessKeys.roles(), 'permissions'] as const,
+  audits: () => [...platformAccessKeys.all, 'audit-logs'] as const,
+  auditList: (query: PlatformAuditListQuery) => [...platformAccessKeys.audits(), 'list', normalizeAuditQuery(query)] as const,
+  audit: (id: string) => [...platformAccessKeys.audits(), 'details', id] as const,
 };
 
 export function listPlatformUsers(query: PlatformUserListQuery) {
@@ -76,12 +83,24 @@ export function listPlatformPermissions() {
   return http.get<PlatformPermission[]>('/platform/access/roles/permissions');
 }
 
+export function listPlatformAuditLogs(query: PlatformAuditListQuery) {
+  return http.get<PlatformAuditListResponse>('/platform/access/audit-logs', { params: parameters(normalizeAuditQuery(query), AUDIT_LIST_PARAMETERS) });
+}
+
+export function getPlatformAuditLog(id: string) {
+  return http.get<PlatformAuditRecord>(`/platform/access/audit-logs/${encodeURIComponent(id)}`);
+}
+
 function normalizeUserQuery(query: PlatformUserListQuery): PlatformUserListQuery {
   return compact({ page: query.page, limit: query.limit, search: normalizePlatformAccessSearch(query.search), status: query.status });
 }
 
 function normalizeRoleQuery(query: PlatformRoleListQuery): PlatformRoleListQuery {
   return compact({ page: query.page, limit: query.limit, search: normalizePlatformAccessSearch(query.search), systemName: query.systemName });
+}
+
+function normalizeAuditQuery(query: PlatformAuditListQuery): PlatformAuditListQuery {
+  return compact({ page: query.page, limit: query.limit, action: query.action, entityType: query.entityType, actorUserId: query.actorUserId });
 }
 
 function parameters<T extends object, K extends readonly (keyof T)[]>(query: T, keys: K) {

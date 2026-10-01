@@ -49,6 +49,7 @@ const PlatformDunningPage = lazy(() => import('@/features/platform-dunning/pages
 const PlatformDunningDetailsPage = lazy(() => import('@/features/platform-dunning/pages/PlatformDunningDetailsPage'));
 const PlatformUsersPage = lazy(() => import('@/features/platform-access/pages/PlatformUsersPage'));
 const PlatformRolesPermissionsPage = lazy(() => import('@/features/platform-access/pages/PlatformRolesPermissionsPage'));
+const PlatformAuditLogsPage = lazy(() => import('@/features/platform-access/pages/PlatformAuditLogsPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -199,7 +200,6 @@ const comingSoonRoutes: ComingSoonRoute[] = [
   { path: 'platform-communication/email-configuration', title: 'Email Configuration', moduleName: 'Platform Communication', description: 'Configure the platform email delivery service for SaaS communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-templates', title: 'Email Templates', moduleName: 'Platform Communication', description: 'Manage reusable platform email templates for tenant and billing communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform-communication/email-delivery-logs', title: 'Email Delivery Logs', moduleName: 'Platform Communication', description: 'Review platform email delivery outcomes and failures.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
-  { path: 'platform/access/audit-logs', title: 'Audit Logs', moduleName: 'User & Access', description: 'Review security and administration activity across the SaaS platform.', plannedPhase: 'Platform Access', permission: 'people:manage', roles: superAdminRoles },
   { path: 'platform/reports/revenue', title: 'Revenue Reports', moduleName: 'Reports', description: 'Analyze SaaS revenue when subscription billing data is available.', plannedPhase: 'Platform Reports', permission: 'reports:view', roles: superAdminRoles },
   { path: 'platform/reports/subscriptions', title: 'Subscription Reports', moduleName: 'Reports', description: 'Analyze subscription lifecycle, plan adoption, and renewals.', plannedPhase: 'Platform Reports', permission: 'reports:view', roles: superAdminRoles },
   { path: 'platform/reports/usage', title: 'Usage Reports', moduleName: 'Reports', description: 'Analyze tenant seat, feature, and storage usage when metering is available.', plannedPhase: 'Platform Reports', permission: 'reports:view', roles: superAdminRoles },
@@ -308,6 +308,7 @@ export const router = createBrowserRouter([
           { path: 'billing/dunning/:renewalId', element: protectedElement(<PlatformDunningDetailsPage />, 'settings:view', superAdminRoles) },
           { path: 'platform/access/users', element: protectedElement(<PlatformUsersPage />, 'people:manage', superAdminRoles) },
           { path: 'platform/access/roles-permissions', element: protectedElement(<PlatformRolesPermissionsPage />, 'people:manage', superAdminRoles) },
+          { path: 'platform/access/audit-logs', element: protectedElement(<PlatformAuditLogsPage />, 'people:manage', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },
