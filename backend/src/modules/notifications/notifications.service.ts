@@ -3,9 +3,10 @@ import { MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel,
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { NotificationDeliveryQueryDto, NotificationPreferenceUpdateDto, NotificationQueryDto } from './dto/notification.dto';
-import { EmailNotificationChannel } from './email-notification-channel.service';
+import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notification-channel.service';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
+import { getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
 type NotificationWithAlert = Prisma.NotificationGetPayload<{ include: ReturnType<NotificationsService['notificationInclude']> }>;
@@ -22,15 +23,21 @@ export class NotificationsService {
   async handleAlertEvent(alertId: string, eventType: MonitoringAlertEventType): Promise<void> {
     const notificationType = this.notificationType(eventType);
     if (!notificationType) return;
+    const policy = getEmailEventPolicy(notificationType);
     const alert = await this.prisma.monitoringAlert.findUnique({ where: { id: alertId }, include: this.alertInclude() });
     if (!alert) return;
-    const recipients = await this.recipients.resolveForAlert({ companyId: alert.companyId, employeeId: alert.employeeId, severity: alert.severity });
+    const recipients = policy.recipientResolver === 'MONITORING_ALERT'
+      ? await this.recipients.resolveForAlert({ companyId: alert.companyId, employeeId: alert.employeeId, severity: alert.severity })
+      : [];
     for (const recipient of recipients) {
       const preference = await this.preferences.getEffective(recipient.userId);
-      if (!this.preferences.allowsSeverity(preference, alert.severity) || !this.preferences.allowsLifecycle(preference, notificationType)) continue;
-      if (preference.inAppEnabled) await this.createNotification(alert, recipient.userId, NotificationChannel.IN_APP, notificationType, NotificationStatus.DELIVERED);
-      if (this.shouldCreateEmail(alert.severity, notificationType, preference.emailEnabled)) {
-        const delayUntil = this.emailRetryStart(alert.severity, preference.quietHoursStart, preference.quietHoursEnd);
+      if (preferencesApply(policy) &&
+        (!this.preferences.allowsSeverity(preference, alert.severity) || !this.preferences.allowsLifecycle(preference, notificationType))) continue;
+      if (policy.eligibleChannels.includes(NotificationChannel.IN_APP) && preference.inAppEnabled) await this.createNotification(alert, recipient.userId, NotificationChannel.IN_APP, notificationType, NotificationStatus.DELIVERED);
+      if (policy.eligibleChannels.includes(NotificationChannel.EMAIL) && this.shouldCreateEmail(alert.severity, notificationType, preference.emailEnabled)) {
+        const delayUntil = policy.quietHours === 'NON_CRITICAL_EMAIL'
+          ? this.emailRetryStart(alert.severity, preference.quietHoursStart, preference.quietHoursEnd)
+          : null;
         await this.createNotification(alert, recipient.userId, NotificationChannel.EMAIL, notificationType, NotificationStatus.PENDING, recipient.email, delayUntil);
       }
     }
@@ -102,10 +109,25 @@ export class NotificationsService {
     if (!actor.roles.includes(RoleName.SUPER_ADMIN)) filters.push({ notification: { companyId: actor.companyId ?? '__missing_tenant__' } });
     const where = filters.length ? { AND: filters } : {};
     const [data, total] = await this.prisma.$transaction([
-      this.prisma.notificationDelivery.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      this.prisma.notificationDelivery.findMany({
+        where,
+        select: {
+          id: true, notificationId: true, channel: true, recipient: true, status: true, attemptCount: true,
+          lastAttemptAt: true, nextRetryAt: true, sentAt: true, failedAt: true, errorCode: true,
+          safeErrorMessage: true, providerMessageId: true, createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit,
+      }),
       this.prisma.notificationDelivery.count({ where }),
     ]);
-    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    return {
+      data: data.map((delivery) => {
+        if (!delivery.errorCode && !delivery.safeErrorMessage) return delivery;
+        const safe = safeEmailErrorEvidence(delivery.errorCode);
+        return { ...delivery, errorCode: safe.code, safeErrorMessage: safe.message };
+      }),
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   emailCapability() {
@@ -113,7 +135,7 @@ export class NotificationsService {
   }
 
   private async createNotification(alert: AlertForNotification, userId: string, channel: NotificationChannel, type: NotificationType, status: NotificationStatus, recipient?: string, nextRetryAt?: Date | null) {
-    const idempotencyKey = `${alert.id}:${type}:${userId}:${channel}`;
+    const idempotencyKey = getEmailEventPolicy(type).buildIdempotencyKey({ sourceId: alert.id, userId, channel });
     try {
       const notification = await this.prisma.notification.create({
         data: {
@@ -128,13 +150,11 @@ export class NotificationsService {
           status,
           detailsPath: `/monitoring/alerts/${alert.id}`,
           idempotencyKey,
+          ...(channel === NotificationChannel.EMAIL && recipient ? {
+            deliveries: { create: { channel, recipient, status: NotificationStatus.PENDING, nextRetryAt } },
+          } : {}),
         },
       });
-      if (channel === NotificationChannel.EMAIL && recipient) {
-        await this.prisma.notificationDelivery.create({
-          data: { notificationId: notification.id, channel, recipient, status: NotificationStatus.PENDING, nextRetryAt },
-        });
-      }
       return notification;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return null;

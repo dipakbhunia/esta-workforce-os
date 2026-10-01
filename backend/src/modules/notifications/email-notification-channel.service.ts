@@ -10,6 +10,25 @@ export interface EmailDeliveryResult {
   safeReason?: string;
 }
 
+export interface SafeEmailError { code: string; message: string }
+
+const safeErrors: Record<string, string> = {
+  SMTP_AUTH_FAILED: 'Email provider authentication failed.',
+  SMTP_CONNECTION_FAILED: 'Email provider connection failed.',
+  SMTP_DNS_FAILED: 'Email provider address could not be resolved.',
+  SMTP_TLS_FAILED: 'Email provider secure connection failed.',
+  SMTP_TIMEOUT: 'Email provider request timed out.',
+  SMTP_RATE_LIMITED: 'Email provider temporarily rate limited delivery.',
+  SMTP_REJECTED: 'Email provider rejected the delivery.',
+  SMTP_DISABLED: 'Email delivery is disabled or not configured.',
+  SMTP_UNKNOWN: 'Email delivery failed.',
+};
+
+export function safeEmailErrorEvidence(code: string | null | undefined): SafeEmailError {
+  const safeCode = code && code in safeErrors ? code : 'SMTP_UNKNOWN';
+  return { code: safeCode.slice(0, 64), message: (safeErrors[safeCode] ?? safeErrors.SMTP_UNKNOWN).slice(0, 160) };
+}
+
 @Injectable()
 export class EmailNotificationChannel {
   private readonly logger = new Logger(EmailNotificationChannel.name);
@@ -43,12 +62,19 @@ export class EmailNotificationChannel {
     return { skipped: false, providerMessageId: response.messageId ?? null };
   }
 
-  sanitizeError(error: unknown): { code: string; message: string } {
-    const maybe = error as { code?: string; message?: string; responseCode?: number };
-    return {
-      code: String(maybe.code ?? maybe.responseCode ?? 'SMTP_ERROR').slice(0, 64),
-      message: String(maybe.message ?? 'Email delivery failed').replace(/\s+/g, ' ').slice(0, 240),
-    };
+  sanitizeError(error: unknown): SafeEmailError {
+    const maybe = error as { code?: string; responseCode?: number };
+    const rawCode = String(maybe?.code ?? '').toUpperCase();
+    const responseCode = Number(maybe?.responseCode);
+    let code = 'SMTP_UNKNOWN';
+    if (rawCode === 'EAUTH' || responseCode === 535) code = 'SMTP_AUTH_FAILED';
+    else if (['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(rawCode)) code = 'SMTP_TIMEOUT';
+    else if (['ENOTFOUND', 'EAI_AGAIN'].includes(rawCode)) code = 'SMTP_DNS_FAILED';
+    else if (['ECONNECTION', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH'].includes(rawCode)) code = 'SMTP_CONNECTION_FAILED';
+    else if (rawCode.includes('TLS') || rawCode.includes('CERT')) code = 'SMTP_TLS_FAILED';
+    else if ([421, 429, 450, 451, 452].includes(responseCode)) code = 'SMTP_RATE_LIMITED';
+    else if (responseCode >= 500 || rawCode === 'EENVELOPE' || rawCode === 'EMESSAGE') code = 'SMTP_REJECTED';
+    return safeEmailErrorEvidence(code);
   }
 
   private hasConfig(): boolean {
@@ -67,6 +93,9 @@ export class EmailNotificationChannel {
       port: this.config.get<number>('SMTP_PORT'),
       secure: this.config.get<boolean>('SMTP_SECURE') === true,
       auth: user && pass ? { user, pass } : undefined,
+      connectionTimeout: 30_000,
+      greetingTimeout: 30_000,
+      socketTimeout: 60_000,
     };
   }
 

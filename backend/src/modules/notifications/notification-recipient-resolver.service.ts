@@ -21,7 +21,9 @@ export class NotificationRecipientResolver {
   async resolveForAlert(input: AlertRecipientInput): Promise<NotificationRecipient[]> {
     const recipients = new Map<string, NotificationRecipient>();
     const addUser = (user: { id: string; email: string; companyId: string | null } | null | undefined) => {
-      if (user?.id && !recipients.has(user.id)) recipients.set(user.id, { userId: user.id, email: user.email, companyId: user.companyId });
+      if (user?.id && user.companyId === input.companyId && !recipients.has(user.id)) {
+        recipients.set(user.id, { userId: user.id, email: user.email, companyId: user.companyId });
+      }
     };
 
     const roleUsers = await this.prisma.user.findMany({

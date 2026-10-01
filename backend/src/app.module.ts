@@ -25,6 +25,7 @@ import { PlansModule } from './modules/plans/plans.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PlatformDashboardModule } from './modules/platform-dashboard/platform-dashboard.module';
 import { PlatformAccessModule } from './modules/platform-access/platform-access.module';
+import { PlatformCommunicationModule } from './modules/platform-communication/platform-communication.module';
 import { PlatformDunningModule } from './modules/platform-dunning/platform-dunning.module';
 import { PlatformGstModule } from './modules/platform-gst/platform-gst.module';
 import { PlatformPaymentsModule } from './modules/platform-payments/platform-payments.module';
@@ -72,6 +73,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
     PaymentsModule,
     PlatformDashboardModule,
     PlatformAccessModule,
+    PlatformCommunicationModule,
     PlatformDunningModule,
     PlatformGstModule,
     PlatformPaymentsModule,

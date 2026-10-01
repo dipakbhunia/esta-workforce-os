@@ -2370,6 +2370,8 @@ model NotificationDelivery {
   errorCode         String?
   safeErrorMessage  String?
   providerMessageId String?
+  claimToken        String?             @db.Uuid
+  claimExpiresAt    DateTime?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   notification      Notification        @relation(fields: [notificationId], references: [id], onDelete: Cascade)
@@ -2377,6 +2379,8 @@ model NotificationDelivery {
   @@unique([notificationId, channel])
   @@index([status, nextRetryAt])
   @@index([channel, status])
+  @@index([channel, status, nextRetryAt, claimExpiresAt, createdAt, id], map: "NotificationDelivery_dispatch_eligibility_idx")
+  @@index([channel, status, createdAt, id], map: "NotificationDelivery_email_log_order_idx")
   @@index([recipient])
 }
 
