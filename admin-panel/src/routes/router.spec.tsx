@@ -7,6 +7,11 @@ import { permissionsForRoles } from '@/features/auth/utils/permissions';
 import { getRouteMeta } from './routeMeta';
 
 let roles: RoleName[] = ['SUPER_ADMIN'];
+const platformCommunicationApi = vi.hoisted(() => ({
+  capability: vi.fn().mockResolvedValue({ data: { enabled: false, configured: false, fromEmailConfigured: false } }),
+  list: vi.fn().mockResolvedValue({ data: { data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0 } } }),
+  detail: vi.fn(),
+}));
 
 vi.mock('@/features/auth/hooks/useAuth', () => ({
   useAuth: () => ({
@@ -22,6 +27,13 @@ vi.mock('@/features/auth/hooks/useAuth', () => ({
 vi.mock('@/features/notifications/services/notifications-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/notifications/services/notifications-api')>()),
   getNotificationUnreadCount: vi.fn().mockResolvedValue({ data: { unread: 0 } }),
+}));
+
+vi.mock('@/features/platform-communication/platform-communication-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/platform-communication/platform-communication-api')>()),
+  getEmailCapability: platformCommunicationApi.capability,
+  listEmailDeliveries: platformCommunicationApi.list,
+  getEmailDelivery: platformCommunicationApi.detail,
 }));
 
 import { router } from './router';
@@ -51,11 +63,16 @@ const tenantDeniedPlatformPaths = [
   '/billing/dunning',
   '/billing/dunning/11111111-1111-4111-8111-111111111111',
   '/platform/access/roles-permissions',
+  '/platform-communication/email-delivery-logs',
+  '/platform-communication/email-delivery-logs/11111111-1111-4111-8111-111111111111',
 ];
 
 describe('application router direct-entry isolation', () => {
   beforeEach(() => {
     roles = ['SUPER_ADMIN'];
+    platformCommunicationApi.capability.mockClear();
+    platformCommunicationApi.list.mockClear();
+    platformCommunicationApi.detail.mockClear();
   });
 
   it.each(superAdminDeniedPaths)('denies SUPER_ADMIN at actual tenant route %s', async (path) => {
@@ -70,6 +87,11 @@ describe('application router direct-entry isolation', () => {
     await router.navigate(path);
     const view = renderRouter();
     expect(await screen.findByText('Access restricted')).toBeInTheDocument();
+    if (path.startsWith('/platform-communication/')) {
+      expect(platformCommunicationApi.capability).not.toHaveBeenCalled();
+      expect(platformCommunicationApi.list).not.toHaveBeenCalled();
+      expect(platformCommunicationApi.detail).not.toHaveBeenCalled();
+    }
     view.unmount();
   });
 
@@ -176,6 +198,22 @@ describe('application router direct-entry isolation', () => {
     expect(await screen.findByRole('heading', { name: 'Dunning Details' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Back to Dunning' })).toHaveAttribute('href', '/billing/dunning');
     expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    detailView.unmount();
+  });
+
+  it('routes Platform Communication delivery logs and read-only details', async () => {
+    await router.navigate('/platform-communication/email-delivery-logs');
+    const listView = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Email Delivery Logs', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    listView.unmount();
+    expect(getRouteMeta('/platform-communication/email-delivery-logs/11111111-1111-4111-8111-111111111111')).toEqual({
+      title: 'Email Delivery Details', breadcrumbs: ['Platform Communication', 'Email Delivery Logs', 'Details'], moduleName: 'Platform Communication', canonicalPath: '/platform-communication/email-delivery-logs/:deliveryId',
+    });
+    await router.navigate('/platform-communication/email-delivery-logs/not-a-uuid');
+    const detailView = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Email Delivery Details' })).toBeInTheDocument();
+    expect(screen.getByText('The email delivery reference is invalid.')).toBeInTheDocument();
     detailView.unmount();
   });
 

@@ -1,0 +1,5 @@
+import { beforeEach,describe,expect,it,vi } from 'vitest';
+const { get }=vi.hoisted(()=>({get:vi.fn()}));vi.mock('@/services/http',()=>({http:{get}}));
+import { getEmailCapability,getEmailDelivery,listEmailDeliveries } from './platform-communication-api';
+describe('platform communication API',()=>{beforeEach(()=>get.mockReset().mockResolvedValue({data:{}}));it('uses exact capability and detail endpoints',async()=>{await getEmailCapability();await getEmailDelivery('a/b');expect(get).toHaveBeenNthCalledWith(1,'/platform-communication/email-capability');expect(get).toHaveBeenNthCalledWith(2,'/platform-communication/email-deliveries/a%2Fb')});it('serializes only supported list parameters',async()=>{await listEmailDeliveries({page:1,limit:20,status:'PENDING'});expect(get).toHaveBeenCalledWith('/platform-communication/email-deliveries',{params:{page:1,limit:20,status:'PENDING'}})})});
+it('drops empty and unsupported runtime parameters',async()=>{await listEmailDeliveries({page:1,limit:20,recipient:'',channel:'EMAIL',search:'x'} as never);expect(get).toHaveBeenCalledWith('/platform-communication/email-deliveries',{params:{page:1,limit:20}})});

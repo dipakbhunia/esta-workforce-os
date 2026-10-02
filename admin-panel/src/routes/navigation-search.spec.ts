@@ -26,7 +26,6 @@ const platformPlaceholders = [
   '/billing/gst-invoices',
   '/platform-communication/email-configuration',
   '/platform-communication/email-templates',
-  '/platform-communication/email-delivery-logs',
   '/platform/reports/revenue',
   '/platform/reports/subscriptions',
   '/platform/reports/usage',
@@ -50,8 +49,8 @@ const dynamicRoutes = [
 ];
 
 describe('navigation search indexing', () => {
-  it('keeps exactly 48 implemented stable navigation roots', () => {
-    expect(implementedNavPaths.size).toBe(48);
+  it('keeps exactly 49 implemented stable navigation roots', () => {
+    expect(implementedNavPaths.size).toBe(49);
   });
 
   it('classifies all functional Super Admin roots as implemented navigation destinations', () => {
