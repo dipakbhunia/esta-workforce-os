@@ -18,6 +18,8 @@ const monitoringEvents = [
   NotificationType.ALERT_AUTO_RESOLVED,
 ] as const satisfies readonly EmailEventKey[];
 
+type MonitoringEmailEventKey = (typeof monitoringEvents)[number];
+
 const allowedPayloadKeys = new Set([
   'alertId',
   'title',
@@ -83,7 +85,7 @@ export function validateMonitoringEmailPayload(payload: unknown): MonitoringEmai
   };
 }
 
-function monitoringTitle(event: EmailEventKey, payload: MonitoringEmailPayload): string {
+function monitoringTitle(event: MonitoringEmailEventKey, payload: MonitoringEmailPayload): string {
   if (event === NotificationType.ALERT_RESOLVED || event === NotificationType.ALERT_AUTO_RESOLVED) {
     return `Resolved: ${payload.title}`;
   }
@@ -91,7 +93,7 @@ function monitoringTitle(event: EmailEventKey, payload: MonitoringEmailPayload):
   return payload.title;
 }
 
-function monitoringMessage(event: EmailEventKey, payload: MonitoringEmailPayload): string {
+function monitoringMessage(event: MonitoringEmailEventKey, payload: MonitoringEmailPayload): string {
   const context = [payload.employeeDisplayName, payload.deviceDisplayName].filter(Boolean).join(' • ');
   const prefix = event === NotificationType.ALERT_RESOLVED || event === NotificationType.ALERT_AUTO_RESOLVED
     ? 'Alert resolved.'
@@ -101,7 +103,7 @@ function monitoringMessage(event: EmailEventKey, payload: MonitoringEmailPayload
   return [prefix, payload.message, context ? `Context: ${context}` : null].filter(Boolean).join(' ');
 }
 
-function registration<K extends EmailEventKey>(event: K): EmailRendererRegistration<K> {
+function registration<K extends MonitoringEmailEventKey>(event: K): EmailRendererRegistration<K> {
   return {
     event,
     rendererId: EmailRendererId.MONITORING_ALERT,

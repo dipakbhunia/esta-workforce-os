@@ -6,12 +6,18 @@ import { NotificationDeliveryQueryDto, NotificationPreferenceUpdateDto, Notifica
 import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notification-channel.service';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
-import { getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
-import { EmailCompositionResult, EmailQuietHoursPolicyId, EmailRendererId } from './email-composition.types';
+import { EmailDeliveryPolicy, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
+import { EmailCompositionResult, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, PasswordChangedEmailPayload } from './email-composition.types';
 import { emailRendererRegistry } from './email-renderer.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
 type NotificationWithAlert = Prisma.NotificationGetPayload<{ include: ReturnType<NotificationsService['notificationInclude']> }>;
+
+function isNotificationIdempotencyConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) && target.length === 1 && target[0] === 'idempotencyKey';
+}
 
 @Injectable()
 export class NotificationsService {
@@ -21,6 +27,63 @@ export class NotificationsService {
     private readonly preferences: NotificationPreferenceService,
     private readonly emailChannel: EmailNotificationChannel,
   ) {}
+
+  async createPasswordChangedEmail(input: {
+    passwordMutationEventId: string;
+    targetUserId: string;
+    payload: PasswordChangedEmailPayload;
+  }): Promise<{ created: boolean }> {
+    const type = NotificationType.PASSWORD_CHANGED;
+    const channel = NotificationChannel.EMAIL;
+    const policy = getEmailEventPolicy(type);
+    if (
+      policy.deliveryPolicy !== EmailDeliveryPolicy.MANDATORY ||
+      !policy.eligibleChannels.includes(channel) ||
+      policy.recipientResolver !== EmailRecipientResolverId.AFFECTED_USER ||
+      policy.quietHours !== EmailQuietHoursPolicyId.NONE
+    ) {
+      throw new Error('PASSWORD_CHANGED email policy is invalid');
+    }
+    const composition = emailRendererRegistry.render(type, input.payload);
+    const recipient = await this.recipients.resolveAffectedUser(input.targetUserId);
+    if (!recipient) throw new Error('PASSWORD_CHANGED recipient was not found');
+    const idempotencyKey = policy.buildIdempotencyKey({
+      sourceId: input.passwordMutationEventId,
+      userId: recipient.userId,
+      channel,
+    });
+    try {
+      await this.prisma.notification.create({
+        data: {
+          companyId: recipient.companyId,
+          userId: recipient.userId,
+          alertId: null,
+          type,
+          channel,
+          title: composition.subject,
+          message: composition.message,
+          severity: null,
+          status: NotificationStatus.PENDING,
+          detailsPath: composition.safeDetailsPath,
+          idempotencyKey,
+          deliveries: {
+            create: {
+              channel,
+              recipient: recipient.email,
+              status: NotificationStatus.PENDING,
+              nextRetryAt: null,
+            },
+          },
+        },
+      });
+      return { created: true };
+    } catch (error) {
+      if (isNotificationIdempotencyConflict(error)) {
+        return { created: false };
+      }
+      throw error;
+    }
+  }
 
   async handleAlertEvent(alertId: string, eventType: MonitoringAlertEventType): Promise<void> {
     const notificationType = this.notificationType(eventType);

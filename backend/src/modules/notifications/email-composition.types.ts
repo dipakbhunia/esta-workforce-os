@@ -6,14 +6,17 @@ export const EMAIL_COMPOSITION_LIMITS = {
 
 export enum EmailRendererId {
   MONITORING_ALERT = 'MONITORING_ALERT',
+  PASSWORD_CHANGED_SECURITY = 'PASSWORD_CHANGED_SECURITY',
 }
 
 export enum EmailRecipientResolverId {
   MONITORING_ALERT = 'MONITORING_ALERT',
+  AFFECTED_USER = 'AFFECTED_USER',
 }
 
 export enum EmailPreferencePolicyId {
   MONITORING_ALERT = 'MONITORING_ALERT',
+  NONE = 'NONE',
 }
 
 export enum EmailQuietHoursPolicyId {
@@ -30,12 +33,15 @@ export interface MonitoringEmailPayload {
   deviceDisplayName: string | null;
 }
 
+export type PasswordChangedEmailPayload = Record<string, never>;
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_ACKNOWLEDGED]: MonitoringEmailPayload;
   [NotificationType.ALERT_RESOLVED]: MonitoringEmailPayload;
   [NotificationType.ALERT_AUTO_RESOLVED]: MonitoringEmailPayload;
+  [NotificationType.PASSWORD_CHANGED]: PasswordChangedEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;

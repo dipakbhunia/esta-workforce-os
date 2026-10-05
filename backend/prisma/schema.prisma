@@ -173,6 +173,7 @@ enum NotificationType {
   ALERT_ACKNOWLEDGED
   ALERT_RESOLVED
   ALERT_AUTO_RESOLVED
+  PASSWORD_CHANGED
 }
 
 enum ProductivityCategory {

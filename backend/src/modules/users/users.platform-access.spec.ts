@@ -99,7 +99,7 @@ function prismaForFinalAdmin(activeAdmins = 1) {
 describe('UsersService platform authority invariants', () => {
   it('blocks disabling the final active SUPER_ADMIN before writes or audit', async () => {
     const state = prismaForFinalAdmin();
-    const service = new UsersService(state.prisma as never);
+    const service = new UsersService(state.prisma as never, {} as never);
     await assert.rejects(
       () =>
         service.setStatus(
@@ -115,7 +115,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('blocks deleting the final active SUPER_ADMIN before writes or audit', async () => {
     const state = prismaForFinalAdmin();
-    const service = new UsersService(state.prisma as never);
+    const service = new UsersService(state.prisma as never, {} as never);
     await assert.rejects(
       () => service.remove(target.id, actor),
       ForbiddenException,
@@ -126,7 +126,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('blocks removing the final SUPER_ADMIN role before writes or audit', async () => {
     const state = prismaForFinalAdmin();
-    const service = new UsersService(state.prisma as never);
+    const service = new UsersService(state.prisma as never, {} as never);
     await assert.rejects(
       () => service.removeRole(target.id, target.roles[0].role.id, actor),
       ForbiddenException,
@@ -137,7 +137,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('allows deactivation when another active SUPER_ADMIN remains and audits it', async () => {
     const state = prismaForFinalAdmin(2);
-    const service = new UsersService(state.prisma as never);
+    const service = new UsersService(state.prisma as never, {} as never);
     await service.setStatus(
       target.id,
       { status: UserStatus.SUSPENDED },
@@ -149,7 +149,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('allows deletion when another active SUPER_ADMIN remains and audits it', async () => {
     const state = prismaForFinalAdmin(2);
-    const service = new UsersService(state.prisma as never);
+    const service = new UsersService(state.prisma as never, {} as never);
     await service.remove(target.id, actor);
     assert.equal(state.writes(), 1);
     assert.equal(state.audits(), 1);
@@ -157,7 +157,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('allows SUPER_ADMIN role removal when another active admin remains and audits it', async () => {
     const state = prismaForFinalAdmin(2);
-    const service = new UsersService(state.prisma as never);
+    const service = new UsersService(state.prisma as never, {} as never);
     await service.removeRole(target.id, target.roles[0].role.id, actor);
     assert.equal(state.writes(), 1);
     assert.equal(state.audits(), 1);

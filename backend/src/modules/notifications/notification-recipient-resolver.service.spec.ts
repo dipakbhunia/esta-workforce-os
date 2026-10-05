@@ -7,7 +7,7 @@ describe('NotificationRecipientResolver monitoring authority', () => {
   const roleUser = { id: 'admin', email: 'admin@example.test', companyId: 'company' };
   const employeeUser = { id: 'employee-user', email: 'employee@example.test', companyId: 'company' };
   const prisma = { user: { findMany: async ({ where }: { where: { companyId: string } }) => {
-    assert.equal(where.companyId, 'company'); return [roleUser]; } }, employee: { findFirst: async ({ where }: { where: { companyId: string } }) => {
+    assert.equal(where.companyId, 'company'); return [roleUser]; }, findUnique: async () => employeeUser }, employee: { findFirst: async ({ where }: { where: { companyId: string } }) => {
       assert.equal(where.companyId, 'company');
       return { user: employeeUser, reportingManager: { user: roleUser } };
     } } };
@@ -29,5 +29,16 @@ describe('NotificationRecipientResolver monitoring authority', () => {
       user: { ...employeeUser, companyId: 'other-company' }, reportingManager: null,
     }) } } as never);
     assert.deepEqual(await resolver.resolveForAlert({ companyId: 'company', employeeId: 'employee', severity: MonitoringAlertSeverity.CRITICAL }), []);
+  });
+
+  it('resolves exactly the affected durable user without status or tenant fallback', async () => {
+    const resolver = new NotificationRecipientResolver(prisma as never);
+    assert.deepEqual(await resolver.resolveAffectedUser(employeeUser.id), {
+      userId: employeeUser.id,
+      email: employeeUser.email,
+      companyId: employeeUser.companyId,
+    });
+    const missing = new NotificationRecipientResolver({ user: { findUnique: async () => null } } as never);
+    assert.equal(await missing.resolveAffectedUser('missing'), null);
   });
 });

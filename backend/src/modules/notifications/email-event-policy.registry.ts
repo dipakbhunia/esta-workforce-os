@@ -8,6 +8,7 @@ import {
 
 export enum EmailEventCategory {
   MONITORING = 'MONITORING',
+  SECURITY = 'SECURITY',
 }
 
 export enum EmailDeliveryPolicy {
@@ -49,6 +50,18 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
   [NotificationType.ALERT_ACKNOWLEDGED, monitoringPolicy(NotificationType.ALERT_ACKNOWLEDGED, [NotificationChannel.IN_APP], EmailQuietHoursPolicyId.NONE)],
   [NotificationType.ALERT_RESOLVED, monitoringPolicy(NotificationType.ALERT_RESOLVED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL)],
   [NotificationType.ALERT_AUTO_RESOLVED, monitoringPolicy(NotificationType.ALERT_AUTO_RESOLVED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL)],
+  [NotificationType.PASSWORD_CHANGED, {
+    eventKey: NotificationType.PASSWORD_CHANGED,
+    category: EmailEventCategory.SECURITY,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.MANDATORY,
+    recipientResolver: EmailRecipientResolverId.AFFECTED_USER,
+    preferenceEvaluator: EmailPreferencePolicyId.NONE,
+    renderer: EmailRendererId.PASSWORD_CHANGED_SECURITY,
+    quietHours: EmailQuietHoursPolicyId.NONE,
+    buildIdempotencyKey: ({ sourceId, userId, channel }) =>
+      `${sourceId}:${NotificationType.PASSWORD_CHANGED}:${userId}:${channel}`,
+  }],
 ]);
 
 export function getEmailEventPolicy(eventKey: NotificationType): EmailEventPolicy {

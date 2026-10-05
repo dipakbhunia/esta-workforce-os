@@ -11,6 +11,7 @@ import {
 } from './email-composition.types';
 import { assertSafeEmailDetailsPath } from './email-content-safety';
 import { monitoringEmailRendererRegistrations } from './monitoring-email.renderer';
+import { passwordChangedEmailRendererRegistration } from './password-changed-email.renderer';
 
 export class EmailRendererRegistry {
   private readonly registrations = new Map<NotificationType, AnyEmailRendererRegistration>();
@@ -67,4 +68,7 @@ export class EmailRendererRegistry {
   }
 }
 
-export const emailRendererRegistry = new EmailRendererRegistry(monitoringEmailRendererRegistrations);
+export const emailRendererRegistry = new EmailRendererRegistry([
+  ...monitoringEmailRendererRegistrations,
+  passwordChangedEmailRendererRegistration,
+]);

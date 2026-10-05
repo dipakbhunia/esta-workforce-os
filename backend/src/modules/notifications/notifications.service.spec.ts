@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel, NotificationType } from '@prisma/client';
+import { MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel, NotificationType, Prisma } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 
 describe('NotificationsService monitoring regression', () => {
@@ -125,5 +125,77 @@ describe('NotificationsService monitoring regression', () => {
     await service.handleAlertEvent(alertId, MonitoringAlertEventType.RESOLVED);
     const criticalDelivery = (created[1].deliveries as { create: { nextRetryAt: Date | null } }).create;
     assert.equal(criticalDelivery.nextRetryAt, null);
+  });
+
+  it('creates one mandatory password-changed email snapshot and treats its exact idempotency collision as success', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    let duplicate = false;
+    const prisma = { notification: { create: async ({ data }: { data: Record<string, unknown> }) => {
+      if (duplicate) {
+        throw new Prisma.PrismaClientKnownRequestError('duplicate', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { modelName: 'Notification', target: ['idempotencyKey'] },
+        });
+      }
+      writes.push(data);
+      return { id: 'notification' };
+    } } };
+    const service = new NotificationsService(
+      prisma as never,
+      { resolveAffectedUser: async () => ({ userId: 'target', email: 'target@example.test', companyId: null }) } as never,
+      {} as never,
+      {} as never,
+    );
+    assert.deepEqual(await service.createPasswordChangedEmail({
+      passwordMutationEventId: '11111111-1111-4111-8111-111111111111', targetUserId: 'target', payload: {},
+    }), { created: true });
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0], {
+      companyId: null, userId: 'target', alertId: null, type: NotificationType.PASSWORD_CHANGED,
+      channel: NotificationChannel.EMAIL, title: 'Your password was changed',
+      message: 'The password for your Esta Workforce OS account was changed. If you did not expect this change, contact your administrator or support immediately.',
+      severity: null, status: 'PENDING', detailsPath: null,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111:PASSWORD_CHANGED:target:EMAIL',
+      deliveries: { create: { channel: NotificationChannel.EMAIL, recipient: 'target@example.test', status: 'PENDING', nextRetryAt: null } },
+    });
+    duplicate = true;
+    assert.deepEqual(await service.createPasswordChangedEmail({
+      passwordMutationEventId: '11111111-1111-4111-8111-111111111111', targetUserId: 'target', payload: {},
+    }), { created: false });
+  });
+
+  it('propagates unrelated or unproven persistence failures', async (context) => {
+    const serviceFor = (failure: Error) => new NotificationsService(
+      { notification: { create: async () => { throw failure; } } } as never,
+      { resolveAffectedUser: async () => ({ userId: 'target', email: 'target@example.test', companyId: null }) } as never,
+      {} as never,
+      {} as never,
+    );
+    const input = {
+      passwordMutationEventId: '11111111-1111-4111-8111-111111111111',
+      targetUserId: 'target',
+      payload: {},
+    };
+    const p2002 = (meta?: Record<string, unknown>) => new Prisma.PrismaClientKnownRequestError('unique failure', {
+      code: 'P2002', clientVersion: 'test', ...(meta ? { meta } : {}),
+    });
+    const cases: Array<[string, Error]> = [
+      ['another unique target', p2002({ modelName: 'Notification', target: ['id'] })],
+      ['missing target metadata', p2002()],
+      ['malformed target metadata', p2002({ modelName: 'Notification', target: 'idempotencyKey' })],
+      ['a multi-field target containing idempotencyKey', p2002({
+        modelName: 'Notification', target: ['idempotencyKey', 'userId'],
+      })],
+      ['a non-P2002 Prisma failure', new Prisma.PrismaClientKnownRequestError('foreign-key failure', {
+        code: 'P2003', clientVersion: 'test', meta: { modelName: 'Notification' },
+      })],
+      ['an ordinary persistence failure', new Error('persistence unavailable')],
+    ];
+    for (const [name, failure] of cases) {
+      await context.test(name, async () => {
+        await assert.rejects(() => serviceFor(failure).createPasswordChangedEmail(input), (error) => error === failure);
+      });
+    }
   });
 });

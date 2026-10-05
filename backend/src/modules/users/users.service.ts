@@ -3,11 +3,13 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Prisma, RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'node:crypto';
 import {
   paginatedResult,
   paginationArgs,
@@ -15,6 +17,7 @@ import {
 import { isSuperAdmin } from '../../common/utils/tenant.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -74,7 +77,12 @@ type ManagedUser = Prisma.UserGetPayload<{ select: typeof userSelect }>;
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async create(dto: CreateUserDto, actor: AuthenticatedUser) {
     const companyId = this.resolveCreateCompanyId(dto.companyId, actor);
@@ -310,6 +318,7 @@ export class UsersService {
     const user = await this.findOne(id, actor);
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
+    const passwordMutationEventId = randomUUID();
     const passwordHash = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -330,13 +339,18 @@ export class UsersService {
         );
       }
     });
+    await this.enqueuePasswordChangedNotification(
+      passwordMutationEventId,
+      id,
+      user.companyId,
+    );
     return { success: true as const };
   }
 
   async changePassword(dto: ChangePasswordDto, actor: AuthenticatedUser) {
     const user = await this.prisma.user.findUnique({
       where: { id: actor.id },
-      select: { passwordHash: true, deletedAt: true },
+      select: { passwordHash: true, deletedAt: true, companyId: true },
     });
     if (
       !user ||
@@ -350,8 +364,35 @@ export class UsersService {
         'New password must differ from the current password',
       );
     }
+    const passwordMutationEventId = randomUUID();
     await this.updatePasswordAndRevokeTokens(actor.id, dto.newPassword);
+    await this.enqueuePasswordChangedNotification(
+      passwordMutationEventId,
+      actor.id,
+      user.companyId,
+    );
     return { success: true as const };
+  }
+
+  private async enqueuePasswordChangedNotification(
+    passwordMutationEventId: string,
+    targetUserId: string,
+    targetCompanyId: string | null,
+  ): Promise<void> {
+    try {
+      await this.notifications.createPasswordChangedEmail({
+        passwordMutationEventId,
+        targetUserId,
+        payload: {},
+      });
+    } catch {
+      this.logger.warn({
+        failureCategory: 'PASSWORD_CHANGED_NOTIFICATION_ENQUEUE_FAILED',
+        targetUserId,
+        targetCompanyId,
+        passwordMutationEventId,
+      });
+    }
   }
 
   private listWhere(

@@ -4,11 +4,20 @@ import { NotificationChannel, NotificationType } from '@prisma/client';
 import { EmailDeliveryPolicy, getEmailEventPolicy, preferencesApply, registeredEmailEventPolicies } from './email-event-policy.registry';
 
 describe('email event policy registry', () => {
-  it('registers only the five monitoring event policies as preference controlled', () => {
+  it('registers monitoring policies as preference controlled and password changes as mandatory', () => {
     const policies = registeredEmailEventPolicies();
     assert.deepEqual(policies.map((policy) => policy.eventKey).sort(), Object.values(NotificationType).sort());
-    assert.ok(policies.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
-    assert.ok(policies.every(preferencesApply));
+    const monitoring = policies.filter((policy) => policy.eventKey !== NotificationType.PASSWORD_CHANGED);
+    assert.ok(monitoring.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
+    assert.ok(monitoring.every(preferencesApply));
+    const passwordChanged = getEmailEventPolicy(NotificationType.PASSWORD_CHANGED);
+    assert.equal(passwordChanged.deliveryPolicy, EmailDeliveryPolicy.MANDATORY);
+    assert.equal(preferencesApply(passwordChanged), false);
+    assert.equal(passwordChanged.preferenceEvaluator, 'NONE');
+    assert.deepEqual(passwordChanged.eligibleChannels, [NotificationChannel.EMAIL]);
+    assert.equal(passwordChanged.quietHours, 'NONE');
+    assert.equal(passwordChanged.buildIdempotencyKey({ sourceId: 'mutation', userId: 'target', channel: NotificationChannel.EMAIL }),
+      'mutation:PASSWORD_CHANGED:target:EMAIL');
   });
 
   it('preserves monitoring channels and the established idempotency format', () => {
@@ -19,7 +28,7 @@ describe('email event policy registry', () => {
     assert.deepEqual(getEmailEventPolicy(NotificationType.ALERT_ACKNOWLEDGED).eligibleChannels, [NotificationChannel.IN_APP]);
   });
 
-  it('supports mandatory policy semantics without registering a mandatory event', () => {
+  it('rejects unknown policies', () => {
     assert.equal(preferencesApply({ deliveryPolicy: EmailDeliveryPolicy.MANDATORY }), false);
     assert.throws(() => getEmailEventPolicy('UNKNOWN' as NotificationType), /Unsupported email event policy/);
   });

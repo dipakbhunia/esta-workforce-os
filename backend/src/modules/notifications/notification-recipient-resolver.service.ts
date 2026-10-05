@@ -18,6 +18,16 @@ export interface NotificationRecipient {
 export class NotificationRecipientResolver {
   constructor(private readonly prisma: PrismaService) {}
 
+  async resolveAffectedUser(userId: string): Promise<NotificationRecipient | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, companyId: true },
+    });
+    return user
+      ? { userId: user.id, email: user.email, companyId: user.companyId }
+      : null;
+  }
+
   async resolveForAlert(input: AlertRecipientInput): Promise<NotificationRecipient[]> {
     const recipients = new Map<string, NotificationRecipient>();
     const addUser = (user: { id: string; email: string; companyId: string | null } | null | undefined) => {
