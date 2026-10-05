@@ -7,6 +7,8 @@ import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notifi
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
 import { getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
+import { EmailCompositionResult, EmailQuietHoursPolicyId, EmailRendererId } from './email-composition.types';
+import { emailRendererRegistry } from './email-renderer.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
 type NotificationWithAlert = Prisma.NotificationGetPayload<{ include: ReturnType<NotificationsService['notificationInclude']> }>;
@@ -26,6 +28,17 @@ export class NotificationsService {
     const policy = getEmailEventPolicy(notificationType);
     const alert = await this.prisma.monitoringAlert.findUnique({ where: { id: alertId }, include: this.alertInclude() });
     if (!alert) return;
+    if (policy.renderer !== EmailRendererId.MONITORING_ALERT) throw new Error('Unsupported Monitoring email renderer');
+    const composition = emailRendererRegistry.render(notificationType, {
+      alertId: alert.id,
+      title: alert.title,
+      message: alert.message,
+      severity: alert.severity,
+      employeeDisplayName: alert.employee?.user
+        ? `${alert.employee.user.firstName} ${alert.employee.user.lastName}`.trim()
+        : null,
+      deviceDisplayName: alert.device?.deviceName ?? null,
+    });
     const recipients = policy.recipientResolver === 'MONITORING_ALERT'
       ? await this.recipients.resolveForAlert({ companyId: alert.companyId, employeeId: alert.employeeId, severity: alert.severity })
       : [];
@@ -33,12 +46,12 @@ export class NotificationsService {
       const preference = await this.preferences.getEffective(recipient.userId);
       if (preferencesApply(policy) &&
         (!this.preferences.allowsSeverity(preference, alert.severity) || !this.preferences.allowsLifecycle(preference, notificationType))) continue;
-      if (policy.eligibleChannels.includes(NotificationChannel.IN_APP) && preference.inAppEnabled) await this.createNotification(alert, recipient.userId, NotificationChannel.IN_APP, notificationType, NotificationStatus.DELIVERED);
+      if (policy.eligibleChannels.includes(NotificationChannel.IN_APP) && preference.inAppEnabled) await this.createNotification(alert, composition, recipient.userId, NotificationChannel.IN_APP, notificationType, NotificationStatus.DELIVERED);
       if (policy.eligibleChannels.includes(NotificationChannel.EMAIL) && this.shouldCreateEmail(alert.severity, notificationType, preference.emailEnabled)) {
-        const delayUntil = policy.quietHours === 'NON_CRITICAL_EMAIL'
+        const delayUntil = policy.quietHours === EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL
           ? this.emailRetryStart(alert.severity, preference.quietHoursStart, preference.quietHoursEnd)
           : null;
-        await this.createNotification(alert, recipient.userId, NotificationChannel.EMAIL, notificationType, NotificationStatus.PENDING, recipient.email, delayUntil);
+        await this.createNotification(alert, composition, recipient.userId, NotificationChannel.EMAIL, notificationType, NotificationStatus.PENDING, recipient.email, delayUntil);
       }
     }
   }
@@ -134,7 +147,7 @@ export class NotificationsService {
     return this.emailChannel.capability();
   }
 
-  private async createNotification(alert: AlertForNotification, userId: string, channel: NotificationChannel, type: NotificationType, status: NotificationStatus, recipient?: string, nextRetryAt?: Date | null) {
+  private async createNotification(alert: AlertForNotification, composition: EmailCompositionResult, userId: string, channel: NotificationChannel, type: NotificationType, status: NotificationStatus, recipient?: string, nextRetryAt?: Date | null) {
     const idempotencyKey = getEmailEventPolicy(type).buildIdempotencyKey({ sourceId: alert.id, userId, channel });
     try {
       const notification = await this.prisma.notification.create({
@@ -144,11 +157,11 @@ export class NotificationsService {
           alertId: alert.id,
           type,
           channel,
-          title: this.titleFor(alert, type),
-          message: this.messageFor(alert, type),
+          title: composition.subject,
+          message: composition.message,
           severity: alert.severity,
           status,
-          detailsPath: `/monitoring/alerts/${alert.id}`,
+          detailsPath: composition.safeDetailsPath,
           idempotencyKey,
           ...(channel === NotificationChannel.EMAIL && recipient ? {
             deliveries: { create: { channel, recipient, status: NotificationStatus.PENDING, nextRetryAt } },
@@ -224,20 +237,6 @@ export class NotificationsService {
   private async assertOwnNotification(notificationId: string, userId: string) {
     const notification = await this.prisma.notification.findFirst({ where: { id: notificationId, userId, channel: NotificationChannel.IN_APP }, select: { id: true } });
     if (!notification) throw new NotFoundException('Notification not found');
-  }
-
-  private titleFor(alert: AlertForNotification, type: NotificationType): string {
-    if (type === NotificationType.ALERT_RESOLVED || type === NotificationType.ALERT_AUTO_RESOLVED) return `Resolved: ${alert.title}`;
-    if (type === NotificationType.ALERT_ACKNOWLEDGED) return `Acknowledged: ${alert.title}`;
-    return alert.title;
-  }
-
-  private messageFor(alert: AlertForNotification, type: NotificationType): string {
-    const employeeName = alert.employee?.user ? `${alert.employee.user.firstName} ${alert.employee.user.lastName}`.trim() : null;
-    const deviceName = alert.device?.deviceName;
-    const context = [employeeName, deviceName].filter(Boolean).join(' • ');
-    const prefix = type === NotificationType.ALERT_RESOLVED || type === NotificationType.ALERT_AUTO_RESOLVED ? 'Alert resolved.' : type === NotificationType.ALERT_ACKNOWLEDGED ? 'Alert acknowledged.' : 'Alert opened.';
-    return [prefix, alert.message, context ? `Context: ${context}` : null].filter(Boolean).join(' ');
   }
 
   private notificationInclude() {

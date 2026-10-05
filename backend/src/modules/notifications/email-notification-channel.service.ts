@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { MonitoringAlertSeverity, Notification } from '@prisma/client';
+import { assertSafeEmailDetailsPath, escapeEmailHtml } from './email-content-safety';
+import { emailRendererRegistry } from './email-renderer.registry';
 
 export interface EmailDeliveryResult {
   skipped: boolean;
@@ -11,6 +13,14 @@ export interface EmailDeliveryResult {
 }
 
 export interface SafeEmailError { code: string; message: string }
+
+export interface PersistedEmailContent {
+  type: Notification['type'];
+  title: string;
+  message: string;
+  severity: MonitoringAlertSeverity | null;
+  detailsPath: string | null;
+}
 
 const safeErrors: Record<string, string> = {
   SMTP_AUTH_FAILED: 'Email provider authentication failed.',
@@ -27,6 +37,41 @@ const safeErrors: Record<string, string> = {
 export function safeEmailErrorEvidence(code: string | null | undefined): SafeEmailError {
   const safeCode = code && code in safeErrors ? code : 'SMTP_UNKNOWN';
   return { code: safeCode.slice(0, 64), message: (safeErrors[safeCode] ?? safeErrors.SMTP_UNKNOWN).slice(0, 160) };
+}
+
+export function renderEmailText(notification: PersistedEmailContent): string {
+  const envelope = emailRendererRegistry.envelopeFor(notification.type);
+  const detailsPath = notification.detailsPath ? assertSafeEmailDetailsPath(notification.detailsPath) : null;
+  return [
+    notification.title,
+    '',
+    notification.message,
+    '',
+    notification.severity ? `Severity: ${notification.severity}` : null,
+    detailsPath ? `Open: ${detailsPath}` : null,
+    '',
+    envelope.textSafetyNotice,
+  ].filter(Boolean).join('\n');
+}
+
+export function renderEmailHtml(notification: PersistedEmailContent): string {
+  const envelope = emailRendererRegistry.envelopeFor(notification.type);
+  const detailsPath = notification.detailsPath ? assertSafeEmailDetailsPath(notification.detailsPath) : null;
+  const severityColor = notification.severity === MonitoringAlertSeverity.CRITICAL
+    ? '#DC2626'
+    : notification.severity === MonitoringAlertSeverity.WARNING
+      ? '#F59E0B'
+      : '#2563EB';
+  return `
+      <div style="font-family:Inter,Arial,sans-serif;max-width:640px;color:#111827">
+        <div style="border:1px solid #E5E7EB;border-radius:14px;padding:20px;background:#FFFFFF">
+          <p style="margin:0 0 8px;color:${severityColor};font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:12px">${escapeEmailHtml(notification.severity ?? 'ALERT')}</p>
+          <h1 style="font-size:20px;margin:0 0 12px">${escapeEmailHtml(notification.title)}</h1>
+          <p style="font-size:14px;line-height:1.6;margin:0 0 16px;color:#374151">${escapeEmailHtml(notification.message)}</p>
+          ${detailsPath ? `<p style="margin:0 0 16px"><a href="${escapeEmailHtml(detailsPath)}" style="color:#2563EB">${escapeEmailHtml(envelope.detailsLabel)}</a></p>` : ''}
+          <p style="font-size:12px;color:#6B7280;margin:0">${escapeEmailHtml(envelope.htmlSafetyNotice)}</p>
+        </div>
+      </div>`;
 }
 
 @Injectable()
@@ -56,8 +101,8 @@ export class EmailNotificationChannel {
       from: this.fromAddress(),
       to: recipient,
       subject: notification.title,
-      text: this.textTemplate(notification),
-      html: this.htmlTemplate(notification),
+      text: renderEmailText(notification),
+      html: renderEmailHtml(notification),
     });
     return { skipped: false, providerMessageId: response.messageId ?? null };
   }
@@ -105,34 +150,4 @@ export class EmailNotificationChannel {
     return `"${name.replace(/"/g, '')}" <${email}>`;
   }
 
-  private textTemplate(notification: Notification): string {
-    return [
-      notification.title,
-      '',
-      notification.message,
-      '',
-      notification.severity ? `Severity: ${notification.severity}` : null,
-      notification.detailsPath ? `Open: ${notification.detailsPath}` : null,
-      '',
-      'This notification contains alert summary metadata only. It does not include screenshots, typed text, secrets, or raw monitoring data.',
-    ].filter(Boolean).join('\n');
-  }
-
-  private htmlTemplate(notification: Notification): string {
-    const severityColor = notification.severity === MonitoringAlertSeverity.CRITICAL ? '#DC2626' : notification.severity === MonitoringAlertSeverity.WARNING ? '#F59E0B' : '#2563EB';
-    return `
-      <div style="font-family:Inter,Arial,sans-serif;max-width:640px;color:#111827">
-        <div style="border:1px solid #E5E7EB;border-radius:14px;padding:20px;background:#FFFFFF">
-          <p style="margin:0 0 8px;color:${severityColor};font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:12px">${this.escape(notification.severity ?? 'ALERT')}</p>
-          <h1 style="font-size:20px;margin:0 0 12px">${this.escape(notification.title)}</h1>
-          <p style="font-size:14px;line-height:1.6;margin:0 0 16px;color:#374151">${this.escape(notification.message)}</p>
-          ${notification.detailsPath ? `<p style="margin:0 0 16px"><a href="${this.escape(notification.detailsPath)}" style="color:#2563EB">Open alert details</a></p>` : ''}
-          <p style="font-size:12px;color:#6B7280;margin:0">Summary metadata only. No screenshots, typed text, secrets, or raw monitoring data are included.</p>
-        </div>
-      </div>`;
-  }
-
-  private escape(value: string): string {
-    return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char));
-  }
 }

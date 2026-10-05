@@ -1,4 +1,10 @@
 import { NotificationChannel, NotificationType } from '@prisma/client';
+import {
+  EmailPreferencePolicyId,
+  EmailQuietHoursPolicyId,
+  EmailRecipientResolverId,
+  EmailRendererId,
+} from './email-composition.types';
 
 export enum EmailEventCategory {
   MONITORING = 'MONITORING',
@@ -14,10 +20,10 @@ export interface EmailEventPolicy {
   category: EmailEventCategory;
   eligibleChannels: readonly NotificationChannel[];
   deliveryPolicy: EmailDeliveryPolicy;
-  recipientResolver: 'MONITORING_ALERT';
-  preferenceEvaluator: 'MONITORING_ALERT';
-  renderer: 'MONITORING_ALERT';
-  quietHours: 'NON_CRITICAL_EMAIL' | 'NONE';
+  recipientResolver: EmailRecipientResolverId;
+  preferenceEvaluator: EmailPreferencePolicyId;
+  renderer: EmailRendererId;
+  quietHours: EmailQuietHoursPolicyId;
   buildIdempotencyKey(input: { sourceId: string; userId: string; channel: NotificationChannel }): string;
 }
 
@@ -30,19 +36,19 @@ const monitoringPolicy = (
   category: EmailEventCategory.MONITORING,
   eligibleChannels,
   deliveryPolicy: EmailDeliveryPolicy.PREFERENCE_CONTROLLED,
-  recipientResolver: 'MONITORING_ALERT',
-  preferenceEvaluator: 'MONITORING_ALERT',
-  renderer: 'MONITORING_ALERT',
+  recipientResolver: EmailRecipientResolverId.MONITORING_ALERT,
+  preferenceEvaluator: EmailPreferencePolicyId.MONITORING_ALERT,
+  renderer: EmailRendererId.MONITORING_ALERT,
   quietHours,
   buildIdempotencyKey: ({ sourceId, userId, channel }) => `${sourceId}:${eventKey}:${userId}:${channel}`,
 });
 
 const policies = new Map<NotificationType, EmailEventPolicy>([
-  [NotificationType.ALERT_OPENED, monitoringPolicy(NotificationType.ALERT_OPENED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], 'NON_CRITICAL_EMAIL')],
-  [NotificationType.ALERT_REOPENED, monitoringPolicy(NotificationType.ALERT_REOPENED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], 'NON_CRITICAL_EMAIL')],
-  [NotificationType.ALERT_ACKNOWLEDGED, monitoringPolicy(NotificationType.ALERT_ACKNOWLEDGED, [NotificationChannel.IN_APP], 'NONE')],
-  [NotificationType.ALERT_RESOLVED, monitoringPolicy(NotificationType.ALERT_RESOLVED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], 'NON_CRITICAL_EMAIL')],
-  [NotificationType.ALERT_AUTO_RESOLVED, monitoringPolicy(NotificationType.ALERT_AUTO_RESOLVED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], 'NON_CRITICAL_EMAIL')],
+  [NotificationType.ALERT_OPENED, monitoringPolicy(NotificationType.ALERT_OPENED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL)],
+  [NotificationType.ALERT_REOPENED, monitoringPolicy(NotificationType.ALERT_REOPENED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL)],
+  [NotificationType.ALERT_ACKNOWLEDGED, monitoringPolicy(NotificationType.ALERT_ACKNOWLEDGED, [NotificationChannel.IN_APP], EmailQuietHoursPolicyId.NONE)],
+  [NotificationType.ALERT_RESOLVED, monitoringPolicy(NotificationType.ALERT_RESOLVED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL)],
+  [NotificationType.ALERT_AUTO_RESOLVED, monitoringPolicy(NotificationType.ALERT_AUTO_RESOLVED, [NotificationChannel.IN_APP, NotificationChannel.EMAIL], EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL)],
 ]);
 
 export function getEmailEventPolicy(eventKey: NotificationType): EmailEventPolicy {
