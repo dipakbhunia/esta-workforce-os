@@ -233,7 +233,12 @@ export class UsersService {
     const user = await this.findOne(id, actor);
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(${PLATFORM_ADMIN_LOCK_KEY})::text`;
+      const transactionTarget = await tx.user.findUniqueOrThrow({
+        where: { id },
+        select: { status: true },
+      });
       if (dto.status !== UserStatus.ACTIVE) {
         await this.assertPlatformAdminSurvives(tx, id, 'STATUS');
       }
@@ -254,8 +259,19 @@ export class UsersService {
           status: dto.status,
         });
       }
-      return updated;
+      return { updated, previousStatus: transactionTarget.status };
     });
+    if (result.previousStatus !== result.updated.status) {
+      const statusMutationEventId = randomUUID();
+      await this.enqueueAccountStatusChangedNotification(
+        statusMutationEventId,
+        id,
+        result.updated.companyId,
+        result.previousStatus,
+        result.updated.status,
+      );
+    }
+    return result.updated;
   }
 
   async assignRole(
@@ -592,6 +608,29 @@ export class UsersService {
       throw new ConflictException('A user with this email already exists');
     }
     throw error;
+  }
+
+  private async enqueueAccountStatusChangedNotification(
+    statusMutationEventId: string,
+    targetUserId: string,
+    targetCompanyId: string | null,
+    previousStatus: UserStatus,
+    status: UserStatus,
+  ): Promise<void> {
+    try {
+      await this.notifications.createAccountStatusChangedEmail({
+        statusMutationEventId,
+        targetUserId,
+        payload: { previousStatus, status },
+      });
+    } catch {
+      this.logger.warn({
+        failureCategory: 'ACCOUNT_STATUS_CHANGED_NOTIFICATION_ENQUEUE_FAILED',
+        targetUserId,
+        targetCompanyId,
+        statusMutationEventId,
+      });
+    }
   }
 
   private async assertPlatformAdminSurvives(

@@ -1,4 +1,4 @@
-import { MonitoringAlertSeverity, NotificationType } from '@prisma/client';
+import { MonitoringAlertSeverity, NotificationType, UserStatus } from '@prisma/client';
 
 export const EMAIL_COMPOSITION_LIMITS = {
   rendererVersion: 64,
@@ -7,6 +7,7 @@ export const EMAIL_COMPOSITION_LIMITS = {
 export enum EmailRendererId {
   MONITORING_ALERT = 'MONITORING_ALERT',
   PASSWORD_CHANGED_SECURITY = 'PASSWORD_CHANGED_SECURITY',
+  ACCOUNT_STATUS_CHANGED_SECURITY = 'ACCOUNT_STATUS_CHANGED_SECURITY',
 }
 
 export enum EmailRecipientResolverId {
@@ -35,6 +36,11 @@ export interface MonitoringEmailPayload {
 
 export type PasswordChangedEmailPayload = Record<string, never>;
 
+export interface AccountStatusChangedEmailPayload {
+  previousStatus: UserStatus;
+  status: UserStatus;
+}
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
@@ -42,6 +48,7 @@ export interface EmailEventPayloadMap {
   [NotificationType.ALERT_RESOLVED]: MonitoringEmailPayload;
   [NotificationType.ALERT_AUTO_RESOLVED]: MonitoringEmailPayload;
   [NotificationType.PASSWORD_CHANGED]: PasswordChangedEmailPayload;
+  [NotificationType.ACCOUNT_STATUS_CHANGED]: AccountStatusChangedEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;

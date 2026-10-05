@@ -4,10 +4,13 @@ import { NotificationChannel, NotificationType } from '@prisma/client';
 import { EmailDeliveryPolicy, getEmailEventPolicy, preferencesApply, registeredEmailEventPolicies } from './email-event-policy.registry';
 
 describe('email event policy registry', () => {
-  it('registers monitoring policies as preference controlled and password changes as mandatory', () => {
+  it('registers monitoring policies as preference controlled and security events as mandatory', () => {
     const policies = registeredEmailEventPolicies();
     assert.deepEqual(policies.map((policy) => policy.eventKey).sort(), Object.values(NotificationType).sort());
-    const monitoring = policies.filter((policy) => policy.eventKey !== NotificationType.PASSWORD_CHANGED);
+    const monitoring = policies.filter((policy) => ![
+      NotificationType.PASSWORD_CHANGED,
+      NotificationType.ACCOUNT_STATUS_CHANGED,
+    ].includes(policy.eventKey));
     assert.ok(monitoring.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
     assert.ok(monitoring.every(preferencesApply));
     const passwordChanged = getEmailEventPolicy(NotificationType.PASSWORD_CHANGED);
@@ -18,6 +21,15 @@ describe('email event policy registry', () => {
     assert.equal(passwordChanged.quietHours, 'NONE');
     assert.equal(passwordChanged.buildIdempotencyKey({ sourceId: 'mutation', userId: 'target', channel: NotificationChannel.EMAIL }),
       'mutation:PASSWORD_CHANGED:target:EMAIL');
+    const accountStatus = getEmailEventPolicy(NotificationType.ACCOUNT_STATUS_CHANGED);
+    assert.equal(accountStatus.category, 'SECURITY');
+    assert.equal(accountStatus.deliveryPolicy, EmailDeliveryPolicy.MANDATORY);
+    assert.equal(preferencesApply(accountStatus), false);
+    assert.equal(accountStatus.preferenceEvaluator, 'NONE');
+    assert.deepEqual(accountStatus.eligibleChannels, [NotificationChannel.EMAIL]);
+    assert.equal(accountStatus.quietHours, 'NONE');
+    assert.equal(accountStatus.buildIdempotencyKey({ sourceId: 'mutation', userId: 'target', channel: NotificationChannel.EMAIL }),
+      'mutation:ACCOUNT_STATUS_CHANGED:target:EMAIL');
   });
 
   it('preserves monitoring channels and the established idempotency format', () => {

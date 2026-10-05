@@ -13,7 +13,10 @@ const enabled = process.env.RUN_PLATFORM_ACCESS_DB_INTEGRATION === '1';
 
 class TestScopedUsersService extends UsersService {
   constructor(prisma: PrismaClient, private readonly testUserIds: string[]) {
-    super(prisma as never, { createPasswordChangedEmail: async () => ({ created: true }) } as never);
+    super(prisma as never, {
+      createPasswordChangedEmail: async () => ({ created: true }),
+      createAccountStatusChangedEmail: async () => ({ created: true }),
+    } as never);
   }
 
   protected override platformAdminPopulationWhere(): Prisma.UserWhereInput {
@@ -138,7 +141,10 @@ describe('UA-B PostgreSQL platform access integrity', () => {
         userIds.push(platformUser.id, tenantUser.id);
         const users = new UsersService(
           prisma as never,
-          { createPasswordChangedEmail: async () => ({ created: true }) } as never,
+          {
+            createPasswordChangedEmail: async () => ({ created: true }),
+            createAccountStatusChangedEmail: async () => ({ created: true }),
+          } as never,
         );
         const service = new PlatformAccessService(prisma as never, users);
         const listedUsers = await service.listUsers({ page: 1, limit: 100 });

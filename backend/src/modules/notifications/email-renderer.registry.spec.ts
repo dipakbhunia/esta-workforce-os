@@ -4,6 +4,7 @@ import { MonitoringAlertSeverity, NotificationType } from '@prisma/client';
 import { EmailCompositionError } from './email-composition.types';
 import { EmailRendererRegistry } from './email-renderer.registry';
 import { monitoringEmailRendererRegistrations } from './monitoring-email.renderer';
+import { accountStatusChangedEmailRendererRegistration } from './account-status-changed-email.renderer';
 
 describe('EmailRendererRegistry', () => {
   it('fails closed for duplicate and missing registrations', () => {
@@ -19,6 +20,13 @@ describe('EmailRendererRegistry', () => {
       () => (empty.render as (event: NotificationType, payload: unknown) => unknown)(NotificationType.ALERT_OPENED, {}),
       (error: unknown) => error instanceof EmailCompositionError && error.code === 'UNSUPPORTED_EVENT',
     );
+  });
+
+  it('resolves the account-status renderer through the typed registry', () => {
+    const registry = new EmailRendererRegistry([accountStatusChangedEmailRendererRegistration]);
+    assert.equal(registry.render(NotificationType.ACCOUNT_STATUS_CHANGED, {
+      previousStatus: 'ACTIVE', status: 'INACTIVE',
+    }).subject, 'Your account status changed');
   });
 
   it('rejects sensitive payload fields and resolves events exactly at runtime', () => {

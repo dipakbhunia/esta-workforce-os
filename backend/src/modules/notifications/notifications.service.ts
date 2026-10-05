@@ -6,8 +6,8 @@ import { NotificationDeliveryQueryDto, NotificationPreferenceUpdateDto, Notifica
 import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notification-channel.service';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
-import { EmailDeliveryPolicy, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
-import { EmailCompositionResult, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, PasswordChangedEmailPayload } from './email-composition.types';
+import { EmailDeliveryPolicy, EmailEventCategory, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
+import { AccountStatusChangedEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, PasswordChangedEmailPayload } from './email-composition.types';
 import { emailRendererRegistry } from './email-renderer.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
@@ -33,22 +33,51 @@ export class NotificationsService {
     targetUserId: string;
     payload: PasswordChangedEmailPayload;
   }): Promise<{ created: boolean }> {
-    const type = NotificationType.PASSWORD_CHANGED;
+    return this.createMandatoryAffectedUserEmail({
+      type: NotificationType.PASSWORD_CHANGED,
+      sourceId: input.passwordMutationEventId,
+      targetUserId: input.targetUserId,
+      payload: input.payload,
+    });
+  }
+
+  async createAccountStatusChangedEmail(input: {
+    statusMutationEventId: string;
+    targetUserId: string;
+    payload: AccountStatusChangedEmailPayload;
+  }): Promise<{ created: boolean }> {
+    return this.createMandatoryAffectedUserEmail({
+      type: NotificationType.ACCOUNT_STATUS_CHANGED,
+      sourceId: input.statusMutationEventId,
+      targetUserId: input.targetUserId,
+      payload: input.payload,
+    });
+  }
+
+  private async createMandatoryAffectedUserEmail<K extends EmailEventKey>(input: {
+    type: K;
+    sourceId: string;
+    targetUserId: string;
+    payload: EmailEventPayloadMap[K];
+  }): Promise<{ created: boolean }> {
+    const { type } = input;
     const channel = NotificationChannel.EMAIL;
     const policy = getEmailEventPolicy(type);
     if (
       policy.deliveryPolicy !== EmailDeliveryPolicy.MANDATORY ||
+      policy.category !== EmailEventCategory.SECURITY ||
       !policy.eligibleChannels.includes(channel) ||
       policy.recipientResolver !== EmailRecipientResolverId.AFFECTED_USER ||
+      policy.preferenceEvaluator !== EmailPreferencePolicyId.NONE ||
       policy.quietHours !== EmailQuietHoursPolicyId.NONE
     ) {
-      throw new Error('PASSWORD_CHANGED email policy is invalid');
+      throw new Error(`${type} email policy is invalid`);
     }
     const composition = emailRendererRegistry.render(type, input.payload);
     const recipient = await this.recipients.resolveAffectedUser(input.targetUserId);
-    if (!recipient) throw new Error('PASSWORD_CHANGED recipient was not found');
+    if (!recipient) throw new Error(`${type} recipient was not found`);
     const idempotencyKey = policy.buildIdempotencyKey({
-      sourceId: input.passwordMutationEventId,
+      sourceId: input.sourceId,
       userId: recipient.userId,
       channel,
     });

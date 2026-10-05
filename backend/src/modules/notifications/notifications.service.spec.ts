@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel, NotificationType, Prisma } from '@prisma/client';
+import { MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel, NotificationType, Prisma, UserStatus } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 
 describe('NotificationsService monitoring regression', () => {
@@ -163,6 +163,44 @@ describe('NotificationsService monitoring regression', () => {
     assert.deepEqual(await service.createPasswordChangedEmail({
       passwordMutationEventId: '11111111-1111-4111-8111-111111111111', targetUserId: 'target', payload: {},
     }), { created: false });
+  });
+
+  it('creates the exact mandatory account-status snapshot for tenant and platform targets', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    let companyId: string | null = '22222222-2222-4222-8222-222222222222';
+    const service = new NotificationsService(
+      { notification: { create: async ({ data }: { data: Record<string, unknown> }) => {
+        writes.push(data); return { id: `notification-${writes.length}` };
+      } } } as never,
+      { resolveAffectedUser: async (userId: string) => ({ userId, email: 'target@example.test', companyId }) } as never,
+      {} as never,
+      {} as never,
+    );
+    const first = await service.createAccountStatusChangedEmail({
+      statusMutationEventId: '11111111-1111-4111-8111-111111111111',
+      targetUserId: 'tenant-target',
+      payload: { previousStatus: UserStatus.ACTIVE, status: UserStatus.INACTIVE },
+    });
+    companyId = null;
+    const second = await service.createAccountStatusChangedEmail({
+      statusMutationEventId: '22222222-2222-4222-8222-222222222222',
+      targetUserId: 'platform-target',
+      payload: { previousStatus: UserStatus.SUSPENDED, status: UserStatus.ACTIVE },
+    });
+    assert.deepEqual([first, second], [{ created: true }, { created: true }]);
+    assert.deepEqual(writes[0], {
+      companyId: '22222222-2222-4222-8222-222222222222', userId: 'tenant-target', alertId: null,
+      type: NotificationType.ACCOUNT_STATUS_CHANGED, channel: NotificationChannel.EMAIL,
+      title: 'Your account status changed',
+      message: 'Your Esta Workforce OS account is now inactive. Access to your account may no longer be available.',
+      severity: null, status: 'PENDING', detailsPath: null,
+      idempotencyKey: '11111111-1111-4111-8111-111111111111:ACCOUNT_STATUS_CHANGED:tenant-target:EMAIL',
+      deliveries: { create: { channel: NotificationChannel.EMAIL, recipient: 'target@example.test', status: 'PENDING', nextRetryAt: null } },
+    });
+    assert.equal(writes[1].companyId, null);
+    assert.equal(writes[1].userId, 'platform-target');
+    assert.equal(writes[1].message,
+      'Your Esta Workforce OS account is now active. Access remains subject to your assigned roles and permissions.');
   });
 
   it('propagates unrelated or unproven persistence failures', async (context) => {

@@ -59,6 +59,7 @@ function prismaForFinalAdmin(activeAdmins = 1) {
     $queryRaw: () => Promise.resolve([{ pg_advisory_xact_lock: '' }]),
     user: {
       findUnique: () => Promise.resolve(target),
+      findUniqueOrThrow: () => Promise.resolve({ status: target.status }),
       count: () => Promise.resolve(activeAdmins),
       update: () => {
         writes += 1;
@@ -99,7 +100,10 @@ function prismaForFinalAdmin(activeAdmins = 1) {
 describe('UsersService platform authority invariants', () => {
   it('blocks disabling the final active SUPER_ADMIN before writes or audit', async () => {
     const state = prismaForFinalAdmin();
-    const service = new UsersService(state.prisma as never, {} as never);
+    let enqueues = 0;
+    const service = new UsersService(state.prisma as never, { createAccountStatusChangedEmail: async () => {
+      enqueues += 1; return { created: true };
+    } } as never);
     await assert.rejects(
       () =>
         service.setStatus(
@@ -111,11 +115,12 @@ describe('UsersService platform authority invariants', () => {
     );
     assert.equal(state.writes(), 0);
     assert.equal(state.audits(), 0);
+    assert.equal(enqueues, 0);
   });
 
   it('blocks deleting the final active SUPER_ADMIN before writes or audit', async () => {
     const state = prismaForFinalAdmin();
-    const service = new UsersService(state.prisma as never, {} as never);
+    const service = new UsersService(state.prisma as never, { createAccountStatusChangedEmail: async () => ({ created: true }) } as never);
     await assert.rejects(
       () => service.remove(target.id, actor),
       ForbiddenException,
@@ -126,7 +131,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('blocks removing the final SUPER_ADMIN role before writes or audit', async () => {
     const state = prismaForFinalAdmin();
-    const service = new UsersService(state.prisma as never, {} as never);
+    const service = new UsersService(state.prisma as never, { createAccountStatusChangedEmail: async () => ({ created: true }) } as never);
     await assert.rejects(
       () => service.removeRole(target.id, target.roles[0].role.id, actor),
       ForbiddenException,
@@ -137,7 +142,7 @@ describe('UsersService platform authority invariants', () => {
 
   it('allows deactivation when another active SUPER_ADMIN remains and audits it', async () => {
     const state = prismaForFinalAdmin(2);
-    const service = new UsersService(state.prisma as never, {} as never);
+    const service = new UsersService(state.prisma as never, { createAccountStatusChangedEmail: async () => ({ created: true }) } as never);
     await service.setStatus(
       target.id,
       { status: UserStatus.SUSPENDED },

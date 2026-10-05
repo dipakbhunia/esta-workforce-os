@@ -62,6 +62,18 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
     buildIdempotencyKey: ({ sourceId, userId, channel }) =>
       `${sourceId}:${NotificationType.PASSWORD_CHANGED}:${userId}:${channel}`,
   }],
+  [NotificationType.ACCOUNT_STATUS_CHANGED, {
+    eventKey: NotificationType.ACCOUNT_STATUS_CHANGED,
+    category: EmailEventCategory.SECURITY,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.MANDATORY,
+    recipientResolver: EmailRecipientResolverId.AFFECTED_USER,
+    preferenceEvaluator: EmailPreferencePolicyId.NONE,
+    renderer: EmailRendererId.ACCOUNT_STATUS_CHANGED_SECURITY,
+    quietHours: EmailQuietHoursPolicyId.NONE,
+    buildIdempotencyKey: ({ sourceId, userId, channel }) =>
+      `${sourceId}:${NotificationType.ACCOUNT_STATUS_CHANGED}:${userId}:${channel}`,
+  }],
 ]);
 
 export function getEmailEventPolicy(eventKey: NotificationType): EmailEventPolicy {

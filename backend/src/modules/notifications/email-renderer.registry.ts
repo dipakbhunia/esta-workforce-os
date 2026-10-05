@@ -12,6 +12,7 @@ import {
 import { assertSafeEmailDetailsPath } from './email-content-safety';
 import { monitoringEmailRendererRegistrations } from './monitoring-email.renderer';
 import { passwordChangedEmailRendererRegistration } from './password-changed-email.renderer';
+import { accountStatusChangedEmailRendererRegistration } from './account-status-changed-email.renderer';
 
 export class EmailRendererRegistry {
   private readonly registrations = new Map<NotificationType, AnyEmailRendererRegistration>();
@@ -71,4 +72,5 @@ export class EmailRendererRegistry {
 export const emailRendererRegistry = new EmailRendererRegistry([
   ...monitoringEmailRendererRegistrations,
   passwordChangedEmailRendererRegistration,
+  accountStatusChangedEmailRendererRegistration,
 ]);
