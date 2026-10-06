@@ -225,32 +225,47 @@ export class AttendanceCorrectionsService {
     await this.assertCanReview(request, actor);
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      if (dto.status === AttendanceCorrectionStatus.APPROVED) {
-        await this.applyApprovedCorrection(tx, request, actor.id);
-      }
-      const reviewed = await tx.attendanceCorrectionRequest.update({
-        where: { id },
+      const decision = await tx.attendanceCorrectionRequest.updateMany({
+        where: {
+          id,
+          companyId: request.companyId,
+          deletedAt: null,
+          status: AttendanceCorrectionStatus.PENDING,
+        },
         data: {
           status: dto.status,
           reviewedByUserId: actor.id,
           reviewerComment: dto.reviewerComment?.trim(),
           reviewedAt: new Date(),
         },
+      });
+      if (decision.count !== 1) {
+        throw new BadRequestException('Only pending requests can be reviewed');
+      }
+      const claimed = await tx.attendanceCorrectionRequest.findUniqueOrThrow({
+        where: { id },
+        include: correctionInclude,
+      });
+      if (dto.status === AttendanceCorrectionStatus.APPROVED) {
+        await this.applyApprovedCorrection(tx, claimed, actor.id);
+      }
+      const reviewed = await tx.attendanceCorrectionRequest.findUniqueOrThrow({
+        where: { id },
         include: correctionInclude,
       });
       await tx.auditLog.create({
         data: {
-          companyId: request.companyId,
+          companyId: claimed.companyId,
           actorUserId: actor.id,
           action:
             dto.status === AttendanceCorrectionStatus.APPROVED
               ? 'ATTENDANCE_CORRECTION_APPROVED'
               : 'ATTENDANCE_CORRECTION_REJECTED',
           entityType: 'AttendanceCorrectionRequest',
-          entityId: request.id,
+          entityId: claimed.id,
           metadata: {
-            attendanceId: request.attendanceId,
-            employeeId: request.employeeId,
+            attendanceId: claimed.attendanceId,
+            employeeId: claimed.employeeId,
             reviewerComment: dto.reviewerComment?.trim(),
           },
         },
@@ -277,18 +292,41 @@ export class AttendanceCorrectionsService {
     if (!isRequester && !isTenantAdmin) {
       throw new ForbiddenException('Attendance correction cancellation is not permitted');
     }
-    const updated = await this.prisma.attendanceCorrectionRequest.update({
-      where: { id },
-      data: {
-        status: AttendanceCorrectionStatus.CANCELLED,
-        reviewedByUserId: actor.id,
-        reviewedAt: new Date(),
-      },
-      include: correctionInclude,
-    });
-    await this.writeAuditLog(actor, request.companyId, 'ATTENDANCE_CORRECTION_CANCELLED', request.id, {
-      attendanceId: request.attendanceId,
-      employeeId: request.employeeId,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const cancellation = await tx.attendanceCorrectionRequest.updateMany({
+        where: {
+          id,
+          companyId: request.companyId,
+          deletedAt: null,
+          status: AttendanceCorrectionStatus.PENDING,
+        },
+        data: {
+          status: AttendanceCorrectionStatus.CANCELLED,
+          reviewedByUserId: actor.id,
+          reviewedAt: new Date(),
+        },
+      });
+      if (cancellation.count !== 1) {
+        throw new BadRequestException('Only pending requests can be cancelled');
+      }
+      const cancelled = await tx.attendanceCorrectionRequest.findUniqueOrThrow({
+        where: { id },
+        include: correctionInclude,
+      });
+      await tx.auditLog.create({
+        data: {
+          companyId: cancelled.companyId,
+          actorUserId: actor.id,
+          action: 'ATTENDANCE_CORRECTION_CANCELLED',
+          entityType: 'AttendanceCorrectionRequest',
+          entityId: cancelled.id,
+          metadata: {
+            attendanceId: cancelled.attendanceId,
+            employeeId: cancelled.employeeId,
+          },
+        },
+      });
+      return cancelled;
     });
     return this.toResponse(updated);
   }
@@ -340,14 +378,20 @@ export class AttendanceCorrectionsService {
       punchOutAt,
     );
     const logs: Prisma.AttendanceLogCreateWithoutAttendanceInput[] = [];
-    if (request.requestedPunchInAt?.getTime() !== attendance.punchInAt?.getTime()) {
+    if (
+      request.requestedPunchInAt &&
+      request.requestedPunchInAt.getTime() !== attendance.punchInAt?.getTime()
+    ) {
       logs.push({
         type: AttendanceLogType.PUNCH_IN,
         occurredAt: request.requestedPunchInAt!,
         note: `Approved correction request ${request.id}: punch in adjusted`,
       });
     }
-    if (request.requestedPunchOutAt?.getTime() !== attendance.punchOutAt?.getTime()) {
+    if (
+      request.requestedPunchOutAt &&
+      request.requestedPunchOutAt.getTime() !== attendance.punchOutAt?.getTime()
+    ) {
       logs.push({
         type: AttendanceLogType.PUNCH_OUT,
         occurredAt: request.requestedPunchOutAt!,
