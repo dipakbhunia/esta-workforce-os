@@ -8,16 +8,20 @@ export enum EmailRendererId {
   MONITORING_ALERT = 'MONITORING_ALERT',
   PASSWORD_CHANGED_SECURITY = 'PASSWORD_CHANGED_SECURITY',
   ACCOUNT_STATUS_CHANGED_SECURITY = 'ACCOUNT_STATUS_CHANGED_SECURITY',
+  LEAVE_APPROVED_WORKFLOW = 'LEAVE_APPROVED_WORKFLOW',
+  LEAVE_REJECTED_WORKFLOW = 'LEAVE_REJECTED_WORKFLOW',
 }
 
 export enum EmailRecipientResolverId {
   MONITORING_ALERT = 'MONITORING_ALERT',
   AFFECTED_USER = 'AFFECTED_USER',
+  WORKFLOW_APPLICANT = 'WORKFLOW_APPLICANT',
 }
 
 export enum EmailPreferencePolicyId {
   MONITORING_ALERT = 'MONITORING_ALERT',
   NONE = 'NONE',
+  USER_EMAIL_ENABLED = 'USER_EMAIL_ENABLED',
 }
 
 export enum EmailQuietHoursPolicyId {
@@ -41,6 +45,13 @@ export interface AccountStatusChangedEmailPayload {
   status: UserStatus;
 }
 
+export interface LeaveDecisionEmailPayload {
+  leaveRequestId: string;
+  leaveTypeName: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
@@ -49,6 +60,8 @@ export interface EmailEventPayloadMap {
   [NotificationType.ALERT_AUTO_RESOLVED]: MonitoringEmailPayload;
   [NotificationType.PASSWORD_CHANGED]: PasswordChangedEmailPayload;
   [NotificationType.ACCOUNT_STATUS_CHANGED]: AccountStatusChangedEmailPayload;
+  [NotificationType.LEAVE_APPROVED]: LeaveDecisionEmailPayload;
+  [NotificationType.LEAVE_REJECTED]: LeaveDecisionEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;

@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   assertSafeEmailDetailsPath,
   buildMonitoringAlertDetailsPath,
+  buildLeaveRequestDetailsPath,
   escapeEmailHtml,
 } from './email-content-safety';
 
@@ -17,6 +18,14 @@ describe('email content safety', () => {
     );
     assert.match(escapeEmailHtml('&lt;'), /&amp;lt;/);
     assert.equal(hostile, `<script data-value="a&b" title='x'>alert(1)</script>`);
+  });
+
+  it('builds and accepts only the canonical Leave request path', () => {
+    const path = `/leave/requests/${id}`;
+    assert.equal(buildLeaveRequestDetailsPath(id.toUpperCase()), path);
+    assert.equal(assertSafeEmailDetailsPath(path), path);
+    assert.throws(() => buildLeaveRequestDetailsPath('not-a-uuid'));
+    assert.throws(() => assertSafeEmailDetailsPath(`/leave/requests/${id}/edit`));
   });
 
   it('builds and accepts only the canonical Monitoring alert path', () => {

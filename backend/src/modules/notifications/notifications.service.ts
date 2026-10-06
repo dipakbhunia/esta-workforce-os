@@ -7,7 +7,7 @@ import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notifi
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
 import { EmailDeliveryPolicy, EmailEventCategory, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
-import { AccountStatusChangedEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, PasswordChangedEmailPayload } from './email-composition.types';
+import { AccountStatusChangedEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, LeaveDecisionEmailPayload, PasswordChangedEmailPayload } from './email-composition.types';
 import { emailRendererRegistry } from './email-renderer.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
@@ -52,6 +52,61 @@ export class NotificationsService {
       targetUserId: input.targetUserId,
       payload: input.payload,
     });
+  }
+
+  async createLeaveDecisionEmail(input: {
+    decisionHistoryId: string;
+    type: typeof NotificationType.LEAVE_APPROVED | typeof NotificationType.LEAVE_REJECTED;
+    applicantUserId: string;
+    expectedCompanyId: string;
+    payload: LeaveDecisionEmailPayload;
+  }): Promise<{ created: boolean }> {
+    const channel = NotificationChannel.EMAIL;
+    const policy = getEmailEventPolicy(input.type);
+    if (
+      policy.category !== EmailEventCategory.WORKFLOW ||
+      policy.deliveryPolicy !== EmailDeliveryPolicy.PREFERENCE_CONTROLLED ||
+      policy.recipientResolver !== EmailRecipientResolverId.WORKFLOW_APPLICANT ||
+      policy.preferenceEvaluator !== EmailPreferencePolicyId.USER_EMAIL_ENABLED ||
+      policy.quietHours !== EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL ||
+      !policy.eligibleChannels.includes(channel)
+    ) throw new Error(`${input.type} email policy is invalid`);
+
+    const composition = emailRendererRegistry.render(input.type, input.payload);
+    const recipient = await this.recipients.resolveWorkflowApplicant(input.applicantUserId, input.expectedCompanyId);
+    if (!recipient || recipient.companyId !== input.expectedCompanyId) {
+      throw new Error(`${input.type} recipient was not found`);
+    }
+    const preference = await this.preferences.getEffective(recipient.userId);
+    if (!preference.emailEnabled) return { created: false };
+    const idempotencyKey = policy.buildIdempotencyKey({ sourceId: input.decisionHistoryId, userId: recipient.userId, channel });
+    const nextRetryAt = this.emailRetryStart(
+      MonitoringAlertSeverity.INFO,
+      preference.quietHoursStart,
+      preference.quietHoursEnd,
+    );
+    try {
+      await this.prisma.notification.create({
+        data: {
+          companyId: input.expectedCompanyId,
+          userId: recipient.userId,
+          alertId: null,
+          type: input.type,
+          channel,
+          title: composition.subject,
+          message: composition.message,
+          severity: null,
+          status: NotificationStatus.PENDING,
+          detailsPath: composition.safeDetailsPath,
+          idempotencyKey,
+          deliveries: { create: { channel, recipient: recipient.email, status: NotificationStatus.PENDING, nextRetryAt } },
+        },
+      });
+      return { created: true };
+    } catch (error) {
+      if (isNotificationIdempotencyConflict(error)) return { created: false };
+      throw error;
+    }
   }
 
   private async createMandatoryAffectedUserEmail<K extends EmailEventKey>(input: {

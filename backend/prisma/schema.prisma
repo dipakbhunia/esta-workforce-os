@@ -175,6 +175,8 @@ enum NotificationType {
   ALERT_AUTO_RESOLVED
   PASSWORD_CHANGED
   ACCOUNT_STATUS_CHANGED
+  LEAVE_APPROVED
+  LEAVE_REJECTED
 }
 
 enum ProductivityCategory {

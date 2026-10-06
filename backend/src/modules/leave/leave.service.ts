@@ -3,12 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
   EmployeeStatus,
   LeaveApprovalAction,
   LeaveRequestStatus,
+  NotificationType,
   Prisma,
   RoleName,
 } from '@prisma/client';
@@ -19,6 +21,7 @@ import {
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeaveRequestDto } from './dto/create-leave-request.dto';
 import { CreateLeaveTypeDto } from './dto/create-leave-type.dto';
 import { LeaveBalanceQueryDto } from './dto/leave-balance-query.dto';
@@ -78,7 +81,12 @@ type LeaveBalanceRecord = Prisma.LeaveBalanceGetPayload<{
 
 @Injectable()
 export class LeaveService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(LeaveService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async createType(dto: CreateLeaveTypeDto, actor: AuthenticatedUser) {
     const companyId = this.manageTenant(actor);
@@ -342,7 +350,7 @@ export class LeaveService {
     ) {
       throw new ForbiddenException('Leave approval is not permitted');
     }
-    return this.prisma.$transaction(async (tx) => {
+    const decision = await this.prisma.$transaction(async (tx) => {
       const decision = await tx.leaveRequest.updateMany({
         where: {
           id,
@@ -385,7 +393,7 @@ export class LeaveService {
           update: { used: { increment: updated.totalDays } },
         });
       }
-      await tx.leaveApprovalHistory.create({
+      const history = await tx.leaveApprovalHistory.create({
         data: {
           companyId: updated.companyId,
           leaveRequestId: updated.id,
@@ -414,8 +422,32 @@ export class LeaveService {
           },
         },
       });
-      return this.toLeaveRequestResponse(updated);
+      return { updated, historyId: history.id };
     });
+    try {
+      await this.notifications.createLeaveDecisionEmail({
+        decisionHistoryId: decision.historyId,
+        type: decision.updated.status === LeaveRequestStatus.APPROVED
+          ? NotificationType.LEAVE_APPROVED
+          : NotificationType.LEAVE_REJECTED,
+        applicantUserId: decision.updated.employee.user.id,
+        expectedCompanyId: decision.updated.companyId,
+        payload: {
+          leaveRequestId: decision.updated.id,
+          leaveTypeName: decision.updated.leaveType.name,
+          startDate: this.dateOnlyString(decision.updated.startDate),
+          endDate: this.dateOnlyString(decision.updated.endDate),
+        },
+      });
+    } catch {
+      this.logger.warn({
+        failureCategory: 'LEAVE_DECISION_NOTIFICATION_ENQUEUE_FAILED',
+        leaveRequestId: decision.updated.id,
+        decisionHistoryId: decision.historyId,
+        companyId: decision.updated.companyId,
+      });
+    }
+    return this.toLeaveRequestResponse(decision.updated);
   }
 
   async cancel(id: string, actor: AuthenticatedUser) {

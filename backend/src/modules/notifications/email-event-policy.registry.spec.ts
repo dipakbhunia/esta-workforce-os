@@ -10,6 +10,8 @@ describe('email event policy registry', () => {
     const monitoring = policies.filter((policy) => ![
       NotificationType.PASSWORD_CHANGED,
       NotificationType.ACCOUNT_STATUS_CHANGED,
+      NotificationType.LEAVE_APPROVED,
+      NotificationType.LEAVE_REJECTED,
     ].includes(policy.eventKey));
     assert.ok(monitoring.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
     assert.ok(monitoring.every(preferencesApply));
@@ -30,6 +32,20 @@ describe('email event policy registry', () => {
     assert.equal(accountStatus.quietHours, 'NONE');
     assert.equal(accountStatus.buildIdempotencyKey({ sourceId: 'mutation', userId: 'target', channel: NotificationChannel.EMAIL }),
       'mutation:ACCOUNT_STATUS_CHANGED:target:EMAIL');
+  });
+
+  it('registers Leave decisions as preference-controlled workflow email only', () => {
+    for (const type of [NotificationType.LEAVE_APPROVED, NotificationType.LEAVE_REJECTED]) {
+      const policy = getEmailEventPolicy(type);
+      assert.equal(policy.category, 'WORKFLOW');
+      assert.equal(policy.deliveryPolicy, EmailDeliveryPolicy.PREFERENCE_CONTROLLED);
+      assert.equal(policy.preferenceEvaluator, 'USER_EMAIL_ENABLED');
+      assert.equal(policy.recipientResolver, 'WORKFLOW_APPLICANT');
+      assert.equal(policy.quietHours, 'NON_CRITICAL_EMAIL');
+      assert.deepEqual(policy.eligibleChannels, [NotificationChannel.EMAIL]);
+      assert.equal(policy.buildIdempotencyKey({ sourceId: 'history', userId: 'applicant', channel: NotificationChannel.EMAIL }),
+        `history:${type}:applicant:EMAIL`);
+    }
   });
 
   it('preserves monitoring channels and the established idempotency format', () => {

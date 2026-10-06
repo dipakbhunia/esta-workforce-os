@@ -19,6 +19,7 @@ import { LeaveService } from './leave.service';
 const enabled = process.env.RUN_LEAVE_REVIEW_DB_INTEGRATION === '1';
 const describeDb = enabled ? describe : describe.skip;
 const prisma = new PrismaClient();
+const notifications = { createLeaveDecisionEmail: async () => ({ created: true }) };
 
 type ReviewStatus = typeof LeaveRequestStatus.APPROVED | typeof LeaveRequestStatus.REJECTED;
 
@@ -126,7 +127,7 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
       const clients = [new PrismaClient(), new PrismaClient()];
       await Promise.all(clients.map((client) => client.$connect()));
       try {
-        const services = clients.map((client) => new LeaveService(coordinatedPrisma(client, barrier) as never));
+        const services = clients.map((client) => new LeaveService(coordinatedPrisma(client, barrier) as never, notifications as never));
         const results = await Promise.allSettled([
           services[0].review(requestId, { status: left }, reviewer()),
           services[1].review(requestId, { status: right }, reviewer()),
@@ -158,7 +159,7 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
   }
 
   it('preserves sequential approve/reject and existing stale-decision behavior', async () => {
-    const service = new LeaveService(prisma as never);
+    const service = new LeaveService(prisma as never, notifications as never);
     const approvedId = await createPendingRequest();
     const rejectedId = await createPendingRequest();
     assert.equal((await service.review(approvedId, { status: LeaveRequestStatus.APPROVED }, reviewer())).status,
@@ -192,7 +193,7 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
         BEFORE INSERT ON "AuditLog"
         FOR EACH ROW EXECUTE FUNCTION "${functionName}"()
       `);
-      const service = new LeaveService(prisma as never);
+      const service = new LeaveService(prisma as never, notifications as never);
       await assert.rejects(() => service.review(requestId, { status: LeaveRequestStatus.APPROVED }, reviewer()));
       const durable = await decisionEvidence(requestId);
       assert.equal(durable.request.status, LeaveRequestStatus.PENDING);
@@ -207,7 +208,7 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
 
   it('preserves tenant isolation and manager authority', async () => {
     const requestId = await createPendingRequest();
-    const service = new LeaveService(prisma as never);
+    const service = new LeaveService(prisma as never, notifications as never);
     await assert.rejects(
       () => service.review(requestId, { status: LeaveRequestStatus.APPROVED }, {
         ...reviewer(), companyId: randomUUID(),

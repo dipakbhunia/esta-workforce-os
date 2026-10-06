@@ -2,6 +2,7 @@ import { EmailCompositionError } from './email-composition.types';
 
 const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const monitoringAlertPath = /^\/monitoring\/alerts\/([0-9a-f-]+)$/i;
+const leaveRequestPath = /^\/leave\/requests\/([0-9a-f-]+)$/i;
 
 export function escapeEmailHtml(value: string): string {
   return value.replace(
@@ -23,6 +24,13 @@ export function buildMonitoringAlertDetailsPath(alertId: string): string {
   return `/monitoring/alerts/${alertId.toLowerCase()}`;
 }
 
+export function buildLeaveRequestDetailsPath(leaveRequestId: string): string {
+  if (!canonicalUuid.test(leaveRequestId)) {
+    throw new EmailCompositionError('INVALID_PAYLOAD', 'Leave request identifier is invalid');
+  }
+  return `/leave/requests/${leaveRequestId.toLowerCase()}`;
+}
+
 export function assertSafeEmailDetailsPath(value: string): string {
   if (
     !value.startsWith('/') ||
@@ -35,9 +43,13 @@ export function assertSafeEmailDetailsPath(value: string): string {
   ) {
     throw new EmailCompositionError('INVALID_RENDER_RESULT', 'Email details path is not approved');
   }
-  const match = monitoringAlertPath.exec(value);
-  if (!match || !canonicalUuid.test(match[1])) {
+  const monitoringMatch = monitoringAlertPath.exec(value);
+  if (monitoringMatch && canonicalUuid.test(monitoringMatch[1])) {
+    return `/monitoring/alerts/${monitoringMatch[1].toLowerCase()}`;
+  }
+  const leaveMatch = leaveRequestPath.exec(value);
+  if (!leaveMatch || !canonicalUuid.test(leaveMatch[1])) {
     throw new EmailCompositionError('INVALID_RENDER_RESULT', 'Email details path is not approved');
   }
-  return `/monitoring/alerts/${match[1].toLowerCase()}`;
+  return `/leave/requests/${leaveMatch[1].toLowerCase()}`;
 }

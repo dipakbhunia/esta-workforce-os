@@ -41,4 +41,18 @@ describe('NotificationRecipientResolver monitoring authority', () => {
     const missing = new NotificationRecipientResolver({ user: { findUnique: async () => null } } as never);
     assert.equal(await missing.resolveAffectedUser('missing'), null);
   });
+
+  it('resolves a workflow applicant only through exact current tenant ownership', async () => {
+    let where: unknown;
+    const resolver = new NotificationRecipientResolver({ user: { findFirst: async (input: { where: unknown }) => {
+      where = input.where;
+      return employeeUser;
+    } } } as never);
+    assert.deepEqual(await resolver.resolveWorkflowApplicant(employeeUser.id, 'company'), {
+      userId: employeeUser.id, email: employeeUser.email, companyId: 'company',
+    });
+    assert.deepEqual(where, { id: employeeUser.id, companyId: 'company', deletedAt: null });
+    const missing = new NotificationRecipientResolver({ user: { findFirst: async () => null } } as never);
+    assert.equal(await missing.resolveWorkflowApplicant(employeeUser.id, 'company'), null);
+  });
 });
