@@ -7,7 +7,7 @@ import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notifi
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
 import { EmailDeliveryPolicy, EmailEventCategory, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
-import { AccountStatusChangedEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, LeaveDecisionEmailPayload, PasswordChangedEmailPayload } from './email-composition.types';
+import { AccountStatusChangedEmailPayload, AttendanceCorrectionDecisionEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, LeaveDecisionEmailPayload, PasswordChangedEmailPayload } from './email-composition.types';
 import { emailRendererRegistry } from './email-renderer.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
@@ -61,6 +61,42 @@ export class NotificationsService {
     expectedCompanyId: string;
     payload: LeaveDecisionEmailPayload;
   }): Promise<{ created: boolean }> {
+    return this.createWorkflowDecisionEmail({
+      sourceId: input.decisionHistoryId,
+      type: input.type,
+      applicantUserId: input.applicantUserId,
+      expectedCompanyId: input.expectedCompanyId,
+      payload: input.payload,
+    });
+  }
+
+  async createAttendanceCorrectionDecisionEmail(input: {
+    decisionAuditId: string;
+    type: typeof NotificationType.ATTENDANCE_CORRECTION_APPROVED | typeof NotificationType.ATTENDANCE_CORRECTION_REJECTED;
+    employeeUserId: string;
+    expectedCompanyId: string;
+    payload: AttendanceCorrectionDecisionEmailPayload;
+  }): Promise<{ created: boolean }> {
+    return this.createWorkflowDecisionEmail({
+      sourceId: input.decisionAuditId,
+      type: input.type,
+      applicantUserId: input.employeeUserId,
+      expectedCompanyId: input.expectedCompanyId,
+      payload: input.payload,
+    });
+  }
+
+  private async createWorkflowDecisionEmail<K extends
+    | typeof NotificationType.LEAVE_APPROVED
+    | typeof NotificationType.LEAVE_REJECTED
+    | typeof NotificationType.ATTENDANCE_CORRECTION_APPROVED
+    | typeof NotificationType.ATTENDANCE_CORRECTION_REJECTED>(input: {
+    sourceId: string;
+    type: K;
+    applicantUserId: string;
+    expectedCompanyId: string;
+    payload: EmailEventPayloadMap[K];
+  }): Promise<{ created: boolean }> {
     const channel = NotificationChannel.EMAIL;
     const policy = getEmailEventPolicy(input.type);
     if (
@@ -79,7 +115,7 @@ export class NotificationsService {
     }
     const preference = await this.preferences.getEffective(recipient.userId);
     if (!preference.emailEnabled) return { created: false };
-    const idempotencyKey = policy.buildIdempotencyKey({ sourceId: input.decisionHistoryId, userId: recipient.userId, channel });
+    const idempotencyKey = policy.buildIdempotencyKey({ sourceId: input.sourceId, userId: recipient.userId, channel });
     const nextRetryAt = this.emailRetryStart(
       MonitoringAlertSeverity.INFO,
       preference.quietHoursStart,

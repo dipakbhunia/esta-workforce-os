@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -10,6 +11,7 @@ import {
   AttendanceLogType,
   AttendanceStatus,
   EmployeeStatus,
+  NotificationType,
   Prisma,
   RoleName,
 } from '@prisma/client';
@@ -17,6 +19,7 @@ import { paginatedResult, paginationArgs } from '../../common/utils/pagination.u
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { dateOnly, zonedDateTimeToUtc } from '../attendance/attendance-time.util';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AttendanceCorrectionQueryDto } from './dto/attendance-correction-query.dto';
 import { AttendanceCorrectionResponseDto } from './dto/attendance-correction-response.dto';
 import { CreateAttendanceCorrectionRequestDto } from './dto/create-attendance-correction-request.dto';
@@ -59,7 +62,12 @@ type CorrectionWithDetails = Prisma.AttendanceCorrectionRequestGetPayload<{
 
 @Injectable()
 export class AttendanceCorrectionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AttendanceCorrectionsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async create(
     dto: CreateAttendanceCorrectionRequestDto,
@@ -253,7 +261,7 @@ export class AttendanceCorrectionsService {
         where: { id },
         include: correctionInclude,
       });
-      await tx.auditLog.create({
+      const decisionAudit = await tx.auditLog.create({
         data: {
           companyId: claimed.companyId,
           actorUserId: actor.id,
@@ -270,10 +278,31 @@ export class AttendanceCorrectionsService {
           },
         },
       });
-      return reviewed;
+      return { reviewed, decisionAuditId: decisionAudit.id };
     });
+    try {
+      await this.notifications.createAttendanceCorrectionDecisionEmail({
+        decisionAuditId: updated.decisionAuditId,
+        type: updated.reviewed.status === AttendanceCorrectionStatus.APPROVED
+          ? NotificationType.ATTENDANCE_CORRECTION_APPROVED
+          : NotificationType.ATTENDANCE_CORRECTION_REJECTED,
+        employeeUserId: updated.reviewed.employee.user.id,
+        expectedCompanyId: updated.reviewed.companyId,
+        payload: {
+          attendanceCorrectionRequestId: updated.reviewed.id,
+          attendanceDate: updated.reviewed.attendance.attendanceDate.toISOString().slice(0, 10),
+        },
+      });
+    } catch {
+      this.logger.warn({
+        failureCategory: 'ATTENDANCE_CORRECTION_DECISION_NOTIFICATION_ENQUEUE_FAILED',
+        attendanceCorrectionRequestId: updated.reviewed.id,
+        decisionAuditId: updated.decisionAuditId,
+        companyId: updated.reviewed.companyId,
+      });
+    }
 
-    return this.toResponse(updated);
+    return this.toResponse(updated.reviewed);
   }
 
   async cancel(

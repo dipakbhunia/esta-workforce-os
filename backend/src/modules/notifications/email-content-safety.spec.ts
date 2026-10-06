@@ -4,6 +4,7 @@ import {
   assertSafeEmailDetailsPath,
   buildMonitoringAlertDetailsPath,
   buildLeaveRequestDetailsPath,
+  buildAttendanceCorrectionDetailsPath,
   escapeEmailHtml,
 } from './email-content-safety';
 
@@ -32,6 +33,14 @@ describe('email content safety', () => {
     const path = `/monitoring/alerts/${id}`;
     assert.equal(buildMonitoringAlertDetailsPath(id.toUpperCase()), path);
     assert.equal(assertSafeEmailDetailsPath(path), path);
+  });
+
+  it('builds and accepts only the canonical Attendance correction path', () => {
+    const path = `/attendance/corrections/${id}`;
+    assert.equal(buildAttendanceCorrectionDetailsPath(id.toUpperCase()), path);
+    assert.equal(assertSafeEmailDetailsPath(path), path);
+    assert.throws(() => buildAttendanceCorrectionDetailsPath('not-a-uuid'));
+    assert.throws(() => assertSafeEmailDetailsPath(`${path}/edit`));
   });
 
   it('rejects malformed identifiers and unsafe path forms', () => {

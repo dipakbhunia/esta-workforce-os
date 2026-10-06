@@ -16,6 +16,7 @@ import { AttendanceCorrectionsService } from './attendance-corrections.service';
 const enabled = process.env.RUN_ATTENDANCE_CORRECTION_DB_INTEGRATION === '1';
 const describeDb = enabled ? describe : describe.skip;
 const prisma = new PrismaClient();
+const noNotifications = { createAttendanceCorrectionDecisionEmail: async () => ({ created: true }) };
 
 class Barrier {
   private arrivals = 0;
@@ -115,7 +116,7 @@ describeDb('PC-H0 PostgreSQL Attendance correction decision concurrency', () => 
     try {
       await prisma.$executeRawUnsafe(`CREATE FUNCTION "${fn}"() RETURNS trigger AS $$ BEGIN IF NEW."entityType" = 'AttendanceCorrectionRequest' AND NEW."entityId" = '${fixture.requestId}' THEN RAISE EXCEPTION 'PC-H0 rollback'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
       await prisma.$executeRawUnsafe(`CREATE TRIGGER "${trigger}" BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION "${fn}"()`);
-      await assert.rejects(() => new AttendanceCorrectionsService(prisma as never).review(
+      await assert.rejects(() => new AttendanceCorrectionsService(prisma as never, noNotifications as never).review(
         fixture.requestId, { status: AttendanceCorrectionStatus.APPROVED }, reviewer(),
       ));
       const evidence = await durableEvidence(fixture.requestId, fixture.attendanceId);
@@ -131,7 +132,7 @@ describeDb('PC-H0 PostgreSQL Attendance correction decision concurrency', () => 
   });
 
   it('preserves sequential terminal errors, tenant isolation, and employee denial', async () => {
-    const service = new AttendanceCorrectionsService(prisma as never);
+    const service = new AttendanceCorrectionsService(prisma as never, noNotifications as never);
     const approved = await pendingRequest();
     assert.equal((await service.review(approved.requestId, { status: AttendanceCorrectionStatus.APPROVED }, reviewer())).status,
       AttendanceCorrectionStatus.APPROVED);
@@ -173,7 +174,7 @@ describeDb('PC-H0 PostgreSQL Attendance correction decision concurrency', () => 
     const clients = [new PrismaClient(), new PrismaClient()];
     await Promise.all(clients.map((client) => client.$connect()));
     try {
-      const services = clients.map((client) => new AttendanceCorrectionsService(coordinatedPrisma(client, barrier) as never));
+      const services = clients.map((client) => new AttendanceCorrectionsService(coordinatedPrisma(client, barrier) as never, noNotifications as never));
       return await Promise.allSettled([left(services[0]), right(services[1])]);
     } finally { await Promise.all(clients.map((client) => client.$disconnect())); }
   }

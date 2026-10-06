@@ -31,8 +31,9 @@ function record(status = AttendanceCorrectionStatus.PENDING) {
   };
 }
 
-function harness(claimCount = 1) {
+function harness(claimCount = 1, notificationFailure?: Error) {
   const calls: string[] = [];
+  const notificationCalls: unknown[] = [];
   let current = record();
   const tx = {
     attendanceCorrectionRequest: {
@@ -43,13 +44,18 @@ function harness(claimCount = 1) {
       },
       findUniqueOrThrow: async () => { calls.push('reload'); return current; },
     },
-    auditLog: { create: async () => { calls.push('audit'); return {}; } },
+    auditLog: { create: async () => { calls.push('audit'); return { id: '77777777-7777-4777-8777-777777777777' }; } },
   };
   const prisma = {
     attendanceCorrectionRequest: { findFirst: async () => record() },
     $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
   };
-  return { service: new AttendanceCorrectionsService(prisma as never), calls };
+  const notifications = { createAttendanceCorrectionDecisionEmail: async (input: unknown) => {
+    notificationCalls.push(input);
+    if (notificationFailure) throw notificationFailure;
+    return { created: true };
+  } };
+  return { service: new AttendanceCorrectionsService(prisma as never, notifications as never), calls, notificationCalls };
 }
 
 describe('AttendanceCorrectionsService decision claims', () => {
@@ -76,5 +82,25 @@ describe('AttendanceCorrectionsService decision claims', () => {
       (error: unknown) => error instanceof BadRequestException && error.message === 'Only pending requests can be cancelled',
     );
     assert.deepEqual(state.calls, ['claim']);
+    assert.equal(state.notificationCalls.length, 0);
+  });
+
+  it('enqueues after the committed winning decision using audit and employee authority', async () => {
+    const state = harness();
+    await state.service.review(requestId, { status: AttendanceCorrectionStatus.REJECTED }, actor);
+    assert.deepEqual(state.notificationCalls, [{
+      decisionAuditId: '77777777-7777-4777-8777-777777777777',
+      type: 'ATTENDANCE_CORRECTION_REJECTED',
+      employeeUserId: '66666666-6666-4666-8666-666666666666',
+      expectedCompanyId: companyId,
+      payload: { attendanceCorrectionRequestId: requestId, attendanceDate: '2026-10-01' },
+    }]);
+  });
+
+  it('preserves a committed decision when best-effort enqueue fails', async () => {
+    const state = harness(1, new Error('SMTP details must not escape'));
+    const result = await state.service.review(requestId, { status: AttendanceCorrectionStatus.REJECTED }, actor);
+    assert.equal(result.status, AttendanceCorrectionStatus.REJECTED);
+    assert.deepEqual(state.calls, ['claim', 'reload', 'reload', 'audit']);
   });
 });

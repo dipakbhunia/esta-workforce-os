@@ -89,6 +89,20 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
     buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
       `${sourceId}:${eventKey}:${userId}:${channel}`,
   }] as const),
+  ...([NotificationType.ATTENDANCE_CORRECTION_APPROVED, NotificationType.ATTENDANCE_CORRECTION_REJECTED] as const).map((eventKey) => [eventKey, {
+    eventKey,
+    category: EmailEventCategory.WORKFLOW,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.PREFERENCE_CONTROLLED,
+    recipientResolver: EmailRecipientResolverId.WORKFLOW_APPLICANT,
+    preferenceEvaluator: EmailPreferencePolicyId.USER_EMAIL_ENABLED,
+    renderer: eventKey === NotificationType.ATTENDANCE_CORRECTION_APPROVED
+      ? EmailRendererId.ATTENDANCE_CORRECTION_APPROVED_WORKFLOW
+      : EmailRendererId.ATTENDANCE_CORRECTION_REJECTED_WORKFLOW,
+    quietHours: EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL,
+    buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
+      `${sourceId}:${eventKey}:${userId}:${channel}`,
+  }] as const),
 ]);
 
 export function getEmailEventPolicy(eventKey: NotificationType): EmailEventPolicy {
