@@ -343,41 +343,52 @@ export class LeaveService {
       throw new ForbiddenException('Leave approval is not permitted');
     }
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.leaveRequest.update({
-        where: { id },
+      const decision = await tx.leaveRequest.updateMany({
+        where: {
+          id,
+          companyId: request.companyId,
+          deletedAt: null,
+          status: LeaveRequestStatus.PENDING,
+        },
         data: {
           status: dto.status,
           approverId: approver?.id,
           reviewedAt: new Date(),
           reviewComment: dto.comment?.trim(),
         },
+      });
+      if (decision.count !== 1) {
+        throw new BadRequestException('Only pending requests can be reviewed');
+      }
+      const updated = await tx.leaveRequest.findUniqueOrThrow({
+        where: { id },
         include: requestInclude,
       });
       if (dto.status === LeaveRequestStatus.APPROVED) {
-        const year = request.startDate.getUTCFullYear();
+        const year = updated.startDate.getUTCFullYear();
         await tx.leaveBalance.upsert({
           where: {
             employeeId_leaveTypeId_year: {
-              employeeId: request.employeeId,
-              leaveTypeId: request.leaveTypeId,
+              employeeId: updated.employeeId,
+              leaveTypeId: updated.leaveTypeId,
               year,
             },
           },
           create: {
-            companyId: request.companyId,
-            employeeId: request.employeeId,
-            leaveTypeId: request.leaveTypeId,
+            companyId: updated.companyId,
+            employeeId: updated.employeeId,
+            leaveTypeId: updated.leaveTypeId,
             year,
-            allocated: request.leaveType.defaultDays,
-            used: request.totalDays,
+            allocated: updated.leaveType.defaultDays,
+            used: updated.totalDays,
           },
-          update: { used: { increment: request.totalDays } },
+          update: { used: { increment: updated.totalDays } },
         });
       }
       await tx.leaveApprovalHistory.create({
         data: {
-          companyId: request.companyId,
-          leaveRequestId: request.id,
+          companyId: updated.companyId,
+          leaveRequestId: updated.id,
           action:
             dto.status === LeaveRequestStatus.APPROVED
               ? LeaveApprovalAction.APPROVED
@@ -388,17 +399,17 @@ export class LeaveService {
       });
       await tx.auditLog.create({
         data: {
-          companyId: request.companyId,
+          companyId: updated.companyId,
           actorUserId: actor.id,
           action:
             dto.status === LeaveRequestStatus.APPROVED
               ? 'LEAVE_APPROVED'
               : 'LEAVE_REJECTED',
           entityType: 'LeaveRequest',
-          entityId: request.id,
+          entityId: updated.id,
           metadata: {
-            employeeId: request.employeeId,
-            leaveTypeId: request.leaveTypeId,
+            employeeId: updated.employeeId,
+            leaveTypeId: updated.leaveTypeId,
             comment: dto.comment?.trim(),
           },
         },
