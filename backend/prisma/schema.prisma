@@ -439,66 +439,68 @@ model PlanRecurringPrice {
 }
 
 model Company {
-  id                           String                        @id @default(uuid()) @db.Uuid
-  name                         String
-  slug                         String
-  primaryEmail                 String?
-  phone                        String?
-  website                      String?
-  country                      String?
-  timezone                     String                        @default("UTC")
-  currency                     String?
-  address                      String?
-  status                       CompanyStatus                 @default(TRIAL)
-  createdAt                    DateTime                      @default(now())
-  updatedAt                    DateTime                      @updatedAt
-  deletedAt                    DateTime?
-  branches                     Branch[]
-  departments                  Department[]
-  designations                 Designation[]
-  shifts                       Shift[]
-  users                        User[]
-  employees                    Employee[]
-  shiftAssignments             EmployeeShiftAssignment[]
-  shiftRosterPeriods           ShiftRosterPeriod[]
-  shiftRosterDays              ShiftRosterDay[]
-  rosterTemplates              RosterTemplate[]
-  rosterTemplateDays           RosterTemplateDay[]
-  rotationPatterns             RotationPattern[]
-  rotationPatternDays          RotationPatternDay[]
-  weeklyOffRules               WeeklyOffRule[]
-  holidayCalendars             HolidayCalendar[]
-  holidays                     Holiday[]
-  attendances                  Attendance[]
-  attendanceCorrectionRequests AttendanceCorrectionRequest[]
-  leaveTypes                   LeaveType[]
-  leaveRequests                LeaveRequest[]
-  leaveBalances                LeaveBalance[]
-  leaveApprovalHistories       LeaveApprovalHistory[]
-  breakPolicies                BreakPolicy[]
-  attendancePolicies           AttendancePolicy[]
-  monitoringDevices            MonitoringDevice[]
-  heartbeats                   Heartbeat[]
-  activitySessions             ActivitySession[]
-  screenshots                  Screenshot[]
-  applicationUsages            ApplicationUsage[]
-  websiteUsages                WebsiteUsage[]
-  monitoringAlerts             MonitoringAlert[]
-  monitoringAlertEvents        MonitoringAlertEvent[]
-  monitoringAlertPolicies      MonitoringAlertPolicy[]
-  notifications                Notification[]
-  notificationPreferences      NotificationPreference[]
-  applicationProductivityRules ApplicationProductivityRule[]
-  websiteProductivityRules     WebsiteProductivityRule[]
-  roles                        Role[]
-  auditLogs                    AuditLog[]
-  subscriptions                CompanySubscription[]
-  trials                       CompanyTrial[]
-  payments                     Payment[]
-  billingProfile               CompanyBillingProfile?
-  invoices                     Invoice[]
-  paymentTaxSnapshots          PaymentTaxSnapshot[]
-  subscriptionRenewals         SubscriptionRenewal[]
+  id                            String                        @id @default(uuid()) @db.Uuid
+  name                          String
+  slug                          String
+  primaryEmail                  String?
+  phone                         String?
+  website                       String?
+  country                       String?
+  timezone                      String                        @default("UTC")
+  currency                      String?
+  address                       String?
+  status                        CompanyStatus                 @default(TRIAL)
+  createdAt                     DateTime                      @default(now())
+  updatedAt                     DateTime                      @updatedAt
+  deletedAt                     DateTime?
+  designatedLeaveApproverUserId String?                       @db.Uuid
+  branches                      Branch[]
+  departments                   Department[]
+  designations                  Designation[]
+  shifts                        Shift[]
+  users                         User[]
+  employees                     Employee[]
+  shiftAssignments              EmployeeShiftAssignment[]
+  shiftRosterPeriods            ShiftRosterPeriod[]
+  shiftRosterDays               ShiftRosterDay[]
+  rosterTemplates               RosterTemplate[]
+  rosterTemplateDays            RosterTemplateDay[]
+  rotationPatterns              RotationPattern[]
+  rotationPatternDays           RotationPatternDay[]
+  weeklyOffRules                WeeklyOffRule[]
+  holidayCalendars              HolidayCalendar[]
+  holidays                      Holiday[]
+  attendances                   Attendance[]
+  attendanceCorrectionRequests  AttendanceCorrectionRequest[]
+  leaveTypes                    LeaveType[]
+  leaveRequests                 LeaveRequest[]
+  leaveBalances                 LeaveBalance[]
+  leaveApprovalHistories        LeaveApprovalHistory[]
+  breakPolicies                 BreakPolicy[]
+  attendancePolicies            AttendancePolicy[]
+  monitoringDevices             MonitoringDevice[]
+  heartbeats                    Heartbeat[]
+  activitySessions              ActivitySession[]
+  screenshots                   Screenshot[]
+  applicationUsages             ApplicationUsage[]
+  websiteUsages                 WebsiteUsage[]
+  monitoringAlerts              MonitoringAlert[]
+  monitoringAlertEvents         MonitoringAlertEvent[]
+  monitoringAlertPolicies       MonitoringAlertPolicy[]
+  notifications                 Notification[]
+  notificationPreferences       NotificationPreference[]
+  applicationProductivityRules  ApplicationProductivityRule[]
+  websiteProductivityRules      WebsiteProductivityRule[]
+  roles                         Role[]
+  auditLogs                     AuditLog[]
+  subscriptions                 CompanySubscription[]
+  trials                        CompanyTrial[]
+  payments                      Payment[]
+  billingProfile                CompanyBillingProfile?
+  invoices                      Invoice[]
+  paymentTaxSnapshots           PaymentTaxSnapshot[]
+  subscriptionRenewals          SubscriptionRenewal[]
+  designatedLeaveApprover       User?                         @relation("CompanyDesignatedLeaveApprover", fields: [designatedLeaveApproverUserId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([slug])
@@ -1290,6 +1292,8 @@ model User {
   billingProviderCredentials   BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
   createdPayments              Payment[]                      @relation("PaymentCreatedBy")
   preparedSubscriptionRenewals SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
+  designatedLeaveApproverFor   Company[]                      @relation("CompanyDesignatedLeaveApprover")
+  assignedLeaveRequests        LeaveRequest[]                 @relation("LeaveRequestAssignedApprover")
 
   @@index([companyId])
   @@index([branchId])
@@ -1875,30 +1879,34 @@ model LeaveType {
 }
 
 model LeaveRequest {
-  id            String                 @id @default(uuid()) @db.Uuid
-  companyId     String                 @db.Uuid
-  employeeId    String                 @db.Uuid
-  leaveTypeId   String                 @db.Uuid
-  startDate     DateTime               @db.Date
-  endDate       DateTime               @db.Date
-  totalDays     Float
-  reason        String?
-  status        LeaveRequestStatus     @default(PENDING)
-  approverId    String?                @db.Uuid
-  reviewedAt    DateTime?
-  reviewComment String?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  deletedAt     DateTime?
-  company       Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee      Employee               @relation("LeaveRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  leaveType     LeaveType              @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
-  approver      Employee?              @relation("LeaveRequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  history       LeaveApprovalHistory[]
+  id                       String                 @id @default(uuid()) @db.Uuid
+  companyId                String                 @db.Uuid
+  employeeId               String                 @db.Uuid
+  leaveTypeId              String                 @db.Uuid
+  startDate                DateTime               @db.Date
+  endDate                  DateTime               @db.Date
+  totalDays                Float
+  reason                   String?
+  status                   LeaveRequestStatus     @default(PENDING)
+  approverId               String?                @db.Uuid
+  assignedApproverUserId   String?                @db.Uuid
+  approvalAuthorityVersion Int?
+  reviewedAt               DateTime?
+  reviewComment            String?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  deletedAt                DateTime?
+  company                  Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee                 Employee               @relation("LeaveRequestEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  leaveType                LeaveType              @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  approver                 Employee?              @relation("LeaveRequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  assignedApprover         User?                  @relation("LeaveRequestAssignedApprover", fields: [assignedApproverUserId], references: [id], onDelete: Restrict)
+  history                  LeaveApprovalHistory[]
 
   @@index([companyId, status])
   @@index([employeeId, startDate])
   @@index([leaveTypeId])
+  @@index([companyId, assignedApproverUserId, status], map: "LeaveRequest_companyId_assignedApproverUserId_status_idx")
   @@index([deletedAt])
 }
 
