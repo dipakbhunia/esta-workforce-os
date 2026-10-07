@@ -55,4 +55,23 @@ describe('NotificationRecipientResolver monitoring authority', () => {
     const missing = new NotificationRecipientResolver({ user: { findFirst: async () => null } } as never);
     assert.equal(await missing.resolveWorkflowApplicant(employeeUser.id, 'company'), null);
   });
+
+  it('resolves exactly one assigned approver through tenant-bound user identity without role fan-out', async () => {
+    let input: unknown;
+    const resolver = new NotificationRecipientResolver({ user: { findFirst: async (value: unknown) => {
+      input = value;
+      return roleUser;
+    } } } as never);
+    assert.deepEqual(await resolver.resolveWorkflowAssignedApprover(roleUser.id, 'company'), {
+      userId: roleUser.id,
+      email: roleUser.email,
+      companyId: 'company',
+    });
+    assert.deepEqual(input, {
+      where: { id: roleUser.id, companyId: 'company', deletedAt: null },
+      select: { id: true, email: true, companyId: true },
+    });
+    const missing = new NotificationRecipientResolver({ user: { findFirst: async () => null } } as never);
+    assert.equal(await missing.resolveWorkflowAssignedApprover(roleUser.id, 'other-company'), null);
+  });
 });

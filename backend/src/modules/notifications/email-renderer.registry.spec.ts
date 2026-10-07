@@ -5,6 +5,7 @@ import { EmailCompositionError } from './email-composition.types';
 import { EmailRendererRegistry } from './email-renderer.registry';
 import { monitoringEmailRendererRegistrations } from './monitoring-email.renderer';
 import { accountStatusChangedEmailRendererRegistration } from './account-status-changed-email.renderer';
+import { leaveAppliedEmailRendererRegistration } from './leave-applied-email.renderer';
 
 describe('EmailRendererRegistry', () => {
   it('fails closed for duplicate and missing registrations', () => {
@@ -27,6 +28,17 @@ describe('EmailRendererRegistry', () => {
     assert.equal(registry.render(NotificationType.ACCOUNT_STATUS_CHANGED, {
       previousStatus: 'ACTIVE', status: 'INACTIVE',
     }).subject, 'Your account status changed');
+  });
+
+  it('resolves the Leave applied renderer through the typed registry', () => {
+    const registry = new EmailRendererRegistry([leaveAppliedEmailRendererRegistration]);
+    assert.equal(registry.render(NotificationType.LEAVE_APPLIED, {
+      leaveRequestId: '11111111-1111-4111-8111-111111111111',
+      applicantDisplayName: 'Leave Applicant',
+      leaveTypeName: 'Annual Leave',
+      startDate: '2026-10-10',
+      endDate: '2026-10-11',
+    }).rendererVersion, 'leave-applied-v1');
   });
 
   it('rejects sensitive payload fields and resolves events exactly at runtime', () => {

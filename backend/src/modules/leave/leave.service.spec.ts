@@ -125,8 +125,11 @@ function applyHarness(options: {
   managerValid?: boolean;
   fallbackId?: string | null;
   fallbackValid?: boolean;
+  notificationFailure?: boolean;
+  transactionFailure?: boolean;
 } = {}) {
   const writes: Array<{ name: string; input?: unknown }> = [];
+  const notificationCalls: unknown[] = [];
   const applicant = {
     id: employeeId,
     userId: actor.id,
@@ -189,18 +192,33 @@ function applyHarness(options: {
       },
     },
     leaveApprovalHistory: {
-      create: async (input: unknown) => { writes.push({ name: 'history', input }); return {}; },
+      create: async (input: unknown) => {
+        writes.push({ name: 'history', input });
+        return { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' };
+      },
     },
     auditLog: {
       create: async (input: unknown) => { writes.push({ name: 'audit', input }); return {}; },
     },
   };
   const prisma = {
-    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => {
+      const result = await callback(tx);
+      if (options.transactionFailure) throw new Error('transaction failed');
+      return result;
+    },
+  };
+  const notifications = {
+    createLeaveAppliedEmail: async (input: unknown) => {
+      notificationCalls.push(input);
+      if (options.notificationFailure) throw new Error('enqueue failed');
+      return { created: true };
+    },
   };
   return {
-    service: new LeaveService(prisma as never, {} as never),
+    service: new LeaveService(prisma as never, notifications as never),
     writes,
+    notificationCalls,
   };
 }
 
@@ -370,6 +388,18 @@ describe('LeaveService submission authority', () => {
     assert.equal(state.writes.some((entry) => entry.name === 'fallback-query'), false);
     assert.equal('assignedApproverUserId' in response, false);
     assert.equal('approvalAuthorityVersion' in response, false);
+    assert.deepEqual(state.notificationCalls, [{
+      submittedHistoryId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      assignedApproverUserId: managerUserId,
+      expectedCompanyId: companyId,
+      payload: {
+        leaveRequestId: requestId,
+        applicantDisplayName: 'Leave Applicant',
+        leaveTypeName: 'Annual Leave',
+        startDate: '2027-01-10',
+        endDate: '2027-01-11',
+      },
+    }]);
   });
 
   it('uses fallback when manager approval is disabled', async () => {
@@ -397,6 +427,7 @@ describe('LeaveService submission authority', () => {
         error.message === 'No valid leave approver is configured for this employee',
     );
     assert.equal(state.writes.some((entry) => ['request', 'history', 'audit'].includes(entry.name)), false);
+    assert.deepEqual(state.notificationCalls, []);
   });
 
   for (const role of [RoleName.HR, RoleName.MANAGER, RoleName.COMPANY_ADMIN]) {
@@ -418,5 +449,19 @@ describe('LeaveService submission authority', () => {
     assert.equal(request.data.assignedApproverUserId, null);
     assert.equal(request.data.approvalAuthorityVersion, null);
     assert.equal(state.writes.some((entry) => ['manager-query', 'fallback-query'].includes(entry.name)), false);
+    assert.deepEqual(state.notificationCalls, []);
+  });
+
+  it('does not enqueue before a failing business transaction commits', async () => {
+    const state = applyHarness({ transactionFailure: true });
+    await assert.rejects(() => state.service.apply(dto, actor), /transaction failed/);
+    assert.deepEqual(state.notificationCalls, []);
+  });
+
+  it('preserves successful submission when post-commit Leave applied enqueue fails', async () => {
+    const state = applyHarness({ notificationFailure: true });
+    const response = await state.service.apply(dto, actor);
+    assert.equal(response.status, LeaveRequestStatus.PENDING);
+    assert.equal(state.notificationCalls.length, 1);
   });
 });

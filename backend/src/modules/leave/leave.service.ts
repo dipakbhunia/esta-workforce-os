@@ -192,7 +192,7 @@ export class LeaveService {
     const totalDays =
       Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
 
-    return this.prisma.$transaction(async (tx) => {
+    const submission = await this.prisma.$transaction(async (tx) => {
       const [company] = await tx.$queryRaw<Array<{
         id: string;
         designatedLeaveApproverUserId: string | null;
@@ -257,7 +257,7 @@ export class LeaveService {
         },
         include: requestInclude,
       });
-      await tx.leaveApprovalHistory.create({
+      const submittedHistory = await tx.leaveApprovalHistory.create({
         data: {
           companyId: request.companyId,
           leaveRequestId: request.id,
@@ -283,8 +283,37 @@ export class LeaveService {
           },
         },
       });
-      return this.toLeaveRequestResponse(request);
+      return { request, submittedHistoryId: submittedHistory.id };
     });
+    const { request, submittedHistoryId } = submission;
+    if (
+      request.status === LeaveRequestStatus.PENDING &&
+      request.approvalAuthorityVersion === 1 &&
+      request.assignedApproverUserId
+    ) {
+      try {
+        await this.notifications.createLeaveAppliedEmail({
+          submittedHistoryId,
+          assignedApproverUserId: request.assignedApproverUserId,
+          expectedCompanyId: request.companyId,
+          payload: {
+            leaveRequestId: request.id,
+            applicantDisplayName: `${request.employee.user.firstName} ${request.employee.user.lastName}`.trim(),
+            leaveTypeName: request.leaveType.name,
+            startDate: this.dateOnlyString(request.startDate),
+            endDate: this.dateOnlyString(request.endDate),
+          },
+        });
+      } catch {
+        this.logger.warn({
+          failureCategory: 'LEAVE_APPLIED_NOTIFICATION_ENQUEUE_FAILED',
+          leaveRequestId: request.id,
+          submittedHistoryId,
+          companyId: request.companyId,
+        });
+      }
+    }
+    return this.toLeaveRequestResponse(request);
   }
 
   async listRequests(query: LeaveRequestQueryDto, actor: AuthenticatedUser) {

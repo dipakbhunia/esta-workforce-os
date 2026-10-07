@@ -12,6 +12,7 @@ describe('email event policy registry', () => {
       NotificationType.ACCOUNT_STATUS_CHANGED,
       NotificationType.LEAVE_APPROVED,
       NotificationType.LEAVE_REJECTED,
+      NotificationType.LEAVE_APPLIED,
       NotificationType.ATTENDANCE_CORRECTION_APPROVED,
       NotificationType.ATTENDANCE_CORRECTION_REJECTED,
     ].includes(policy.eventKey));
@@ -48,6 +49,19 @@ describe('email event policy registry', () => {
       assert.equal(policy.buildIdempotencyKey({ sourceId: 'history', userId: 'applicant', channel: NotificationChannel.EMAIL }),
         `history:${type}:applicant:EMAIL`);
     }
+  });
+
+  it('registers Leave applied as assigned-approver preference-controlled workflow email only', () => {
+    const policy = getEmailEventPolicy(NotificationType.LEAVE_APPLIED);
+    assert.equal(policy.category, 'WORKFLOW');
+    assert.equal(policy.deliveryPolicy, EmailDeliveryPolicy.PREFERENCE_CONTROLLED);
+    assert.equal(policy.preferenceEvaluator, 'USER_EMAIL_ENABLED');
+    assert.equal(policy.recipientResolver, 'WORKFLOW_ASSIGNED_APPROVER');
+    assert.equal(policy.renderer, 'LEAVE_APPLIED_WORKFLOW');
+    assert.equal(policy.quietHours, 'NON_CRITICAL_EMAIL');
+    assert.deepEqual(policy.eligibleChannels, [NotificationChannel.EMAIL]);
+    assert.equal(policy.buildIdempotencyKey({ sourceId: 'history', userId: 'approver', channel: NotificationChannel.EMAIL }),
+      'history:LEAVE_APPLIED:approver:EMAIL');
   });
 
   it('registers Attendance correction decisions as preference-controlled workflow email only', () => {

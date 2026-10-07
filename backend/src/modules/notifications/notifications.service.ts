@@ -7,7 +7,7 @@ import { EmailNotificationChannel, safeEmailErrorEvidence } from './email-notifi
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationRecipientResolver } from './notification-recipient-resolver.service';
 import { EmailDeliveryPolicy, EmailEventCategory, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
-import { AccountStatusChangedEmailPayload, AttendanceCorrectionDecisionEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, LeaveDecisionEmailPayload, PasswordChangedEmailPayload } from './email-composition.types';
+import { AccountStatusChangedEmailPayload, AttendanceCorrectionDecisionEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, LeaveAppliedEmailPayload, LeaveDecisionEmailPayload, PasswordChangedEmailPayload } from './email-composition.types';
 import { emailRendererRegistry } from './email-renderer.registry';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
@@ -68,6 +68,76 @@ export class NotificationsService {
       expectedCompanyId: input.expectedCompanyId,
       payload: input.payload,
     });
+  }
+
+  async createLeaveAppliedEmail(input: {
+    submittedHistoryId: string;
+    assignedApproverUserId: string;
+    expectedCompanyId: string;
+    payload: LeaveAppliedEmailPayload;
+  }): Promise<{ created: boolean }> {
+    const type = NotificationType.LEAVE_APPLIED;
+    const channel = NotificationChannel.EMAIL;
+    const policy = getEmailEventPolicy(type);
+    if (
+      policy.category !== EmailEventCategory.WORKFLOW ||
+      policy.deliveryPolicy !== EmailDeliveryPolicy.PREFERENCE_CONTROLLED ||
+      policy.recipientResolver !== EmailRecipientResolverId.WORKFLOW_ASSIGNED_APPROVER ||
+      policy.preferenceEvaluator !== EmailPreferencePolicyId.USER_EMAIL_ENABLED ||
+      policy.renderer !== EmailRendererId.LEAVE_APPLIED_WORKFLOW ||
+      policy.quietHours !== EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL ||
+      !policy.eligibleChannels.includes(channel)
+    ) throw new Error(`${type} email policy is invalid`);
+
+    const composition = emailRendererRegistry.render(type, input.payload);
+    const recipient = await this.recipients.resolveWorkflowAssignedApprover(
+      input.assignedApproverUserId,
+      input.expectedCompanyId,
+    );
+    if (!recipient || recipient.companyId !== input.expectedCompanyId) {
+      throw new Error(`${type} recipient was not found`);
+    }
+    const preference = await this.preferences.getEffective(recipient.userId);
+    if (!preference.emailEnabled) return { created: false };
+    const idempotencyKey = policy.buildIdempotencyKey({
+      sourceId: input.submittedHistoryId,
+      userId: recipient.userId,
+      channel,
+    });
+    const nextRetryAt = this.emailRetryStart(
+      MonitoringAlertSeverity.INFO,
+      preference.quietHoursStart,
+      preference.quietHoursEnd,
+    );
+    try {
+      await this.prisma.notification.create({
+        data: {
+          companyId: input.expectedCompanyId,
+          userId: recipient.userId,
+          alertId: null,
+          type,
+          channel,
+          title: composition.subject,
+          message: composition.message,
+          severity: null,
+          status: NotificationStatus.PENDING,
+          detailsPath: composition.safeDetailsPath,
+          idempotencyKey,
+          deliveries: {
+            create: {
+              channel,
+              recipient: recipient.email,
+              status: NotificationStatus.PENDING,
+              nextRetryAt,
+            },
+          },
+        },
+      });
+      return { created: true };
+    } catch (error) {
+      if (isNotificationIdempotencyConflict(error)) return { created: false };
+      throw error;
+    }
   }
 
   async createAttendanceCorrectionDecisionEmail(input: {

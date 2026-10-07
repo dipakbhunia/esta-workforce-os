@@ -15,6 +15,7 @@ import { passwordChangedEmailRendererRegistration } from './password-changed-ema
 import { accountStatusChangedEmailRendererRegistration } from './account-status-changed-email.renderer';
 import { leaveDecisionEmailRendererRegistrations } from './leave-decision-email.renderer';
 import { attendanceCorrectionDecisionEmailRendererRegistrations } from './attendance-correction-decision-email.renderer';
+import { leaveAppliedEmailRendererRegistration } from './leave-applied-email.renderer';
 
 export class EmailRendererRegistry {
   private readonly registrations = new Map<NotificationType, AnyEmailRendererRegistration>();
@@ -76,5 +77,6 @@ export const emailRendererRegistry = new EmailRendererRegistry([
   passwordChangedEmailRendererRegistration,
   accountStatusChangedEmailRendererRegistration,
   ...leaveDecisionEmailRendererRegistrations,
+  leaveAppliedEmailRendererRegistration,
   ...attendanceCorrectionDecisionEmailRendererRegistrations,
 ]);
