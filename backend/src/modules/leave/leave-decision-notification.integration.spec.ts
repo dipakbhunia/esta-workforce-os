@@ -62,6 +62,13 @@ describeDb('PC-G PostgreSQL Leave decision email', () => {
     }, select: { id: true } });
     applicantUserId = applicant.id;
     reviewerUserId = reviewer.id;
+    await prisma.role.create({ data: {
+      companyId,
+      key: `pc-g-hr-${suffix}`,
+      name: `PC-G HR ${suffix}`,
+      systemName: RoleName.HR,
+      users: { create: { userId: reviewerUserId } },
+    } });
     applicantEmployeeId = (await prisma.employee.create({ data: {
       companyId, userId: applicantUserId, employeeCode: `PCG-${suffix.slice(0, 8)}`,
       joiningDate: new Date('2026-01-01T00:00:00.000Z'), employmentType: EmploymentType.FULL_TIME,
@@ -184,6 +191,8 @@ describeDb('PC-G PostgreSQL Leave decision email', () => {
       companyId: companyId!, employeeId: applicantEmployeeId, leaveTypeId,
       startDate: new Date('2027-03-10T00:00:00.000Z'), endDate: new Date('2027-03-11T00:00:00.000Z'),
       totalDays: 2, status: LeaveRequestStatus.PENDING,
+      assignedApproverUserId: reviewerUserId,
+      approvalAuthorityVersion: 1,
     }, select: { id: true } })).id;
   }
 });

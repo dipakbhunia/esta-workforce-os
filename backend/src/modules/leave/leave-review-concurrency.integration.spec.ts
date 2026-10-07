@@ -42,6 +42,7 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
   let applicantUserId: string;
   let applicantEmployeeId: string;
   let reviewerUserId: string;
+  let reviewerRoleId: string;
 
   const reviewer = () => ({
     id: reviewerUserId,
@@ -78,6 +79,13 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
     ]);
     applicantUserId = applicant.id;
     reviewerUserId = reviewerUser.id;
+    reviewerRoleId = (await prisma.role.create({ data: {
+      companyId,
+      key: `pc-g0-hr-${suffix}`,
+      name: `PC-G0 HR ${suffix}`,
+      systemName: RoleName.HR,
+      users: { create: { userId: reviewerUserId } },
+    }, select: { id: true } })).id;
     const employee = await prisma.employee.create({ data: {
       companyId,
       userId: applicantUserId,
@@ -172,6 +180,92 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
     );
   });
 
+  it('allows only the assigned current reviewer for version-1 authority', async () => {
+    const service = new LeaveService(prisma as never, notifications as never);
+    const requestId = await createPendingRequest(reviewerUserId);
+    assert.equal(
+      (await service.review(requestId, { status: LeaveRequestStatus.REJECTED }, reviewer())).status,
+      LeaveRequestStatus.REJECTED,
+    );
+
+    for (const role of [RoleName.HR, RoleName.COMPANY_ADMIN, RoleName.MANAGER]) {
+      const unrelated = await prisma.user.create({ data: {
+        companyId,
+        email: `pc-g0-unrelated-${role}-${randomUUID()}@example.invalid`,
+        passwordHash: 'integration-only-hash',
+        firstName: 'Unrelated',
+        lastName: role,
+      }, select: { id: true, email: true } });
+      const existingRole = await prisma.role.findFirst({
+        where: { companyId, systemName: role },
+        select: { id: true },
+      });
+      const roleRow = existingRole ?? await prisma.role.create({ data: {
+        companyId,
+        key: `pc-g0-${role}-${randomUUID()}`,
+        name: `PC-G0 ${role}`,
+        systemName: role,
+      }, select: { id: true } });
+      await prisma.userRole.create({ data: { userId: unrelated.id, roleId: roleRow.id } });
+      const deniedId = await createPendingRequest(reviewerUserId);
+      await assert.rejects(
+        () => service.review(deniedId, { status: LeaveRequestStatus.APPROVED }, {
+          id: unrelated.id,
+          companyId,
+          email: unrelated.email,
+          firstName: 'Unrelated',
+          lastName: role,
+          status: UserStatus.ACTIVE,
+          roles: [role],
+        }),
+        ForbiddenException,
+      );
+      assert.equal((await prisma.leaveRequest.findUniqueOrThrow({ where: { id: deniedId } })).status,
+        LeaveRequestStatus.PENDING);
+      await prisma.user.delete({ where: { id: unrelated.id } });
+      if (!existingRole) await prisma.role.delete({ where: { id: roleRow.id } });
+    }
+  });
+
+  it('denies assigned reviewer after current qualifying role is removed', async () => {
+    const service = new LeaveService(prisma as never, notifications as never);
+    const requestId = await createPendingRequest(reviewerUserId);
+    await prisma.userRole.delete({ where: { userId_roleId: { userId: reviewerUserId, roleId: reviewerRoleId } } });
+    try {
+      await assert.rejects(
+        () => service.review(requestId, { status: LeaveRequestStatus.APPROVED }, reviewer()),
+        ForbiddenException,
+      );
+      assert.equal((await prisma.leaveRequest.findUniqueOrThrow({ where: { id: requestId } })).status,
+        LeaveRequestStatus.PENDING);
+    } finally {
+      await prisma.userRole.create({ data: { userId: reviewerUserId, roleId: reviewerRoleId } });
+    }
+  });
+
+  it('elects one durable winner for concurrent version-1 decisions', async () => {
+    const requestId = await createPendingRequest(reviewerUserId);
+    const barrier = new Barrier();
+    const clients = [new PrismaClient(), new PrismaClient()];
+    await Promise.all(clients.map((client) => client.$connect()));
+    try {
+      const services = clients.map((client) => new LeaveService(coordinatedPrisma(client, barrier) as never, notifications as never));
+      const results = await Promise.allSettled([
+        services[0].review(requestId, { status: LeaveRequestStatus.APPROVED }, reviewer()),
+        services[1].review(requestId, { status: LeaveRequestStatus.REJECTED }, reviewer()),
+      ]);
+      assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+      const rejected = results.filter((result) => result.status === 'rejected') as PromiseRejectedResult[];
+      assert.equal(rejected.length, 1);
+      assert.ok(rejected[0].reason instanceof BadRequestException);
+      const durable = await decisionEvidence(requestId);
+      assert.equal(durable.history.length, 1);
+      assert.equal(durable.audits.length, 1);
+    } finally {
+      await Promise.all(clients.map((client) => client.$disconnect()));
+    }
+  });
+
   it('rolls back the claim, balance, history, and audit when a later write fails', async () => {
     const requestId = await createPendingRequest();
     const balanceBefore = await currentBalance();
@@ -240,7 +334,7 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
     }
   });
 
-  async function createPendingRequest(): Promise<string> {
+  async function createPendingRequest(assignedApproverUserId?: string): Promise<string> {
     const request = await prisma.leaveRequest.create({ data: {
       companyId,
       employeeId: applicantEmployeeId,
@@ -249,6 +343,9 @@ describeDb('PC-G0 PostgreSQL leave decision concurrency', () => {
       endDate: new Date('2027-02-11T00:00:00.000Z'),
       totalDays: 2,
       status: LeaveRequestStatus.PENDING,
+      ...(assignedApproverUserId
+        ? { assignedApproverUserId, approvalAuthorityVersion: 1 }
+        : {}),
     }, select: { id: true } });
     return request.id;
   }

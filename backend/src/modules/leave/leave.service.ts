@@ -13,6 +13,7 @@ import {
   NotificationType,
   Prisma,
   RoleName,
+  UserStatus,
 } from '@prisma/client';
 import {
   paginatedResult,
@@ -182,35 +183,68 @@ export class LeaveService {
   }
 
   async apply(dto: CreateLeaveRequestDto, actor: AuthenticatedUser) {
-    const employee = await this.ownEmployee(actor);
-    const leaveType = await this.typeInTenant(dto.leaveTypeId, employee.companyId);
+    const companyId = this.tenantForAnyRole(actor);
     const startDate = this.dateOnly(dto.startDate);
     const endDate = this.dateOnly(dto.endDate);
     if (startDate > endDate) {
       throw new BadRequestException('startDate must not be after endDate');
     }
-    const overlap = await this.prisma.leaveRequest.count({
-      where: {
-        employeeId: employee.id,
-        deletedAt: null,
-        status: { in: [LeaveRequestStatus.PENDING, LeaveRequestStatus.APPROVED] },
-        startDate: { lte: endDate },
-        endDate: { gte: startDate },
-      },
-    });
-    if (overlap) {
-      throw new ConflictException('Leave dates overlap an existing request');
-    }
     const totalDays =
       Math.floor((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
-    const status = leaveType.requiresApproval
-      ? LeaveRequestStatus.PENDING
-      : LeaveRequestStatus.APPROVED;
 
     return this.prisma.$transaction(async (tx) => {
+      const [company] = await tx.$queryRaw<Array<{
+        id: string;
+        designatedLeaveApproverUserId: string | null;
+      }>>(Prisma.sql`
+        SELECT "id", "designatedLeaveApproverUserId"
+        FROM "Company"
+        WHERE "id" = ${companyId}::uuid
+          AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (!company) throw new NotFoundException('Company not found');
+
+      const employee = await this.lockApplicantEmployee(tx, companyId, actor.id);
+      const leaveType = await tx.leaveType.findFirst({
+        where: { id: dto.leaveTypeId, companyId, deletedAt: null },
+      });
+      if (!leaveType) throw new NotFoundException('Leave type not found');
+
+      const overlap = await tx.leaveRequest.count({
+        where: {
+          employeeId: employee.id,
+          deletedAt: null,
+          status: { in: [LeaveRequestStatus.PENDING, LeaveRequestStatus.APPROVED] },
+          startDate: { lte: endDate },
+          endDate: { gte: startDate },
+        },
+      });
+      if (overlap) {
+        throw new ConflictException('Leave dates overlap an existing request');
+      }
+
+      const assignedApproverUserId = leaveType.requiresApproval
+        ? await this.resolveLeaveApprover(
+            tx,
+            companyId,
+            employee,
+            leaveType.managerCanApprove,
+            company.designatedLeaveApproverUserId,
+          )
+        : null;
+      if (leaveType.requiresApproval && !assignedApproverUserId) {
+        throw new ConflictException(
+          'No valid leave approver is configured for this employee',
+        );
+      }
+      const status = leaveType.requiresApproval
+        ? LeaveRequestStatus.PENDING
+        : LeaveRequestStatus.APPROVED;
+
       const request = await tx.leaveRequest.create({
         data: {
-          companyId: employee.companyId,
+          companyId,
           employeeId: employee.id,
           leaveTypeId: leaveType.id,
           startDate,
@@ -218,6 +252,8 @@ export class LeaveService {
           totalDays,
           reason: dto.reason?.trim(),
           status,
+          assignedApproverUserId,
+          approvalAuthorityVersion: leaveType.requiresApproval ? 1 : null,
         },
         include: requestInclude,
       });
@@ -332,31 +368,66 @@ export class LeaveService {
     if (request.status !== LeaveRequestStatus.PENDING) {
       throw new BadRequestException('Only pending requests can be reviewed');
     }
-    const admin =
-      actor.roles.includes(RoleName.COMPANY_ADMIN) ||
-      actor.roles.includes(RoleName.HR);
     const approver = await this.prisma.employee.findFirst({
       where: { userId: actor.id, deletedAt: null },
       select: { id: true },
     });
-    const managerAllowed =
-      actor.roles.includes(RoleName.MANAGER) &&
-      !!approver &&
-      request.leaveType.managerCanApprove &&
-      request.employee.reportingManagerId === approver.id;
-    if (
-      request.companyId !== actor.companyId ||
-      (!admin && !managerAllowed)
-    ) {
-      throw new ForbiddenException('Leave approval is not permitted');
+    const authorityVersion = request.approvalAuthorityVersion;
+    if (authorityVersion !== null && authorityVersion !== 1) {
+      throw new ForbiddenException('Leave approval authority is invalid');
+    }
+    const versionOne = authorityVersion === 1;
+    if (versionOne) {
+      if (
+        request.companyId !== actor.companyId ||
+        request.assignedApproverUserId !== actor.id
+      ) {
+        throw new ForbiddenException('Leave approval is not permitted');
+      }
+    } else {
+      const legacy = request.assignedApproverUserId === null;
+      const admin =
+        actor.roles.includes(RoleName.COMPANY_ADMIN) ||
+        actor.roles.includes(RoleName.HR);
+      const managerAllowed =
+        actor.roles.includes(RoleName.MANAGER) &&
+        !!approver &&
+        request.leaveType.managerCanApprove &&
+        request.employee.reportingManagerId === approver.id;
+      if (
+        !legacy ||
+        request.companyId !== actor.companyId ||
+        (!admin && !managerAllowed)
+      ) {
+        throw new ForbiddenException('Leave approval is not permitted');
+      }
     }
     const decision = await this.prisma.$transaction(async (tx) => {
+      if (versionOne) {
+        await this.lockUserAuthority(tx, request.companyId, actor.id);
+        const reviewer = await tx.user.findFirst({
+          where: this.reviewAuthorityWhere(request.companyId, actor.id),
+          select: { id: true },
+        });
+        if (!reviewer) {
+          throw new ForbiddenException('Leave approval is not permitted');
+        }
+      }
       const decision = await tx.leaveRequest.updateMany({
         where: {
           id,
           companyId: request.companyId,
           deletedAt: null,
           status: LeaveRequestStatus.PENDING,
+          ...(versionOne
+            ? {
+                approvalAuthorityVersion: 1,
+                assignedApproverUserId: actor.id,
+              }
+            : {
+                approvalAuthorityVersion: null,
+                assignedApproverUserId: null,
+              }),
         },
         data: {
           status: dto.status,
@@ -577,6 +648,162 @@ export class LeaveService {
     return employee;
   }
 
+  private async lockApplicantEmployee(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    userId: string,
+  ) {
+    const [locked] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "Employee"
+      WHERE "companyId" = ${companyId}::uuid
+        AND "userId" = ${userId}::uuid
+        AND "deletedAt" IS NULL
+        AND "status" = ${EmployeeStatus.ACTIVE}::"EmployeeStatus"
+      FOR UPDATE
+    `);
+    if (!locked) throw new NotFoundException('Active employee profile not found');
+    return tx.employee.findUniqueOrThrow({ where: { id: locked.id } });
+  }
+
+  private async resolveLeaveApprover(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    applicant: { id: string; userId: string; reportingManagerId: string | null },
+    managerCanApprove: boolean,
+    designatedLeaveApproverUserId: string | null,
+  ): Promise<string | null> {
+    if (managerCanApprove && applicant.reportingManagerId) {
+      const manager = await this.lockEligibleManager(
+        tx,
+        companyId,
+        applicant,
+      );
+      if (manager) return manager.userId;
+    }
+    if (
+      designatedLeaveApproverUserId &&
+      designatedLeaveApproverUserId !== applicant.userId
+    ) {
+      await this.lockUserAuthority(
+        tx,
+        companyId,
+        designatedLeaveApproverUserId,
+      );
+      const fallback = await tx.user.findFirst({
+        where: {
+          id: designatedLeaveApproverUserId,
+          companyId,
+          deletedAt: null,
+          status: UserStatus.ACTIVE,
+          roles: {
+            some: {
+              role: {
+                companyId,
+                deletedAt: null,
+                systemName: { in: [RoleName.HR, RoleName.COMPANY_ADMIN] },
+              },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (fallback) return fallback.id;
+    }
+    return null;
+  }
+
+  private async lockEligibleManager(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    applicant: { id: string; userId: string; reportingManagerId: string | null },
+  ): Promise<{ userId: string } | null> {
+    if (!applicant.reportingManagerId || applicant.reportingManagerId === applicant.id) {
+      return null;
+    }
+    const [locked] = await tx.$queryRaw<Array<{ id: string; userId: string }>>(Prisma.sql`
+      SELECT "id", "userId"
+      FROM "Employee"
+      WHERE "id" = ${applicant.reportingManagerId}::uuid
+        AND "companyId" = ${companyId}::uuid
+        AND "deletedAt" IS NULL
+        AND "status" = ${EmployeeStatus.ACTIVE}::"EmployeeStatus"
+      FOR UPDATE
+    `);
+    if (!locked || locked.userId === applicant.userId) return null;
+    await this.lockUserAuthority(tx, companyId, locked.userId);
+    return tx.employee.findFirst({
+      where: {
+        id: locked.id,
+        companyId,
+        deletedAt: null,
+        status: EmployeeStatus.ACTIVE,
+        user: {
+          id: locked.userId,
+          companyId,
+          deletedAt: null,
+          status: UserStatus.ACTIVE,
+          roles: {
+            some: {
+              role: {
+                companyId,
+                deletedAt: null,
+                systemName: RoleName.MANAGER,
+              },
+            },
+          },
+        },
+      },
+      select: { userId: true },
+    });
+  }
+
+  private async lockUserAuthority(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    userId: string,
+  ): Promise<void> {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id"
+      FROM "User"
+      WHERE "id" = ${userId}::uuid
+        AND "companyId" = ${companyId}::uuid
+      FOR UPDATE
+    `);
+    await tx.$queryRaw(Prisma.sql`
+      SELECT ur."userId"
+      FROM "UserRole" ur
+      INNER JOIN "Role" r ON r."id" = ur."roleId"
+      WHERE ur."userId" = ${userId}::uuid
+        AND r."companyId" = ${companyId}::uuid
+      ORDER BY ur."roleId"
+      FOR UPDATE OF ur, r
+    `);
+  }
+
+  private reviewAuthorityWhere(
+    companyId: string,
+    userId: string,
+  ): Prisma.UserWhereInput {
+    return {
+      id: userId,
+      companyId,
+      deletedAt: null,
+      status: UserStatus.ACTIVE,
+      roles: {
+        some: {
+          role: {
+            companyId,
+            deletedAt: null,
+            systemName: {
+              in: [RoleName.MANAGER, RoleName.HR, RoleName.COMPANY_ADMIN],
+            },
+          },
+        },
+      },
+    };
+  }
+
   private async typeInTenant(id: string, companyId: string) {
     const type = await this.prisma.leaveType.findFirst({
       where: { id, companyId, deletedAt: null },
@@ -718,8 +945,13 @@ export class LeaveService {
   private toLeaveRequestResponse(
     request: LeaveRecord,
   ): LeaveRequestResponseDto {
+    const {
+      assignedApproverUserId: _assignedApproverUserId,
+      approvalAuthorityVersion: _approvalAuthorityVersion,
+      ...publicRequest
+    } = request;
     return {
-      ...request,
+      ...publicRequest,
       startDate: this.dateOnlyString(request.startDate),
       endDate: this.dateOnlyString(request.endDate),
     };
