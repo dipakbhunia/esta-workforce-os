@@ -569,18 +569,29 @@ export class LeaveService {
       select: { id: true },
     });
 
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.leaveRequest.update({
-        where: { id },
+    const cancellation = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.leaveRequest.updateMany({
+        where: {
+          id,
+          companyId: request.companyId,
+          status: LeaveRequestStatus.PENDING,
+          deletedAt: null,
+        },
         data: {
           status: LeaveRequestStatus.CANCELLED,
           approverId: actorEmployee?.id,
           reviewedAt: new Date(),
           reviewComment: 'Cancelled',
         },
+      });
+      if (claim.count !== 1) {
+        throw new BadRequestException('Only pending leave requests can be cancelled');
+      }
+      const updated = await tx.leaveRequest.findUniqueOrThrow({
+        where: { id },
         include: requestInclude,
       });
-      await tx.leaveApprovalHistory.create({
+      const history = await tx.leaveApprovalHistory.create({
         data: {
           companyId: request.companyId,
           leaveRequestId: request.id,
@@ -603,8 +614,35 @@ export class LeaveService {
           },
         },
       });
-      return this.toLeaveRequestResponse(updated);
+      return { updated, cancellationHistoryId: history.id };
     });
+    const participantUserIds = [
+      cancellation.updated.employee.user.id,
+      cancellation.updated.assignedApproverUserId,
+    ].filter((value): value is string => Boolean(value));
+    try {
+      await this.notifications.createLeaveCancelledEmails({
+        cancellationHistoryId: cancellation.cancellationHistoryId,
+        participantUserIds,
+        expectedCompanyId: cancellation.updated.companyId,
+        payload: {
+          leaveRequestId: cancellation.updated.id,
+          applicantDisplayName: `${cancellation.updated.employee.user.firstName} ${cancellation.updated.employee.user.lastName}`.trim(),
+          leaveTypeName: cancellation.updated.leaveType.name,
+          startDate: this.dateOnlyString(cancellation.updated.startDate),
+          endDate: this.dateOnlyString(cancellation.updated.endDate),
+          cancelledByDisplayName: `${actor.firstName} ${actor.lastName}`.trim(),
+        },
+      });
+    } catch {
+      this.logger.warn({
+        failureCategory: 'LEAVE_CANCELLED_NOTIFICATION_ENQUEUE_FAILED',
+        leaveRequestId: cancellation.updated.id,
+        cancellationHistoryId: cancellation.cancellationHistoryId,
+        companyId: cancellation.updated.companyId,
+      });
+    }
+    return this.toLeaveRequestResponse(cancellation.updated);
   }
 
   async listHistory(id: string, actor: AuthenticatedUser) {

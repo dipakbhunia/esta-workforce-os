@@ -48,6 +48,16 @@ export class NotificationRecipientResolver {
       : null;
   }
 
+  async resolveWorkflowExactParticipant(userId: string, expectedCompanyId: string): Promise<NotificationRecipient | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, companyId: expectedCompanyId, deletedAt: null },
+      select: { id: true, email: true, companyId: true },
+    });
+    return user?.email
+      ? { userId: user.id, email: user.email, companyId: user.companyId }
+      : null;
+  }
+
   async resolveForAlert(input: AlertRecipientInput): Promise<NotificationRecipient[]> {
     const recipients = new Map<string, NotificationRecipient>();
     const addUser = (user: { id: string; email: string; companyId: string | null } | null | undefined) => {

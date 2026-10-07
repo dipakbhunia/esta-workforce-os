@@ -11,6 +11,7 @@ export enum EmailRendererId {
   LEAVE_APPROVED_WORKFLOW = 'LEAVE_APPROVED_WORKFLOW',
   LEAVE_REJECTED_WORKFLOW = 'LEAVE_REJECTED_WORKFLOW',
   LEAVE_APPLIED_WORKFLOW = 'LEAVE_APPLIED_WORKFLOW',
+  LEAVE_CANCELLED_WORKFLOW = 'LEAVE_CANCELLED_WORKFLOW',
   ATTENDANCE_CORRECTION_APPROVED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPROVED_WORKFLOW',
   ATTENDANCE_CORRECTION_REJECTED_WORKFLOW = 'ATTENDANCE_CORRECTION_REJECTED_WORKFLOW',
 }
@@ -20,6 +21,7 @@ export enum EmailRecipientResolverId {
   AFFECTED_USER = 'AFFECTED_USER',
   WORKFLOW_APPLICANT = 'WORKFLOW_APPLICANT',
   WORKFLOW_ASSIGNED_APPROVER = 'WORKFLOW_ASSIGNED_APPROVER',
+  WORKFLOW_EXACT_PARTICIPANT = 'WORKFLOW_EXACT_PARTICIPANT',
 }
 
 export enum EmailPreferencePolicyId {
@@ -64,6 +66,15 @@ export interface LeaveAppliedEmailPayload {
   endDate: string;
 }
 
+export interface LeaveCancelledEmailPayload {
+  leaveRequestId: string;
+  applicantDisplayName: string;
+  leaveTypeName: string;
+  startDate: string;
+  endDate: string;
+  cancelledByDisplayName: string;
+}
+
 export interface AttendanceCorrectionDecisionEmailPayload {
   attendanceCorrectionRequestId: string;
   attendanceDate: string;
@@ -80,6 +91,7 @@ export interface EmailEventPayloadMap {
   [NotificationType.LEAVE_APPROVED]: LeaveDecisionEmailPayload;
   [NotificationType.LEAVE_REJECTED]: LeaveDecisionEmailPayload;
   [NotificationType.LEAVE_APPLIED]: LeaveAppliedEmailPayload;
+  [NotificationType.LEAVE_CANCELLED]: LeaveCancelledEmailPayload;
   [NotificationType.ATTENDANCE_CORRECTION_APPROVED]: AttendanceCorrectionDecisionEmailPayload;
   [NotificationType.ATTENDANCE_CORRECTION_REJECTED]: AttendanceCorrectionDecisionEmailPayload;
 }

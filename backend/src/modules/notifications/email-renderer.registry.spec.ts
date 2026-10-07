@@ -6,6 +6,7 @@ import { EmailRendererRegistry } from './email-renderer.registry';
 import { monitoringEmailRendererRegistrations } from './monitoring-email.renderer';
 import { accountStatusChangedEmailRendererRegistration } from './account-status-changed-email.renderer';
 import { leaveAppliedEmailRendererRegistration } from './leave-applied-email.renderer';
+import { leaveCancelledEmailRendererRegistration } from './leave-cancelled-email.renderer';
 
 describe('EmailRendererRegistry', () => {
   it('fails closed for duplicate and missing registrations', () => {
@@ -39,6 +40,18 @@ describe('EmailRendererRegistry', () => {
       startDate: '2026-10-10',
       endDate: '2026-10-11',
     }).rendererVersion, 'leave-applied-v1');
+  });
+
+  it('resolves the Leave cancelled renderer through the typed registry', () => {
+    const registry = new EmailRendererRegistry([leaveCancelledEmailRendererRegistration]);
+    assert.equal(registry.render(NotificationType.LEAVE_CANCELLED, {
+      leaveRequestId: '11111111-1111-4111-8111-111111111111',
+      applicantDisplayName: 'Leave Applicant',
+      leaveTypeName: 'Annual Leave',
+      startDate: '2026-10-10',
+      endDate: '2026-10-11',
+      cancelledByDisplayName: 'Leave Applicant',
+    }).rendererVersion, 'leave-cancelled-v1');
   });
 
   it('rejects sensitive payload fields and resolves events exactly at runtime', () => {

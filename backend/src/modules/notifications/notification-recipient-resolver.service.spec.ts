@@ -74,4 +74,21 @@ describe('NotificationRecipientResolver monitoring authority', () => {
     const missing = new NotificationRecipientResolver({ user: { findFirst: async () => null } } as never);
     assert.equal(await missing.resolveWorkflowAssignedApprover(roleUser.id, 'other-company'), null);
   });
+
+  it('resolves an exact cancellation participant without role or authority lookup', async () => {
+    let input: unknown;
+    const resolver = new NotificationRecipientResolver({ user: { findFirst: async (value: unknown) => {
+      input = value;
+      return employeeUser;
+    } } } as never);
+    assert.deepEqual(await resolver.resolveWorkflowExactParticipant(employeeUser.id, 'company'), {
+      userId: employeeUser.id,
+      email: employeeUser.email,
+      companyId: 'company',
+    });
+    assert.deepEqual(input, {
+      where: { id: employeeUser.id, companyId: 'company', deletedAt: null },
+      select: { id: true, email: true, companyId: true },
+    });
+  });
 });
