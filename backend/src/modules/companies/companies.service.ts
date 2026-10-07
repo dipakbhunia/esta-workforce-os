@@ -4,20 +4,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CompanyStatus, Prisma } from '@prisma/client';
+import { CompanyStatus, Prisma, RoleName, UserStatus } from '@prisma/client';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import {
   paginatedResult,
   paginationArgs,
 } from '../../common/utils/pagination.util';
 import { throwIfPrismaConflict } from '../../common/utils/prisma-error.util';
-import { isSuperAdmin } from '../../common/utils/tenant.util';
+import { isSuperAdmin, requireTenantId } from '../../common/utils/tenant.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { CompanyQueryDto } from './dto/company-query.dto';
 import { CompanyResponseDto } from './dto/company-response.dto';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
+import { UpdateDesignatedLeaveApproverDto } from './dto/update-designated-leave-approver.dto';
+import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-approver-response.dto';
 
 const companyCounts = Prisma.validator<Prisma.CompanyInclude>()({
   _count: {
@@ -33,6 +35,17 @@ const companyCounts = Prisma.validator<Prisma.CompanyInclude>()({
 
 type CompanyWithCounts = Prisma.CompanyGetPayload<{
   include: typeof companyCounts;
+}>;
+
+const designatedApproverSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+} satisfies Prisma.UserSelect;
+
+type DesignatedApprover = Prisma.UserGetPayload<{
+  select: typeof designatedApproverSelect;
 }>;
 
 @Injectable()
@@ -111,6 +124,73 @@ export class CompaniesService {
     }
 
     return this.toResponse(company);
+  }
+
+  async getDesignatedLeaveApprover(
+    actor: AuthenticatedUser,
+  ): Promise<DesignatedLeaveApproverResponseDto> {
+    const companyId = requireTenantId(actor);
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { designatedLeaveApproverUserId: true },
+    });
+    if (!company) throw new NotFoundException('Company not found');
+
+    return this.designatedApproverResponse(
+      this.prisma,
+      companyId,
+      company.designatedLeaveApproverUserId,
+    );
+  }
+
+  async updateDesignatedLeaveApprover(
+    dto: UpdateDesignatedLeaveApproverDto,
+    actor: AuthenticatedUser,
+  ): Promise<DesignatedLeaveApproverResponseDto> {
+    const companyId = requireTenantId(actor);
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id"
+        FROM "Company"
+        WHERE "id" = ${companyId}::uuid
+          AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (locked.length !== 1) throw new NotFoundException('Company not found');
+
+      const current = await tx.company.findUniqueOrThrow({
+        where: { id: companyId },
+        select: { designatedLeaveApproverUserId: true },
+      });
+      const requestedId = dto.designatedLeaveApproverUserId;
+      if (requestedId !== null) {
+        await this.requireEligibleDesignatedApprover(tx, companyId, requestedId);
+      }
+
+      if (current.designatedLeaveApproverUserId === requestedId) {
+        return this.designatedApproverResponse(tx, companyId, requestedId);
+      }
+
+      await tx.company.update({
+        where: { id: companyId },
+        data: { designatedLeaveApproverUserId: requestedId },
+      });
+      await tx.auditLog.create({
+        data: {
+          companyId,
+          actorUserId: actor.id,
+          action: 'COMPANY_DESIGNATED_LEAVE_APPROVER_CHANGED',
+          entityType: 'Company',
+          entityId: companyId,
+          metadata: {
+            previousDesignatedLeaveApproverUserId:
+              current.designatedLeaveApproverUserId,
+            designatedLeaveApproverUserId: requestedId,
+          },
+        },
+      });
+      return this.designatedApproverResponse(tx, companyId, requestedId);
+    });
   }
 
   async update(
@@ -199,6 +279,59 @@ export class CompaniesService {
     if (!isSuperAdmin(user) && user.companyId !== id) {
       throw new ForbiddenException('Cross-tenant access is not allowed');
     }
+  }
+
+  private eligibleDesignatedApproverWhere(
+    companyId: string,
+    userId: string,
+  ): Prisma.UserWhereInput {
+    return {
+      id: userId,
+      companyId,
+      deletedAt: null,
+      status: UserStatus.ACTIVE,
+      roles: {
+        some: {
+          role: {
+            companyId,
+            deletedAt: null,
+            systemName: { in: [RoleName.HR, RoleName.COMPANY_ADMIN] },
+          },
+        },
+      },
+    };
+  }
+
+  private async requireEligibleDesignatedApprover(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    userId: string,
+  ): Promise<DesignatedApprover> {
+    const candidate = await tx.user.findFirst({
+      where: this.eligibleDesignatedApproverWhere(companyId, userId),
+      select: designatedApproverSelect,
+    });
+    if (!candidate) {
+      throw new NotFoundException('Eligible designated leave approver not found');
+    }
+    return candidate;
+  }
+
+  private async designatedApproverResponse(
+    client: Prisma.TransactionClient | PrismaService,
+    companyId: string,
+    designatedLeaveApproverUserId: string | null,
+  ): Promise<DesignatedLeaveApproverResponseDto> {
+    const designatedLeaveApprover = designatedLeaveApproverUserId
+      ? await client.user.findFirst({
+          where: this.eligibleDesignatedApproverWhere(
+            companyId,
+            designatedLeaveApproverUserId,
+          ),
+          select: designatedApproverSelect,
+        })
+      : null;
+    return { designatedLeaveApproverUserId, designatedLeaveApprover };
   }
 
   private createData(dto: CreateCompanyDto): Prisma.CompanyCreateInput {

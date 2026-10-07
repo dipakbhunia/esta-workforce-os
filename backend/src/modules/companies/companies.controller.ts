@@ -31,6 +31,8 @@ import {
   CompanyResponseDto,
 } from './dto/company-response.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
+import { UpdateDesignatedLeaveApproverDto } from './dto/update-designated-leave-approver.dto';
+import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-approver-response.dto';
 
 @ApiTags('Companies')
 @ApiBearerAuth()
@@ -59,6 +61,25 @@ export class CompaniesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.companiesService.findAll(query, user);
+  }
+
+  @Get('current/leave-approver')
+  @Roles(RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Get the current tenant designated leave approver' })
+  @ApiOkResponse({ type: DesignatedLeaveApproverResponseDto })
+  getDesignatedLeaveApprover(@CurrentUser() user: AuthenticatedUser) {
+    return this.companiesService.getDesignatedLeaveApprover(user);
+  }
+
+  @Patch('current/leave-approver')
+  @Roles(RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Configure the current tenant designated leave approver' })
+  @ApiOkResponse({ type: DesignatedLeaveApproverResponseDto })
+  updateDesignatedLeaveApprover(
+    @Body() dto: UpdateDesignatedLeaveApproverDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.companiesService.updateDesignatedLeaveApprover(dto, user);
   }
 
   @Get(':id')
