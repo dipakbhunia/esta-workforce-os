@@ -17,6 +17,7 @@ import { leaveDecisionEmailRendererRegistrations } from './leave-decision-email.
 import { attendanceCorrectionDecisionEmailRendererRegistrations } from './attendance-correction-decision-email.renderer';
 import { leaveAppliedEmailRendererRegistration } from './leave-applied-email.renderer';
 import { leaveCancelledEmailRendererRegistration } from './leave-cancelled-email.renderer';
+import { attendanceCorrectionAppliedEmailRendererRegistration } from './attendance-correction-applied-email.renderer';
 
 export class EmailRendererRegistry {
   private readonly registrations = new Map<NotificationType, AnyEmailRendererRegistration>();
@@ -81,4 +82,5 @@ export const emailRendererRegistry = new EmailRendererRegistry([
   leaveAppliedEmailRendererRegistration,
   leaveCancelledEmailRendererRegistration,
   ...attendanceCorrectionDecisionEmailRendererRegistrations,
+  attendanceCorrectionAppliedEmailRendererRegistration,
 ]);

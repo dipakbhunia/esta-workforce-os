@@ -16,6 +16,7 @@ describe('email event policy registry', () => {
       NotificationType.LEAVE_CANCELLED,
       NotificationType.ATTENDANCE_CORRECTION_APPROVED,
       NotificationType.ATTENDANCE_CORRECTION_REJECTED,
+      NotificationType.ATTENDANCE_CORRECTION_APPLIED,
     ].includes(policy.eventKey));
     assert.ok(monitoring.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
     assert.ok(monitoring.every(preferencesApply));
@@ -90,6 +91,17 @@ describe('email event policy registry', () => {
       assert.equal(policy.buildIdempotencyKey({ sourceId: 'audit', userId: 'employee', channel: NotificationChannel.EMAIL }),
         `audit:${type}:employee:EMAIL`);
     }
+  });
+
+  it('registers Attendance correction applied for the persisted assigned approver', () => {
+    const policy = getEmailEventPolicy(NotificationType.ATTENDANCE_CORRECTION_APPLIED);
+    assert.equal(policy.category, 'WORKFLOW');
+    assert.equal(policy.deliveryPolicy, EmailDeliveryPolicy.PREFERENCE_CONTROLLED);
+    assert.equal(policy.recipientResolver, 'WORKFLOW_ASSIGNED_APPROVER');
+    assert.equal(policy.preferenceEvaluator, 'USER_EMAIL_ENABLED');
+    assert.equal(policy.renderer, 'ATTENDANCE_CORRECTION_APPLIED_WORKFLOW');
+    assert.equal(policy.quietHours, 'NON_CRITICAL_EMAIL');
+    assert.deepEqual(policy.eligibleChannels, [NotificationChannel.EMAIL]);
   });
 
   it('preserves monitoring channels and the established idempotency format', () => {

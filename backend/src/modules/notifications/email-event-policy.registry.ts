@@ -99,6 +99,18 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
     buildIdempotencyKey: ({ sourceId, userId, channel }) =>
       `${sourceId}:${NotificationType.LEAVE_CANCELLED}:${userId}:${channel}`,
   }],
+  [NotificationType.ATTENDANCE_CORRECTION_APPLIED, {
+    eventKey: NotificationType.ATTENDANCE_CORRECTION_APPLIED,
+    category: EmailEventCategory.WORKFLOW,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.PREFERENCE_CONTROLLED,
+    recipientResolver: EmailRecipientResolverId.WORKFLOW_ASSIGNED_APPROVER,
+    preferenceEvaluator: EmailPreferencePolicyId.USER_EMAIL_ENABLED,
+    renderer: EmailRendererId.ATTENDANCE_CORRECTION_APPLIED_WORKFLOW,
+    quietHours: EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL,
+    buildIdempotencyKey: ({ sourceId, userId, channel }) =>
+      `${sourceId}:${NotificationType.ATTENDANCE_CORRECTION_APPLIED}:${userId}:${channel}`,
+  }],
   ...([NotificationType.LEAVE_APPROVED, NotificationType.LEAVE_REJECTED] as const).map((eventKey) => [eventKey, {
     eventKey,
     category: EmailEventCategory.WORKFLOW,

@@ -183,6 +183,34 @@ describe('CompaniesService', () => {
       ForbiddenException,
     );
   });
+
+  it('configures only an active same-tenant employee with attendance reviewer authority', async () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    let candidateWhere: unknown;
+    let current: string | null = null;
+    const tx = {
+      $queryRaw: async () => [{ id: company.id }],
+      company: {
+        findUniqueOrThrow: async () => ({ designatedAttendanceApproverUserId: current }),
+        update: async (args: { data: { designatedAttendanceApproverUserId: string | null } }) => { current = args.data.designatedAttendanceApproverUserId; },
+      },
+      user: { findFirst: async (args: { where: unknown }) => {
+        candidateWhere = args.where;
+        return { id, firstName: 'Attendance', lastName: 'Approver', email: 'attendance@example.invalid' };
+      } },
+      auditLog: { create: async () => ({}) },
+    };
+    const service = serviceWith({ $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx) });
+    assert.equal((await service.updateDesignatedAttendanceApprover({ designatedAttendanceApproverUserId: id }, companyAdmin)).designatedAttendanceApproverUserId, id);
+    assert.deepEqual(candidateWhere, {
+      id,
+      companyId: 'company-1',
+      deletedAt: null,
+      status: UserStatus.ACTIVE,
+      employee: { is: { companyId: 'company-1', deletedAt: null, status: 'ACTIVE' } },
+      roles: { some: { role: { companyId: 'company-1', deletedAt: null, systemName: { in: [RoleName.HR, RoleName.COMPANY_ADMIN] } } } },
+    });
+  });
   it('applies search and status before pagination and uses the same filtered total', async () => {
     let findWhere: unknown;
     let countWhere: unknown;

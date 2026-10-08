@@ -14,6 +14,7 @@ export enum EmailRendererId {
   LEAVE_CANCELLED_WORKFLOW = 'LEAVE_CANCELLED_WORKFLOW',
   ATTENDANCE_CORRECTION_APPROVED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPROVED_WORKFLOW',
   ATTENDANCE_CORRECTION_REJECTED_WORKFLOW = 'ATTENDANCE_CORRECTION_REJECTED_WORKFLOW',
+  ATTENDANCE_CORRECTION_APPLIED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPLIED_WORKFLOW',
 }
 
 export enum EmailRecipientResolverId {
@@ -80,6 +81,13 @@ export interface AttendanceCorrectionDecisionEmailPayload {
   attendanceDate: string;
 }
 
+export interface AttendanceCorrectionAppliedEmailPayload {
+  attendanceCorrectionRequestId: string;
+  employeeDisplayName: string;
+  attendanceDate: string;
+  correctionType: string;
+}
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
@@ -94,6 +102,7 @@ export interface EmailEventPayloadMap {
   [NotificationType.LEAVE_CANCELLED]: LeaveCancelledEmailPayload;
   [NotificationType.ATTENDANCE_CORRECTION_APPROVED]: AttendanceCorrectionDecisionEmailPayload;
   [NotificationType.ATTENDANCE_CORRECTION_REJECTED]: AttendanceCorrectionDecisionEmailPayload;
+  [NotificationType.ATTENDANCE_CORRECTION_APPLIED]: AttendanceCorrectionAppliedEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;

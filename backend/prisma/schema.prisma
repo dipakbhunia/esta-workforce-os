@@ -181,6 +181,7 @@ enum NotificationType {
   LEAVE_CANCELLED
   ATTENDANCE_CORRECTION_APPROVED
   ATTENDANCE_CORRECTION_REJECTED
+  ATTENDANCE_CORRECTION_APPLIED
 }
 
 enum ProductivityCategory {
@@ -456,6 +457,7 @@ model Company {
   updatedAt                     DateTime                      @updatedAt
   deletedAt                     DateTime?
   designatedLeaveApproverUserId String?                       @db.Uuid
+  designatedAttendanceApproverUserId String?                  @db.Uuid
   branches                      Branch[]
   departments                   Department[]
   designations                  Designation[]
@@ -503,6 +505,7 @@ model Company {
   paymentTaxSnapshots           PaymentTaxSnapshot[]
   subscriptionRenewals          SubscriptionRenewal[]
   designatedLeaveApprover       User?                         @relation("CompanyDesignatedLeaveApprover", fields: [designatedLeaveApproverUserId], references: [id], onDelete: Restrict)
+  designatedAttendanceApprover  User?                         @relation("CompanyDesignatedAttendanceApprover", fields: [designatedAttendanceApproverUserId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([slug])
@@ -1296,6 +1299,8 @@ model User {
   preparedSubscriptionRenewals SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
   designatedLeaveApproverFor   Company[]                      @relation("CompanyDesignatedLeaveApprover")
   assignedLeaveRequests        LeaveRequest[]                 @relation("LeaveRequestAssignedApprover")
+  designatedAttendanceApproverFor Company[]                   @relation("CompanyDesignatedAttendanceApprover")
+  assignedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionAssignedApprover")
 
   @@index([companyId])
   @@index([branchId])
@@ -1778,6 +1783,8 @@ model AttendanceCorrectionRequest {
   employeeId          String                     @db.Uuid
   requestedByUserId   String                     @db.Uuid
   reviewedByUserId    String?                    @db.Uuid
+  assignedApproverUserId String?                 @db.Uuid
+  approvalAuthorityVersion Int?
   type                AttendanceCorrectionType
   status              AttendanceCorrectionStatus @default(PENDING)
   originalPunchInAt   DateTime?
@@ -1795,12 +1802,14 @@ model AttendanceCorrectionRequest {
   employee            Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   requestedBy         User                       @relation("AttendanceCorrectionRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
   reviewedBy          User?                      @relation("AttendanceCorrectionReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  assignedApprover    User?                      @relation("AttendanceCorrectionAssignedApprover", fields: [assignedApproverUserId], references: [id], onDelete: Restrict)
 
   @@index([companyId, status, createdAt])
   @@index([attendanceId])
   @@index([employeeId, status])
   @@index([requestedByUserId, createdAt])
   @@index([reviewedByUserId, reviewedAt])
+  @@index([companyId, assignedApproverUserId, status], map: "AttendanceCorrection_assignedApprover_status_idx")
   @@index([deletedAt])
 }
 

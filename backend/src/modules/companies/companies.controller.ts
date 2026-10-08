@@ -33,6 +33,8 @@ import {
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { UpdateDesignatedLeaveApproverDto } from './dto/update-designated-leave-approver.dto';
 import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-approver-response.dto';
+import { UpdateDesignatedAttendanceApproverDto } from './dto/update-designated-attendance-approver.dto';
+import { DesignatedAttendanceApproverResponseDto } from './dto/designated-attendance-approver-response.dto';
 
 @ApiTags('Companies')
 @ApiBearerAuth()
@@ -80,6 +82,25 @@ export class CompaniesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.companiesService.updateDesignatedLeaveApprover(dto, user);
+  }
+
+  @Get('current/attendance-approver')
+  @Roles(RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Get the current tenant designated attendance approver' })
+  @ApiOkResponse({ type: DesignatedAttendanceApproverResponseDto })
+  getDesignatedAttendanceApprover(@CurrentUser() user: AuthenticatedUser) {
+    return this.companiesService.getDesignatedAttendanceApprover(user);
+  }
+
+  @Patch('current/attendance-approver')
+  @Roles(RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Configure the current tenant designated attendance approver' })
+  @ApiOkResponse({ type: DesignatedAttendanceApproverResponseDto })
+  updateDesignatedAttendanceApprover(
+    @Body() dto: UpdateDesignatedAttendanceApproverDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.companiesService.updateDesignatedAttendanceApprover(dto, user);
   }
 
   @Get(':id')

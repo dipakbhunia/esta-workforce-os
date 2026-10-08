@@ -203,6 +203,7 @@ export class UsersService {
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
     return this.prisma.$transaction(async (tx) => {
+      await this.lockTenantAuthority(tx, user.companyId);
       await this.assertPlatformAdminSurvives(tx, id, 'DELETE');
       const deleted = await tx.user.update({
         where: { id },
@@ -234,6 +235,7 @@ export class UsersService {
     this.assertCanManageTarget(user, actor);
     this.assertNotSelf(id, actor);
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.lockTenantAuthority(tx, user.companyId);
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(${PLATFORM_ADMIN_LOCK_KEY})::text`;
       const transactionTarget = await tx.user.findUniqueOrThrow({
         where: { id },
@@ -287,6 +289,7 @@ export class UsersService {
       actor,
     );
     await this.prisma.$transaction(async (tx) => {
+      await this.lockTenantAuthority(tx, user.companyId);
       await tx.userRole.upsert({
         where: { userId_roleId: { userId: id, roleId: role.id } },
         create: { userId: id, roleId: role.id },
@@ -310,6 +313,7 @@ export class UsersService {
       throw new BadRequestException('A user must retain at least one role');
     }
     await this.prisma.$transaction(async (tx) => {
+      await this.lockTenantAuthority(tx, user.companyId);
       if (role.systemName === RoleName.SUPER_ADMIN) {
         await this.assertPlatformAdminSurvives(tx, id, 'ROLE');
       }
@@ -324,6 +328,20 @@ export class UsersService {
       }
     });
     return this.findOne(id, actor);
+  }
+
+  private async lockTenantAuthority(
+    tx: Prisma.TransactionClient,
+    companyId: string | null,
+  ): Promise<void> {
+    if (companyId === null) return;
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "Company"
+      WHERE "id" = ${companyId}::uuid AND "deletedAt" IS NULL
+      FOR UPDATE
+    `);
+    if (rows.length !== 1) throw new NotFoundException('Company not found');
   }
 
   async resetPassword(

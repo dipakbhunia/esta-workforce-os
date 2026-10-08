@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AttendanceCorrectionStatus, AttendanceCorrectionType, RoleName, UserStatus } from '@prisma/client';
 import { AttendanceCorrectionsService } from './attendance-corrections.service';
 
@@ -12,11 +12,17 @@ const actor = {
   status: UserStatus.ACTIVE, roles: [RoleName.HR],
 };
 
-function record(status = AttendanceCorrectionStatus.PENDING) {
+function record(
+  status = AttendanceCorrectionStatus.PENDING,
+  authority: { approvalAuthorityVersion: number | null; assignedApproverUserId: string | null } = {
+    approvalAuthorityVersion: null,
+    assignedApproverUserId: null,
+  },
+) {
   return {
     id: requestId, companyId, attendanceId: '44444444-4444-4444-8444-444444444444',
     employeeId: '55555555-5555-4555-8555-555555555555', requestedByUserId: '66666666-6666-4666-8666-666666666666',
-    reviewedByUserId: null, type: AttendanceCorrectionType.TIME_CORRECTION, status,
+    reviewedByUserId: null, ...authority, type: AttendanceCorrectionType.TIME_CORRECTION, status,
     originalPunchInAt: new Date('2026-10-01T09:00:00.000Z'), originalPunchOutAt: new Date('2026-10-01T17:00:00.000Z'),
     requestedPunchInAt: null, requestedPunchOutAt: new Date('2026-10-01T18:00:00.000Z'),
     reason: 'Forgot punch out', reviewerComment: null, reviewedAt: null,
@@ -31,10 +37,14 @@ function record(status = AttendanceCorrectionStatus.PENDING) {
   };
 }
 
-function harness(claimCount = 1, notificationFailure?: Error) {
+function harness(
+  claimCount = 1,
+  notificationFailure?: Error,
+  authority?: { approvalAuthorityVersion: number | null; assignedApproverUserId: string | null },
+) {
   const calls: string[] = [];
   const notificationCalls: unknown[] = [];
-  let current = record();
+  let current = record(AttendanceCorrectionStatus.PENDING, authority);
   const tx = {
     attendanceCorrectionRequest: {
       updateMany: async (input: { data: { status: AttendanceCorrectionStatus } }) => {
@@ -47,7 +57,7 @@ function harness(claimCount = 1, notificationFailure?: Error) {
     auditLog: { create: async () => { calls.push('audit'); return { id: '77777777-7777-4777-8777-777777777777' }; } },
   };
   const prisma = {
-    attendanceCorrectionRequest: { findFirst: async () => record() },
+    attendanceCorrectionRequest: { findFirst: async () => record(AttendanceCorrectionStatus.PENDING, authority) },
     $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
   };
   const notifications = { createAttendanceCorrectionDecisionEmail: async (input: unknown) => {
@@ -102,5 +112,20 @@ describe('AttendanceCorrectionsService decision claims', () => {
     const result = await state.service.review(requestId, { status: AttendanceCorrectionStatus.REJECTED }, actor);
     assert.equal(result.status, AttendanceCorrectionStatus.REJECTED);
     assert.deepEqual(state.calls, ['claim', 'reload', 'reload', 'audit']);
+  });
+
+  it('fails closed for every malformed or unsupported authority shape', async () => {
+    for (const authority of [
+      { approvalAuthorityVersion: null, assignedApproverUserId: actor.id },
+      { approvalAuthorityVersion: 1, assignedApproverUserId: null },
+      { approvalAuthorityVersion: 2, assignedApproverUserId: actor.id },
+    ]) {
+      const state = harness(1, undefined, authority);
+      await assert.rejects(
+        () => state.service.review(requestId, { status: AttendanceCorrectionStatus.REJECTED }, actor),
+        ForbiddenException,
+      );
+      assert.deepEqual(state.calls, []);
+    }
   });
 });

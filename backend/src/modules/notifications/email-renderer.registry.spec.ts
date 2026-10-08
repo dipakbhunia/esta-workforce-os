@@ -7,6 +7,7 @@ import { monitoringEmailRendererRegistrations } from './monitoring-email.rendere
 import { accountStatusChangedEmailRendererRegistration } from './account-status-changed-email.renderer';
 import { leaveAppliedEmailRendererRegistration } from './leave-applied-email.renderer';
 import { leaveCancelledEmailRendererRegistration } from './leave-cancelled-email.renderer';
+import { attendanceCorrectionAppliedEmailRendererRegistration } from './attendance-correction-applied-email.renderer';
 
 describe('EmailRendererRegistry', () => {
   it('fails closed for duplicate and missing registrations', () => {
@@ -52,6 +53,16 @@ describe('EmailRendererRegistry', () => {
       endDate: '2026-10-11',
       cancelledByDisplayName: 'Leave Applicant',
     }).rendererVersion, 'leave-cancelled-v1');
+  });
+
+  it('resolves the Attendance correction applied renderer', () => {
+    const registry = new EmailRendererRegistry([attendanceCorrectionAppliedEmailRendererRegistration]);
+    assert.equal(registry.render(NotificationType.ATTENDANCE_CORRECTION_APPLIED, {
+      attendanceCorrectionRequestId: '11111111-1111-4111-8111-111111111111',
+      employeeDisplayName: 'Attendance Employee',
+      attendanceDate: '2026-10-10',
+      correctionType: 'TIME_CORRECTION',
+    }).rendererVersion, 'attendance-correction-applied-v1');
   });
 
   it('rejects sensitive payload fields and resolves events exactly at runtime', () => {

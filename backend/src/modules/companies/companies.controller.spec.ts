@@ -6,6 +6,7 @@ import { RoleName, UserStatus } from '@prisma/client';
 import { ROLES_KEY } from '../../common/decorators/roles.decorator';
 import { CompaniesController } from './companies.controller';
 import { UpdateDesignatedLeaveApproverDto } from './dto/update-designated-leave-approver.dto';
+import { UpdateDesignatedAttendanceApproverDto } from './dto/update-designated-attendance-approver.dto';
 
 const actor = {
   id: '10000000-0000-4000-8000-000000000001',
@@ -65,5 +66,33 @@ describe('CompaniesController designated leave approver settings', () => {
     return validate(dto, { whitelist: true, forbidNonWhitelisted: true }).then((errors) => {
       assert.deepEqual(errors.map((error) => error.property), ['companyId']);
     });
+  });
+});
+
+describe('CompaniesController designated attendance approver settings', () => {
+  it('delegates GET and PATCH and declares COMPANY_ADMIN authority', async () => {
+    const calls: unknown[][] = [];
+    const response = { designatedAttendanceApproverUserId: null, designatedAttendanceApprover: null };
+    const controller = new CompaniesController({
+      getDesignatedAttendanceApprover: async (...args: unknown[]) => { calls.push(args); return response; },
+      updateDesignatedAttendanceApprover: async (...args: unknown[]) => { calls.push(args); return response; },
+    } as never);
+    const dto = { designatedAttendanceApproverUserId: null };
+    assert.deepEqual(await controller.getDesignatedAttendanceApprover(actor), response);
+    assert.deepEqual(await controller.updateDesignatedAttendanceApprover(dto, actor), response);
+    assert.deepEqual(calls, [[actor], [dto, actor]]);
+    for (const method of ['getDesignatedAttendanceApprover', 'updateDesignatedAttendanceApprover'] as const) {
+      assert.deepEqual(Reflect.getMetadata(ROLES_KEY, CompaniesController.prototype[method]), [RoleName.COMPANY_ADMIN]);
+    }
+  });
+
+  it('accepts only a present null or UUID attendance approver value', async () => {
+    for (const input of [
+      { designatedAttendanceApproverUserId: null },
+      { designatedAttendanceApproverUserId: '10000000-0000-4000-8000-000000000001' },
+    ]) assert.deepEqual(await validate(plainToInstance(UpdateDesignatedAttendanceApproverDto, input)), []);
+    for (const input of [{}, { designatedAttendanceApproverUserId: 'invalid' }]) {
+      assert.ok((await validate(plainToInstance(UpdateDesignatedAttendanceApproverDto, input))).length > 0);
+    }
   });
 });

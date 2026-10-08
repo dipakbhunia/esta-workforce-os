@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -14,6 +15,7 @@ import {
   NotificationType,
   Prisma,
   RoleName,
+  UserStatus,
 } from '@prisma/client';
 import { paginatedResult, paginationArgs } from '../../common/utils/pagination.util';
 import { PrismaService } from '../../database/prisma.service';
@@ -101,42 +103,99 @@ export class AttendanceCorrectionsService {
       requestedPunchInAt ?? attendance.punchInAt,
       requestedPunchOutAt ?? attendance.punchOutAt,
     );
-    const pendingExists = await this.prisma.attendanceCorrectionRequest.count({
-      where: {
-        attendanceId: attendance.id,
-        employeeId: attendance.employeeId,
-        status: AttendanceCorrectionStatus.PENDING,
-        deletedAt: null,
-      },
-    });
-    if (pendingExists) {
-      throw new BadRequestException(
-        'A pending correction request already exists for this attendance',
+    const request = await this.prisma.$transaction(async (tx) => {
+      const [company] = await tx.$queryRaw<Array<{
+        id: string;
+        designatedAttendanceApproverUserId: string | null;
+      }>>(Prisma.sql`
+        SELECT "id", "designatedAttendanceApproverUserId"
+        FROM "Company"
+        WHERE "id" = ${attendance.companyId}::uuid AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (!company) throw new NotFoundException('Company not found');
+      const [applicant] = await tx.$queryRaw<Array<{
+        id: string;
+        userId: string;
+        reportingManagerId: string | null;
+      }>>(Prisma.sql`
+        SELECT "id", "userId", "reportingManagerId"
+        FROM "Employee"
+        WHERE "id" = ${ownEmployee.id}::uuid
+          AND "companyId" = ${company.id}::uuid
+          AND "deletedAt" IS NULL
+          AND "status" = 'ACTIVE'::"EmployeeStatus"
+        FOR UPDATE
+      `);
+      if (!applicant) throw new NotFoundException('Active employee profile not found');
+      const pendingExists = await tx.attendanceCorrectionRequest.count({
+        where: {
+          attendanceId: attendance.id,
+          employeeId: attendance.employeeId,
+          status: AttendanceCorrectionStatus.PENDING,
+          deletedAt: null,
+        },
+      });
+      if (pendingExists) {
+        throw new BadRequestException('A pending correction request already exists for this attendance');
+      }
+      const assignedApproverUserId = await this.resolveAttendanceApprover(
+        tx,
+        company.id,
+        applicant,
+        company.designatedAttendanceApproverUserId,
       );
+      if (!assignedApproverUserId) {
+        throw new ConflictException('No valid attendance correction approver is configured for this employee');
+      }
+      const created = await tx.attendanceCorrectionRequest.create({
+        data: {
+          companyId: attendance.companyId,
+          attendanceId: attendance.id,
+          employeeId: attendance.employeeId,
+          requestedByUserId: actor.id,
+          assignedApproverUserId,
+          approvalAuthorityVersion: 1,
+          type: dto.type,
+          originalPunchInAt: attendance.punchInAt,
+          originalPunchOutAt: attendance.punchOutAt,
+          requestedPunchInAt,
+          requestedPunchOutAt,
+          reason,
+        },
+        include: correctionInclude,
+      });
+      await tx.auditLog.create({
+        data: {
+          companyId: created.companyId,
+          actorUserId: actor.id,
+          action: 'ATTENDANCE_CORRECTION_REQUESTED',
+          entityType: 'AttendanceCorrectionRequest',
+          entityId: created.id,
+          metadata: { attendanceId: created.attendanceId, employeeId: created.employeeId, type: created.type },
+        },
+      });
+      return created;
+    });
+    try {
+      await this.notifications.createAttendanceCorrectionAppliedEmail({
+        attendanceCorrectionRequestId: request.id,
+        assignedApproverUserId: request.assignedApproverUserId!,
+        expectedCompanyId: request.companyId,
+        payload: {
+          attendanceCorrectionRequestId: request.id,
+          employeeDisplayName: `${request.employee.user.firstName} ${request.employee.user.lastName}`.trim(),
+          attendanceDate: request.attendance.attendanceDate.toISOString().slice(0, 10),
+          correctionType: request.type,
+        },
+      });
+    } catch {
+      this.logger.warn({
+        failureCategory: 'ATTENDANCE_CORRECTION_APPLIED_NOTIFICATION_ENQUEUE_FAILED',
+        attendanceCorrectionRequestId: request.id,
+        companyId: request.companyId,
+      });
     }
-
-    const request = await this.prisma.attendanceCorrectionRequest.create({
-      data: {
-        companyId: attendance.companyId,
-        attendanceId: attendance.id,
-        employeeId: attendance.employeeId,
-        requestedByUserId: actor.id,
-        type: dto.type,
-        originalPunchInAt: attendance.punchInAt,
-        originalPunchOutAt: attendance.punchOutAt,
-        requestedPunchInAt,
-        requestedPunchOutAt,
-        reason,
-      },
-      include: correctionInclude,
-    });
-
-    await this.writeAuditLog(actor, request.companyId, 'ATTENDANCE_CORRECTION_REQUESTED', request.id, {
-      attendanceId: request.attendanceId,
-      employeeId: request.employeeId,
-      type: request.type,
-    });
-
     return this.toResponse(request);
   }
 
@@ -226,19 +285,55 @@ export class AttendanceCorrectionsService {
     ) {
       throw new BadRequestException('status must be APPROVED or REJECTED');
     }
-    const request = await this.findVisibleRequest(id, actor);
+    const candidate = await this.prisma.attendanceCorrectionRequest.findFirst({
+      where: { id, deletedAt: null },
+      include: correctionInclude,
+    });
+    if (!candidate) throw new NotFoundException('Attendance correction request not found');
+    const legacyAuthority =
+      candidate.approvalAuthorityVersion === null &&
+      candidate.assignedApproverUserId === null;
+    const versionOne =
+      candidate.approvalAuthorityVersion === 1 &&
+      candidate.assignedApproverUserId !== null;
+    if (!legacyAuthority && !versionOne) {
+      throw new ForbiddenException('Attendance correction review is not permitted');
+    }
+    const request = versionOne ? candidate : await this.findVisibleRequest(id, actor);
     if (request.status !== AttendanceCorrectionStatus.PENDING) {
       throw new BadRequestException('Only pending requests can be reviewed');
     }
-    await this.assertCanReview(request, actor);
+    if (versionOne) {
+      if (
+        request.companyId !== actor.companyId ||
+        request.assignedApproverUserId !== actor.id ||
+        request.employee.user.id === actor.id
+      ) throw new ForbiddenException('Attendance correction review is not permitted');
+    } else {
+      await this.assertCanReview(request, actor);
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      if (versionOne) {
+        await this.lockCompanyAuthority(tx, request.companyId);
+        const hasCurrentAuthority = await this.lockAndValidateReviewerAuthority(
+          tx,
+          actor.id,
+          request.companyId,
+        );
+        if (!hasCurrentAuthority) {
+          throw new ForbiddenException('Attendance correction review is not permitted');
+        }
+      }
       const decision = await tx.attendanceCorrectionRequest.updateMany({
         where: {
           id,
           companyId: request.companyId,
           deletedAt: null,
           status: AttendanceCorrectionStatus.PENDING,
+          ...(versionOne
+            ? { approvalAuthorityVersion: 1, assignedApproverUserId: actor.id }
+            : { approvalAuthorityVersion: null, assignedApproverUserId: null }),
         },
         data: {
           status: dto.status,
@@ -475,6 +570,118 @@ export class AttendanceCorrectionsService {
     return request;
   }
 
+  private async resolveAttendanceApprover(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    applicant: { id: string; userId: string; reportingManagerId: string | null },
+    designatedAttendanceApproverUserId: string | null,
+  ): Promise<string | null> {
+    if (applicant.reportingManagerId && applicant.reportingManagerId !== applicant.id) {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id"
+        FROM "Employee"
+        WHERE "id" = ${applicant.reportingManagerId}::uuid
+        FOR UPDATE
+      `);
+      const manager = await tx.employee.findFirst({
+        where: {
+          id: applicant.reportingManagerId,
+          companyId,
+          deletedAt: null,
+          status: EmployeeStatus.ACTIVE,
+          user: {
+            id: { not: applicant.userId },
+            companyId,
+            deletedAt: null,
+            status: UserStatus.ACTIVE,
+            roles: { some: { role: { companyId, deletedAt: null, systemName: RoleName.MANAGER } } },
+          },
+        },
+        select: { userId: true },
+      });
+      if (manager) return manager.userId;
+    }
+    if (designatedAttendanceApproverUserId && designatedAttendanceApproverUserId !== applicant.userId) {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id"
+        FROM "User"
+        WHERE "id" = ${designatedAttendanceApproverUserId}::uuid
+        FOR UPDATE
+      `);
+      const fallback = await tx.user.findFirst({
+        where: {
+          id: designatedAttendanceApproverUserId,
+          companyId,
+          deletedAt: null,
+          status: UserStatus.ACTIVE,
+          employee: { is: { companyId, deletedAt: null, status: EmployeeStatus.ACTIVE } },
+          roles: {
+            some: {
+              role: {
+                companyId,
+                deletedAt: null,
+                systemName: { in: [RoleName.HR, RoleName.COMPANY_ADMIN] },
+              },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (fallback) return fallback.id;
+    }
+    return null;
+  }
+
+  private async lockCompanyAuthority(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "Company"
+      WHERE "id" = ${companyId}::uuid AND "deletedAt" IS NULL
+      FOR UPDATE
+    `);
+    if (rows.length !== 1) throw new NotFoundException('Company not found');
+  }
+
+  private async lockAndValidateReviewerAuthority(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    companyId: string,
+  ): Promise<boolean> {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id"
+      FROM "User"
+      WHERE "id" = ${userId}::uuid
+      FOR UPDATE
+    `);
+    const reviewer = await tx.user.findFirst({
+      where: {
+        id: userId,
+        companyId,
+        deletedAt: null,
+        status: UserStatus.ACTIVE,
+        employee: {
+          is: { companyId, deletedAt: null, status: EmployeeStatus.ACTIVE },
+        },
+        roles: {
+          some: {
+            role: {
+              companyId,
+              deletedAt: null,
+              systemName: {
+                in: [RoleName.MANAGER, RoleName.HR, RoleName.COMPANY_ADMIN],
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    return Boolean(reviewer);
+  }
+
   private async visibilityWhere(
     actor: AuthenticatedUser,
   ): Promise<Prisma.AttendanceCorrectionRequestWhereInput> {
@@ -491,6 +698,7 @@ export class AttendanceCorrectionsService {
         OR: [
           { employeeId: own.id },
           { employee: { reportingManagerId: own.id } },
+          { assignedApproverUserId: actor.id },
         ],
       };
     }
