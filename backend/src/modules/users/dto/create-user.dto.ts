@@ -1,12 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { UserStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
   IsEmail,
-  IsEnum,
   IsOptional,
   IsString,
   IsUUID,
@@ -25,12 +23,6 @@ export class CreateUserDto {
   @MaxLength(254)
   email!: string;
 
-  @ApiProperty({ example: 'StrongPassword@123', minLength: 8 })
-  @IsString()
-  @MinLength(8)
-  @MaxLength(128)
-  password!: string;
-
   @ApiProperty({ example: 'Jane' })
   @IsString()
   @MinLength(1)
@@ -42,11 +34,6 @@ export class CreateUserDto {
   @MinLength(1)
   @MaxLength(80)
   lastName!: string;
-
-  @ApiPropertyOptional({ enum: UserStatus, default: UserStatus.ACTIVE })
-  @IsEnum(UserStatus)
-  @IsOptional()
-  status?: UserStatus;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsUUID()

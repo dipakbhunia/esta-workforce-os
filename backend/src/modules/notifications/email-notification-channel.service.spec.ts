@@ -81,3 +81,39 @@ describe('EmailNotificationChannel error safety', () => {
     assert.doesNotMatch(html, /<legacy(?:-message)?>/);
   });
 });
+
+describe('EmailNotificationChannel identity authority', () => {
+  const notification = {
+    id: 'notification-1', userId: 'user-1', companyId: 'company-1',
+    type: NotificationType.ACCOUNT_INVITATION, accountActionTokenId: 'token-1',
+    title: 'Invitation', message: 'Message', severity: null, detailsPath: null,
+  } as never;
+  const token = {
+    id: 'token-1', userId: 'user-1', companyId: 'company-1', purpose: 'INVITATION',
+    expiresAt: new Date(Date.now() + 60_000), consumedAt: null, invalidatedAt: null,
+    user: { id: 'user-1', companyId: 'company-1', email: 'owner@example.test', status: 'INACTIVE', deletedAt: null },
+  };
+  const persisted = { ...notification, deliveries: [{ id: 'delivery-1' }] };
+  const channel = (tokenResult: unknown = token, notificationResult: unknown = persisted) => new EmailNotificationChannel(
+    { get: (key: string) => key === 'IDENTITY_ACTION_TOKEN_SECRET' ? 'x'.repeat(32) : undefined, getOrThrow: (key: string) => key === 'PUBLIC_APP_ORIGIN' ? 'https://app.example.test' : 'x'.repeat(32) } as never,
+    { accountActionToken: { findFirst: async () => tokenResult }, notification: { findUnique: async () => notificationResult } } as never,
+  );
+
+  it('accepts exact current authority and rejects recipient, owner, tenant, notification, purpose, and lifecycle mismatches', async () => {
+    const invoke = (instance: EmailNotificationChannel, recipient = 'owner@example.test') => (instance as unknown as { withIdentityActionLink: (value: unknown, address: string) => Promise<unknown> }).withIdentityActionLink(notification, recipient);
+    assert.match(JSON.stringify(await invoke(channel())), /activate-account/);
+    assert.match(JSON.stringify(await invoke(channel())), /activate-account/);
+    await assert.rejects(() => invoke(channel(), 'changed@example.test'), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, userId: 'user-2' })), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, companyId: 'company-2' })), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, purpose: 'PASSWORD_RESET' })), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, consumedAt: new Date() } as never)), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, invalidatedAt: new Date() } as never)), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, expiresAt: new Date(Date.now() - 60_000) } as never)), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, user: { ...token.user, companyId: 'company-2' } } as never)), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel({ ...token, user: { ...token.user, status: 'ACTIVE' } } as never)), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel(token, { ...persisted, userId: 'user-2' })), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel(token, { ...persisted, companyId: 'company-2' })), /no longer eligible/i);
+    await assert.rejects(() => invoke(channel(token, { ...persisted, deliveries: [] })), /no longer eligible/i);
+  });
+});

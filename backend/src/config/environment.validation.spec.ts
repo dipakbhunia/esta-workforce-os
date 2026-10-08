@@ -31,3 +31,19 @@ describe('payment credential environment validation', () => {
     assert.ok(validate({ PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION: 'key-v1' }));
   });
 });
+
+describe('public application origin validation', () => {
+  it('requires an exact HTTPS origin in production', () => {
+    assert.ok(validate({ NODE_ENV: 'production', PUBLIC_APP_ORIGIN: undefined }));
+    assert.ok(validate({ NODE_ENV: 'production', PUBLIC_APP_ORIGIN: 'http://app.example.test' }));
+    assert.equal(validate({ NODE_ENV: 'production', PUBLIC_APP_ORIGIN: 'https://app.example.test' }), undefined);
+  });
+
+  it('rejects credentials, paths, queries, fragments, and non-local development HTTP', () => {
+    for (const origin of ['https://user:pass@app.example.test', 'https://app.example.test/path', 'https://app.example.test?x=1', 'https://app.example.test/#fragment', 'http://app.example.test']) {
+      assert.ok(validate({ PUBLIC_APP_ORIGIN: origin }), origin);
+    }
+    assert.equal(validate({ PUBLIC_APP_ORIGIN: 'http://localhost:5173' }), undefined);
+    assert.equal(validate({ NODE_ENV: 'test', PUBLIC_APP_ORIGIN: undefined }), undefined);
+  });
+});

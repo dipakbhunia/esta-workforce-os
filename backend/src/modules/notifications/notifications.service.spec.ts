@@ -203,6 +203,36 @@ describe('NotificationsService monitoring regression', () => {
       'Your Esta Workforce OS account is now active. Access remains subject to your assigned roles and permissions.');
   });
 
+  it('rejects identity email enqueue unless token, purpose, owner, tenant, status, and recipient agree', async () => {
+    const baseToken = {
+      id: 'token-1', userId: 'target', companyId: 'company-1', purpose: 'INVITATION',
+      expiresAt: new Date(Date.now() + 60_000), consumedAt: null, invalidatedAt: null,
+      user: { id: 'target', companyId: 'company-1', email: 'target@example.test', status: 'INACTIVE', deletedAt: null },
+    };
+    const createService = (token: unknown, recipient: unknown) => new NotificationsService(
+      { accountActionToken: { findFirst: async () => token }, notification: { create: async () => ({ id: 'notification' }) } } as never,
+      { resolveAffectedUser: async () => recipient } as never, {} as never, {} as never,
+    );
+    const send = (service: NotificationsService) => service.createAccountInvitationEmail({ tokenId: 'token-1', targetUserId: 'target', organizationName: 'Acme' });
+    const recipient = { userId: 'target', companyId: 'company-1', email: 'target@example.test' };
+    assert.deepEqual(await send(createService(baseToken, recipient)), { created: true });
+    for (const [token, resolved] of [
+      [{ ...baseToken, userId: 'other' }, recipient],
+      [{ ...baseToken, companyId: 'company-2' }, recipient],
+      [{ ...baseToken, purpose: 'PASSWORD_RESET' }, recipient],
+      [{ ...baseToken, consumedAt: new Date() }, recipient],
+      [{ ...baseToken, invalidatedAt: new Date() }, recipient],
+      [{ ...baseToken, expiresAt: new Date(Date.now() - 60_000) }, recipient],
+      [{ ...baseToken, user: { ...baseToken.user, companyId: 'company-2' } }, recipient],
+      [{ ...baseToken, user: { ...baseToken.user, status: 'ACTIVE' } }, recipient],
+      [{ ...baseToken, user: { ...baseToken.user, deletedAt: new Date() } }, recipient],
+      [baseToken, { ...recipient, userId: 'other' }],
+      [baseToken, { ...recipient, companyId: 'company-2' }],
+      [baseToken, { ...recipient, email: 'changed@example.test' }],
+      [null, recipient],
+    ] as const) await assert.rejects(() => send(createService(token, resolved)), /authority mismatch/i);
+  });
+
   it('propagates unrelated or unproven persistence failures', async (context) => {
     const serviceFor = (failure: Error) => new NotificationsService(
       { notification: { create: async () => { throw failure; } } } as never,

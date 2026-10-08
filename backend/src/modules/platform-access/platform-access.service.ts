@@ -53,6 +53,7 @@ export class PlatformAccessService {
   }
 
   createUser(dto: CreatePlatformUserDto, actor: AuthenticatedUser) { return this.users.create({ ...dto }, actor); }
+  async resendUserInvitation(id: string, actor: AuthenticatedUser) { await this.getUser(id); return this.users.resendInvitation(id, actor); }
   async updateUser(id: string, dto: UpdatePlatformUserDto, actor: AuthenticatedUser) { await this.getUser(id); return this.users.update(id, dto, actor); }
   async setUserStatus(id: string, dto: PlatformUserStatusDto, actor: AuthenticatedUser) { await this.getUser(id); return this.users.setStatus(id, dto, actor); }
   async deleteUser(id: string, actor: AuthenticatedUser) { await this.getUser(id); return this.users.remove(id, actor); }

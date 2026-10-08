@@ -75,6 +75,20 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
     buildIdempotencyKey: ({ sourceId, userId, channel }) =>
       `${sourceId}:${NotificationType.ACCOUNT_STATUS_CHANGED}:${userId}:${channel}`,
   }],
+  ...([NotificationType.ACCOUNT_INVITATION, NotificationType.PASSWORD_RESET_REQUESTED] as const).map((eventKey) => [eventKey, {
+    eventKey,
+    category: EmailEventCategory.SECURITY,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.MANDATORY,
+    recipientResolver: EmailRecipientResolverId.AFFECTED_USER,
+    preferenceEvaluator: EmailPreferencePolicyId.NONE,
+    renderer: eventKey === NotificationType.ACCOUNT_INVITATION
+      ? EmailRendererId.ACCOUNT_INVITATION_SECURITY
+      : EmailRendererId.PASSWORD_RESET_REQUESTED_SECURITY,
+    quietHours: EmailQuietHoursPolicyId.NONE,
+    buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
+      `${sourceId}:${eventKey}:${userId}:${channel}`,
+  }] as const),
   [NotificationType.LEAVE_APPLIED, {
     eventKey: NotificationType.LEAVE_APPLIED,
     category: EmailEventCategory.WORKFLOW,

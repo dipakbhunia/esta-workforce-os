@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { CompanyStatus } from '@prisma/client';
 import {
   IsEmail,
@@ -11,9 +11,22 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
+export class InitialCompanyAdminDto {
+  @ApiProperty({ example: 'admin@acme.example' }) @IsEmail() @MaxLength(254) email!: string;
+  @ApiProperty({ example: 'Asha' }) @IsString() @MinLength(1) @MaxLength(80) firstName!: string;
+  @ApiProperty({ example: 'Sharma' }) @IsString() @MinLength(1) @MaxLength(80) lastName!: string;
+}
+
 export class CreateCompanyDto {
+  @ApiPropertyOptional({ type: InitialCompanyAdminDto, description: 'Atomically provision and invite the initial Company Admin' })
+  @ValidateNested()
+  @Type(() => InitialCompanyAdminDto)
+  @IsOptional()
+  initialAdmin?: InitialCompanyAdminDto;
+
   @ApiProperty({ example: 'Acme Corporation' })
   @Transform(({ value }) => value === null ? '' : value)
   @IsString()

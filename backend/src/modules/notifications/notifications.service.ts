@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel, NotificationStatus, NotificationType, Prisma, RoleName } from '@prisma/client';
+import { AccountActionTokenPurpose, MonitoringAlertEventType, MonitoringAlertSeverity, NotificationChannel, NotificationStatus, NotificationType, Prisma, RoleName, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { NotificationDeliveryQueryDto, NotificationPreferenceUpdateDto, NotificationQueryDto } from './dto/notification.dto';
@@ -52,6 +52,61 @@ export class NotificationsService {
       targetUserId: input.targetUserId,
       payload: input.payload,
     });
+  }
+
+  async createAccountInvitationEmail(input: { tokenId: string; targetUserId: string; organizationName: string }): Promise<{ created: boolean }> {
+    return this.createIdentityActionEmail(NotificationType.ACCOUNT_INVITATION, input.tokenId, input.targetUserId, (expiresAt) => ({ organizationName: input.organizationName, expiresAt }));
+  }
+
+  async createPasswordResetRequestedEmail(input: { tokenId: string; targetUserId: string }): Promise<{ created: boolean }> {
+    return this.createIdentityActionEmail(NotificationType.PASSWORD_RESET_REQUESTED, input.tokenId, input.targetUserId, (expiresAt) => ({ expiresAt }));
+  }
+
+  private async createIdentityActionEmail<K extends typeof NotificationType.ACCOUNT_INVITATION | typeof NotificationType.PASSWORD_RESET_REQUESTED>(
+    type: K,
+    tokenId: string,
+    targetUserId: string,
+    payloadForExpiry: (expiresAt: string) => EmailEventPayloadMap[K],
+  ): Promise<{ created: boolean }> {
+    const policy = getEmailEventPolicy(type);
+    if (policy.deliveryPolicy !== EmailDeliveryPolicy.MANDATORY || policy.category !== EmailEventCategory.SECURITY) {
+      throw new Error(`${type} email policy is invalid`);
+    }
+    const expectedPurpose = type === NotificationType.ACCOUNT_INVITATION ? AccountActionTokenPurpose.INVITATION : AccountActionTokenPurpose.PASSWORD_RESET;
+    const expectedStatus = expectedPurpose === AccountActionTokenPurpose.INVITATION ? UserStatus.INACTIVE : UserStatus.ACTIVE;
+    const now = new Date();
+    const [token, recipient] = await Promise.all([
+      this.prisma.accountActionToken.findFirst({
+        where: { id: tokenId, userId: targetUserId, purpose: expectedPurpose, consumedAt: null, invalidatedAt: null, expiresAt: { gt: now } },
+        include: { user: { select: { id: true, companyId: true, email: true, status: true, deletedAt: true } } },
+      }),
+      this.recipients.resolveAffectedUser(targetUserId),
+    ]);
+    if (!token || !recipient || token.purpose !== expectedPurpose || token.userId !== token.user.id || token.user.id !== targetUserId || token.consumedAt || token.invalidatedAt || token.expiresAt <= now || token.user.deletedAt || token.user.status !== expectedStatus || token.companyId !== token.user.companyId || recipient.userId !== token.user.id || recipient.companyId !== token.companyId || recipient.email.trim().toLowerCase() !== token.user.email.trim().toLowerCase()) {
+      throw new Error(`${type} authority mismatch`);
+    }
+    const composition = emailRendererRegistry.render(type, payloadForExpiry(token.expiresAt.toISOString()));
+    try {
+      await this.prisma.notification.create({
+        data: {
+          companyId: recipient.companyId,
+          userId: recipient.userId,
+          type,
+          channel: NotificationChannel.EMAIL,
+          title: composition.subject,
+          message: composition.message,
+          status: NotificationStatus.PENDING,
+          detailsPath: null,
+          idempotencyKey: policy.buildIdempotencyKey({ sourceId: tokenId, userId: recipient.userId, channel: NotificationChannel.EMAIL }),
+          accountActionTokenId: tokenId,
+          deliveries: { create: { channel: NotificationChannel.EMAIL, recipient: recipient.email, status: NotificationStatus.PENDING } },
+        },
+      });
+      return { created: true };
+    } catch (error) {
+      if (isNotificationIdempotencyConflict(error)) return { created: false };
+      throw error;
+    }
   }
 
   async createLeaveDecisionEmail(input: {

@@ -15,6 +15,8 @@ export enum EmailRendererId {
   ATTENDANCE_CORRECTION_APPROVED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPROVED_WORKFLOW',
   ATTENDANCE_CORRECTION_REJECTED_WORKFLOW = 'ATTENDANCE_CORRECTION_REJECTED_WORKFLOW',
   ATTENDANCE_CORRECTION_APPLIED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPLIED_WORKFLOW',
+  ACCOUNT_INVITATION_SECURITY = 'ACCOUNT_INVITATION_SECURITY',
+  PASSWORD_RESET_REQUESTED_SECURITY = 'PASSWORD_RESET_REQUESTED_SECURITY',
 }
 
 export enum EmailRecipientResolverId {
@@ -88,6 +90,15 @@ export interface AttendanceCorrectionAppliedEmailPayload {
   correctionType: string;
 }
 
+export interface AccountInvitationEmailPayload {
+  organizationName: string;
+  expiresAt: string;
+}
+
+export interface PasswordResetRequestedEmailPayload {
+  expiresAt: string;
+}
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
@@ -103,6 +114,8 @@ export interface EmailEventPayloadMap {
   [NotificationType.ATTENDANCE_CORRECTION_APPROVED]: AttendanceCorrectionDecisionEmailPayload;
   [NotificationType.ATTENDANCE_CORRECTION_REJECTED]: AttendanceCorrectionDecisionEmailPayload;
   [NotificationType.ATTENDANCE_CORRECTION_APPLIED]: AttendanceCorrectionAppliedEmailPayload;
+  [NotificationType.ACCOUNT_INVITATION]: AccountInvitationEmailPayload;
+  [NotificationType.PASSWORD_RESET_REQUESTED]: PasswordResetRequestedEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;

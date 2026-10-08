@@ -5,7 +5,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { FormActions } from '@/components/form-actions';
 import { SectionCard } from '@/components/section-card';
 import type { Company, CompanyFormValues } from '../types/company.types';
-import { companyDefaults, companyFormSchema, slugifyCompanyName, toCompanyPayload } from '../utils/company-form';
+import { companyCreateFormSchema, companyDefaults, companyFormSchema, slugifyCompanyName, toCompanyPayload } from '../utils/company-form';
 import {
   companyCountryOptions,
   companyCurrencyOptions,
@@ -27,7 +27,7 @@ export function CompanyForm({ company, loading = false, submitLabel, errorMessag
   const [manualSlug, setManualSlug] = useState(Boolean(company));
   const initialValues = useRef(companyDefaults(company));
   const { control, handleSubmit, formState: { errors, isDirty }, reset, watch, setValue } = useForm<CompanyFormValues>({
-    resolver: zodResolver(companyFormSchema),
+    resolver: zodResolver(company ? companyFormSchema : companyCreateFormSchema),
     defaultValues: initialValues.current,
     mode: 'onBlur',
   });
@@ -154,6 +154,14 @@ export function CompanyForm({ company, loading = false, submitLabel, errorMessag
           )}
         />
       </SectionCard>
+
+      {!company ? <SectionCard title="Initial Company Admin" description="The administrator will receive a secure invitation and set their own password.">
+        <Box sx={formGrid}>
+          <Controller control={control} name="initialAdminEmail" render={({ field }) => <TextField {...field} required label="Administrator Email" type="email" error={Boolean(errors.initialAdminEmail)} helperText={errors.initialAdminEmail?.message} />} />
+          <Controller control={control} name="initialAdminFirstName" render={({ field }) => <TextField {...field} required label="Administrator First Name" error={Boolean(errors.initialAdminFirstName)} helperText={errors.initialAdminFirstName?.message} />} />
+          <Controller control={control} name="initialAdminLastName" render={({ field }) => <TextField {...field} required label="Administrator Last Name" error={Boolean(errors.initialAdminLastName)} helperText={errors.initialAdminLastName?.message} />} />
+        </Box>
+      </SectionCard> : null}
 
       <FormActions cancelTo="/organization/companies" submitLabel={submitLabel} loading={loading} />
     </Stack>

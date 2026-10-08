@@ -2,8 +2,8 @@ import { describe, expectTypeOf, it } from 'vitest';
 import type { CreatePlatformUserRequest, PlatformAuditRecord, PlatformRole, PlatformUser, PlatformUserMutationResult } from './platform-access.types';
 
 describe('platform access sensitive type contract', () => {
-  it('keeps initial password request-only and exposes no credential response fields', () => {
-    expectTypeOf<CreatePlatformUserRequest>().toHaveProperty('password');
+  it('uses invitation-first creation and exposes no credential fields', () => {
+    expectTypeOf<CreatePlatformUserRequest>().not.toHaveProperty('password');
     expectTypeOf<PlatformUser>().not.toHaveProperty('password');
     expectTypeOf<PlatformUser>().not.toHaveProperty('passwordHash');
     expectTypeOf<PlatformUser>().not.toHaveProperty('token');

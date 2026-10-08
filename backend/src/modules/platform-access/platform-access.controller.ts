@@ -16,6 +16,7 @@ export class PlatformAccessController {
   @Get('users') listUsers(@Query() q: PlatformUserQueryDto) { return this.service.listUsers(q); }
   @Get('users/:id') getUser(@Param('id', ParseUUIDPipe) id: string) { return this.service.getUser(id); }
   @Post('users') createUser(@Body() dto: CreatePlatformUserDto, @CurrentUser() actor: AuthenticatedUser) { return this.service.createUser(dto, actor); }
+  @Post('users/:id/resend-invitation') resendUserInvitation(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthenticatedUser) { return this.service.resendUserInvitation(id, actor); }
   @Patch('users/:id') updateUser(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePlatformUserDto, @CurrentUser() actor: AuthenticatedUser) { return this.service.updateUser(id, dto, actor); }
   @Patch('users/:id/status') setStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PlatformUserStatusDto, @CurrentUser() actor: AuthenticatedUser) { return this.service.setUserStatus(id, dto, actor); }
   @Delete('users/:id') deleteUser(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthenticatedUser) { return this.service.deleteUser(id, actor); }

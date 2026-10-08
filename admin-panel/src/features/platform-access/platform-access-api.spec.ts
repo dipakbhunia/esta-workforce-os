@@ -38,7 +38,7 @@ describe('platform access API', () => {
   it('uses exact encoded user detail and mutation routes with bounded payloads', async () => {
     await getPlatformUser('user/id');
     expect(get).toHaveBeenCalledWith('/platform/access/users/user%2Fid');
-    const create = { email: 'admin@example.invalid', password: 'request-only-password', firstName: 'Platform', lastName: 'Admin', status: 'ACTIVE' as const, roleIds: ['role-1'] };
+    const create = { email: 'admin@example.invalid', firstName: 'Platform', lastName: 'Admin', roleIds: ['role-1'] };
     await createPlatformUser({ ...create, companyId: 'forbidden' } as typeof create);
     expect(post).toHaveBeenCalledWith('/platform/access/users', create);
     await updatePlatformUser('user/id', { email: 'next@example.invalid', firstName: undefined });

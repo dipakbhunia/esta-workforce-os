@@ -10,6 +10,8 @@ describe('email event policy registry', () => {
     const monitoring = policies.filter((policy) => ![
       NotificationType.PASSWORD_CHANGED,
       NotificationType.ACCOUNT_STATUS_CHANGED,
+        NotificationType.ACCOUNT_INVITATION,
+        NotificationType.PASSWORD_RESET_REQUESTED,
       NotificationType.LEAVE_APPROVED,
       NotificationType.LEAVE_REJECTED,
       NotificationType.LEAVE_APPLIED,

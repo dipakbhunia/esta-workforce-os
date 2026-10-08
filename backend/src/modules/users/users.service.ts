@@ -7,7 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Prisma, RoleName, UserStatus } from '@prisma/client';
+import { AccountActionTokenPurpose, Prisma, RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import {
@@ -18,6 +18,7 @@ import { isSuperAdmin } from '../../common/utils/tenant.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { NotificationsService } from '../notifications/notifications.service';
+import { IdentityActionsService } from '../identity-actions/identity-actions.service';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -82,6 +83,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly identityActions: IdentityActionsService = undefined as never,
   ) {}
 
   async create(dto: CreateUserDto, actor: AuthenticatedUser) {
@@ -90,15 +92,19 @@ export class UsersService {
     await this.validateOrganizationReferences(dto, companyId);
 
     try {
-      const user = await this.prisma.$transaction(async (tx) => {
+      const organizationName = companyId
+        ? (await this.prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { name: true } })).name
+        : 'Esta Workforce OS';
+      const passwordHash = await this.identityActions.unusablePasswordHash();
+      const result = await this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
           data: {
             companyId,
             email: dto.email.trim().toLowerCase(),
-            passwordHash: await bcrypt.hash(dto.password, SALT_ROUNDS),
+            passwordHash,
             firstName: dto.firstName.trim(),
             lastName: dto.lastName.trim(),
-            status: dto.status ?? UserStatus.ACTIVE,
+            status: UserStatus.INACTIVE,
             branchId: dto.branchId,
             departmentId: dto.departmentId,
             designationId: dto.designationId,
@@ -113,19 +119,62 @@ export class UsersService {
         });
         if (isSuperAdmin(actor) && companyId === null) {
           await this.writePlatformAudit(tx, actor, created.id, 'PLATFORM_USER_CREATED', {
-            status: dto.status ?? UserStatus.ACTIVE,
+            status: UserStatus.INACTIVE,
             roleIds: roles.map((role) => role.id),
           });
         }
-        return tx.user.findUniqueOrThrow({
+        const token = await this.identityActions.issueTokenInTransaction(tx, {
+          purpose: AccountActionTokenPurpose.INVITATION,
+          userId: created.id,
+          companyId,
+          createdByUserId: actor.id,
+        });
+        await tx.auditLog.create({
+          data: {
+            companyId,
+            actorUserId: actor.id,
+            action: 'USER_INVITED',
+            entityType: 'User',
+            entityId: created.id,
+            metadata: { roleIds: roles.map((role) => role.id) },
+          },
+        });
+        const user = await tx.user.findUniqueOrThrow({
           where: { id: created.id },
           select: userSelect,
         });
+        return { user, tokenId: token.id };
       });
-      return user;
+      const invitationQueued = await this.identityActions.enqueueInvitation(result.tokenId, result.user.id, organizationName);
+      return { ...result.user, invitationQueued };
     } catch (error) {
       this.throwUserConflict(error);
     }
+  }
+
+  async resendInvitation(id: string, actor: AuthenticatedUser) {
+    const user = await this.findOne(id, actor);
+    this.assertCanManageTarget(user, actor);
+    if (user.status !== UserStatus.INACTIVE) throw new BadRequestException('Only inactive invited users can be reinvited');
+    const invitationHistory = await this.prisma.accountActionToken.count({
+      where: { userId: user.id, companyId: user.companyId, purpose: AccountActionTokenPurpose.INVITATION },
+    });
+    if (!invitationHistory || user.lastLoginAt) throw new BadRequestException('This account is not awaiting invitation activation');
+    const organizationName = user.company?.name ?? 'Esta Workforce OS';
+    const token = await this.prisma.$transaction(async (tx) => {
+      const created = await this.identityActions.issueTokenInTransaction(tx, {
+        purpose: AccountActionTokenPurpose.INVITATION,
+        userId: user.id,
+        companyId: user.companyId,
+        createdByUserId: actor.id,
+      });
+      await tx.auditLog.create({
+        data: { companyId: user.companyId, actorUserId: actor.id, action: 'USER_INVITATION_RESENT', entityType: 'User', entityId: user.id },
+      });
+      return created;
+    });
+    const invitationQueued = await this.identityActions.enqueueInvitation(token.id, user.id, organizationName);
+    return { invitationQueued };
   }
 
   async findAll(query: UserQueryDto, actor: AuthenticatedUser) {

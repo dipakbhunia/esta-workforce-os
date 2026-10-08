@@ -136,4 +136,14 @@ export class UsersController {
   ) {
     return this.usersService.resetPassword(id, dto, user);
   }
+
+  @Post(':id/resend-invitation')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN, RoleName.HR)
+  @ApiOperation({ summary: 'Issue a replacement invitation for an inactive user' })
+  resendInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.resendInvitation(id, user);
+  }
 }

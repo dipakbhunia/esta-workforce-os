@@ -25,11 +25,31 @@ import { LogoutResponseDto } from './dto/logout-response.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
+import { CompleteAccountActionDto, ForgotPasswordDto } from '../identity-actions/dto/identity-action.dto';
+import { IdentityActionsService } from '../identity-actions/identity-actions.service';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService, private readonly identityActions: IdentityActionsService) {}
+
+  @Post('activate-account')
+  @HttpCode(HttpStatus.OK)
+  activateAccount(@Body() dto: CompleteAccountActionDto, @Req() request: Request) {
+    return this.identityActions.activate(dto, this.getRequestContext(request));
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.ACCEPTED)
+  forgotPassword(@Body() dto: ForgotPasswordDto, @Req() request: Request) {
+    return this.identityActions.requestPasswordReset(dto.email, this.getRequestContext(request));
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Body() dto: CompleteAccountActionDto, @Req() request: Request) {
+    return this.identityActions.resetPassword(dto, this.getRequestContext(request));
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)

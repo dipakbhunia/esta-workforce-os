@@ -11,12 +11,19 @@ const paymentCredentialKey = Joi.string().allow('').custom((value: string, helpe
 });
 
 export const environmentValidationSchema = Joi.object({
+  NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   DATABASE_URL: Joi.string().uri().required(),
   PORT: Joi.number().port().default(3000),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+  PUBLIC_APP_ORIGIN: Joi.string().uri({ scheme: ['http', 'https'] }).optional(),
+  IDENTITY_ACTION_TOKEN_SECRET: Joi.string().min(32).allow('').optional(),
+  IDENTITY_INVITATION_TTL_HOURS: Joi.number().integer().min(1).max(168).default(48),
+  IDENTITY_PASSWORD_RESET_TTL_MINUTES: Joi.number().integer().min(5).max(1440).default(30),
+  IDENTITY_RECOVERY_EMAIL_LIMIT_PER_HOUR: Joi.number().integer().min(1).max(20).default(5),
+  IDENTITY_RECOVERY_IP_LIMIT_PER_HOUR: Joi.number().integer().min(1).max(100).default(20),
   ALERT_DEVICE_OFFLINE_MINUTES: Joi.number().integer().min(1).default(10),
   ALERT_MISSING_HEARTBEAT_MINUTES: Joi.number().integer().min(1).default(20),
   ALERT_EXCESSIVE_IDLE_MINUTES: Joi.number().integer().min(1).default(30),
@@ -41,8 +48,31 @@ export const environmentValidationSchema = Joi.object({
   const version = typeof value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION === 'string'
     ? value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION.trim() : '';
   if (Boolean(key) !== Boolean(version)) return helpers.error('object.paymentCredentialPair');
+  const production = value.NODE_ENV === 'production';
+  const configuredOrigin = typeof value.PUBLIC_APP_ORIGIN === 'string' ? value.PUBLIC_APP_ORIGIN : '';
+  if (!configuredOrigin) {
+    if (production) return helpers.error('object.productionAppOriginRequired');
+    value.PUBLIC_APP_ORIGIN = 'http://localhost:5173';
+    return value;
+  }
+  try {
+    const origin = new URL(configuredOrigin);
+    const exactOrigin = origin.origin === configuredOrigin.replace(/\/$/, '');
+    if (origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash || !exactOrigin) {
+      return helpers.error('object.invalidAppOrigin');
+    }
+    if (production && origin.protocol !== 'https:') return helpers.error('object.productionAppOriginHttps');
+    if (!production && origin.protocol === 'http:' && !['localhost', '127.0.0.1', '::1'].includes(origin.hostname)) {
+      return helpers.error('object.invalidAppOrigin');
+    }
+  } catch {
+    return helpers.error('object.invalidAppOrigin');
+  }
   return value;
 }).messages({
   'object.paymentCredentialPair': 'Payment credential encryption key and version must be configured together',
   'any.invalid': 'Payment credential encryption key must be canonical base64 encoding of exactly 32 bytes',
+  'object.productionAppOriginRequired': 'PUBLIC_APP_ORIGIN is required in production',
+  'object.productionAppOriginHttps': 'PUBLIC_APP_ORIGIN must use HTTPS in production',
+  'object.invalidAppOrigin': 'PUBLIC_APP_ORIGIN must be an exact trusted origin without credentials, path, query, or fragment',
 });

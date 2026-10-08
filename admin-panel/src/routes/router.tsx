@@ -16,6 +16,8 @@ import {
 import { AppLayout } from '@/layouts';
 
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
+const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage'));
+const AccountActionPage = lazy(() => import('@/features/auth/pages/AccountActionPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/pages/DashboardPage'));
 const CompaniesPage = lazy(() => import('@/features/organization/pages/CompaniesPage'));
 const CompanyCreatePage = lazy(() => import('@/features/organization/pages/CompanyCreatePage'));
@@ -266,6 +268,14 @@ export const router = createBrowserRouter([
   {
     element: <PublicRoute />,
     children: [{ path: '/login', element: lazyElement(<LoginPage />) }],
+  },
+  {
+    element: <PublicRoute allowAuthenticated />,
+    children: [
+      { path: '/forgot-password', element: lazyElement(<ForgotPasswordPage />) },
+      { path: '/activate-account', element: lazyElement(<AccountActionPage mode="activate" />) },
+      { path: '/reset-password', element: lazyElement(<AccountActionPage mode="reset" />) },
+    ],
   },
   {
     element: <ProtectedRoute />,

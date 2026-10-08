@@ -182,6 +182,13 @@ enum NotificationType {
   ATTENDANCE_CORRECTION_APPROVED
   ATTENDANCE_CORRECTION_REJECTED
   ATTENDANCE_CORRECTION_APPLIED
+  ACCOUNT_INVITATION
+  PASSWORD_RESET_REQUESTED
+}
+
+enum AccountActionTokenPurpose {
+  INVITATION
+  PASSWORD_RESET
 }
 
 enum ProductivityCategory {
@@ -442,70 +449,71 @@ model PlanRecurringPrice {
 }
 
 model Company {
-  id                            String                        @id @default(uuid()) @db.Uuid
-  name                          String
-  slug                          String
-  primaryEmail                  String?
-  phone                         String?
-  website                       String?
-  country                       String?
-  timezone                      String                        @default("UTC")
-  currency                      String?
-  address                       String?
-  status                        CompanyStatus                 @default(TRIAL)
-  createdAt                     DateTime                      @default(now())
-  updatedAt                     DateTime                      @updatedAt
-  deletedAt                     DateTime?
-  designatedLeaveApproverUserId String?                       @db.Uuid
-  designatedAttendanceApproverUserId String?                  @db.Uuid
-  branches                      Branch[]
-  departments                   Department[]
-  designations                  Designation[]
-  shifts                        Shift[]
-  users                         User[]
-  employees                     Employee[]
-  shiftAssignments              EmployeeShiftAssignment[]
-  shiftRosterPeriods            ShiftRosterPeriod[]
-  shiftRosterDays               ShiftRosterDay[]
-  rosterTemplates               RosterTemplate[]
-  rosterTemplateDays            RosterTemplateDay[]
-  rotationPatterns              RotationPattern[]
-  rotationPatternDays           RotationPatternDay[]
-  weeklyOffRules                WeeklyOffRule[]
-  holidayCalendars              HolidayCalendar[]
-  holidays                      Holiday[]
-  attendances                   Attendance[]
-  attendanceCorrectionRequests  AttendanceCorrectionRequest[]
-  leaveTypes                    LeaveType[]
-  leaveRequests                 LeaveRequest[]
-  leaveBalances                 LeaveBalance[]
-  leaveApprovalHistories        LeaveApprovalHistory[]
-  breakPolicies                 BreakPolicy[]
-  attendancePolicies            AttendancePolicy[]
-  monitoringDevices             MonitoringDevice[]
-  heartbeats                    Heartbeat[]
-  activitySessions              ActivitySession[]
-  screenshots                   Screenshot[]
-  applicationUsages             ApplicationUsage[]
-  websiteUsages                 WebsiteUsage[]
-  monitoringAlerts              MonitoringAlert[]
-  monitoringAlertEvents         MonitoringAlertEvent[]
-  monitoringAlertPolicies       MonitoringAlertPolicy[]
-  notifications                 Notification[]
-  notificationPreferences       NotificationPreference[]
-  applicationProductivityRules  ApplicationProductivityRule[]
-  websiteProductivityRules      WebsiteProductivityRule[]
-  roles                         Role[]
-  auditLogs                     AuditLog[]
-  subscriptions                 CompanySubscription[]
-  trials                        CompanyTrial[]
-  payments                      Payment[]
-  billingProfile                CompanyBillingProfile?
-  invoices                      Invoice[]
-  paymentTaxSnapshots           PaymentTaxSnapshot[]
-  subscriptionRenewals          SubscriptionRenewal[]
-  designatedLeaveApprover       User?                         @relation("CompanyDesignatedLeaveApprover", fields: [designatedLeaveApproverUserId], references: [id], onDelete: Restrict)
-  designatedAttendanceApprover  User?                         @relation("CompanyDesignatedAttendanceApprover", fields: [designatedAttendanceApproverUserId], references: [id], onDelete: Restrict)
+  id                                 String                        @id @default(uuid()) @db.Uuid
+  name                               String
+  slug                               String
+  primaryEmail                       String?
+  phone                              String?
+  website                            String?
+  country                            String?
+  timezone                           String                        @default("UTC")
+  currency                           String?
+  address                            String?
+  status                             CompanyStatus                 @default(TRIAL)
+  createdAt                          DateTime                      @default(now())
+  updatedAt                          DateTime                      @updatedAt
+  deletedAt                          DateTime?
+  designatedLeaveApproverUserId      String?                       @db.Uuid
+  designatedAttendanceApproverUserId String?                       @db.Uuid
+  branches                           Branch[]
+  departments                        Department[]
+  designations                       Designation[]
+  shifts                             Shift[]
+  users                              User[]
+  employees                          Employee[]
+  shiftAssignments                   EmployeeShiftAssignment[]
+  shiftRosterPeriods                 ShiftRosterPeriod[]
+  shiftRosterDays                    ShiftRosterDay[]
+  rosterTemplates                    RosterTemplate[]
+  rosterTemplateDays                 RosterTemplateDay[]
+  rotationPatterns                   RotationPattern[]
+  rotationPatternDays                RotationPatternDay[]
+  weeklyOffRules                     WeeklyOffRule[]
+  holidayCalendars                   HolidayCalendar[]
+  holidays                           Holiday[]
+  attendances                        Attendance[]
+  attendanceCorrectionRequests       AttendanceCorrectionRequest[]
+  leaveTypes                         LeaveType[]
+  leaveRequests                      LeaveRequest[]
+  leaveBalances                      LeaveBalance[]
+  leaveApprovalHistories             LeaveApprovalHistory[]
+  breakPolicies                      BreakPolicy[]
+  attendancePolicies                 AttendancePolicy[]
+  monitoringDevices                  MonitoringDevice[]
+  heartbeats                         Heartbeat[]
+  activitySessions                   ActivitySession[]
+  screenshots                        Screenshot[]
+  applicationUsages                  ApplicationUsage[]
+  websiteUsages                      WebsiteUsage[]
+  monitoringAlerts                   MonitoringAlert[]
+  monitoringAlertEvents              MonitoringAlertEvent[]
+  monitoringAlertPolicies            MonitoringAlertPolicy[]
+  notifications                      Notification[]
+  accountActionTokens                AccountActionToken[]
+  notificationPreferences            NotificationPreference[]
+  applicationProductivityRules       ApplicationProductivityRule[]
+  websiteProductivityRules           WebsiteProductivityRule[]
+  roles                              Role[]
+  auditLogs                          AuditLog[]
+  subscriptions                      CompanySubscription[]
+  trials                             CompanyTrial[]
+  payments                           Payment[]
+  billingProfile                     CompanyBillingProfile?
+  invoices                           Invoice[]
+  paymentTaxSnapshots                PaymentTaxSnapshot[]
+  subscriptionRenewals               SubscriptionRenewal[]
+  designatedLeaveApprover            User?                         @relation("CompanyDesignatedLeaveApprover", fields: [designatedLeaveApproverUserId], references: [id], onDelete: Restrict)
+  designatedAttendanceApprover       User?                         @relation("CompanyDesignatedAttendanceApprover", fields: [designatedAttendanceApproverUserId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([slug])
@@ -1286,21 +1294,23 @@ model User {
   reviewedAttendanceCorrections  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewer")
   leaveApprovalHistories         LeaveApprovalHistory[]        @relation("LeaveApprovalHistoryActor")
 
-  acknowledgedMonitoringAlerts MonitoringAlert[]              @relation("MonitoringAlertAcknowledgedBy")
-  resolvedMonitoringAlerts     MonitoringAlert[]              @relation("MonitoringAlertResolvedBy")
-  monitoringAlertEvents        MonitoringAlertEvent[]         @relation("MonitoringAlertEventActor")
-  notifications                Notification[]
-  notificationPreference       NotificationPreference?
-  billingSettingsUpdates       BillingSettings[]              @relation("BillingSettingsUpdatedBy")
-  gstTaxPoliciesCreated        GstTaxPolicyVersion[]
-  billingProviderUpdates       BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
-  billingProviderCredentials   BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
-  createdPayments              Payment[]                      @relation("PaymentCreatedBy")
-  preparedSubscriptionRenewals SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
-  designatedLeaveApproverFor   Company[]                      @relation("CompanyDesignatedLeaveApprover")
-  assignedLeaveRequests        LeaveRequest[]                 @relation("LeaveRequestAssignedApprover")
-  designatedAttendanceApproverFor Company[]                   @relation("CompanyDesignatedAttendanceApprover")
-  assignedAttendanceCorrections AttendanceCorrectionRequest[] @relation("AttendanceCorrectionAssignedApprover")
+  acknowledgedMonitoringAlerts    MonitoringAlert[]              @relation("MonitoringAlertAcknowledgedBy")
+  resolvedMonitoringAlerts        MonitoringAlert[]              @relation("MonitoringAlertResolvedBy")
+  monitoringAlertEvents           MonitoringAlertEvent[]         @relation("MonitoringAlertEventActor")
+  notifications                   Notification[]
+  accountActionTokens             AccountActionToken[]           @relation("AccountActionTokenOwner")
+  createdAccountActionTokens      AccountActionToken[]           @relation("AccountActionTokenCreator")
+  notificationPreference          NotificationPreference?
+  billingSettingsUpdates          BillingSettings[]              @relation("BillingSettingsUpdatedBy")
+  gstTaxPoliciesCreated           GstTaxPolicyVersion[]
+  billingProviderUpdates          BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
+  billingProviderCredentials      BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
+  createdPayments                 Payment[]                      @relation("PaymentCreatedBy")
+  preparedSubscriptionRenewals    SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
+  designatedLeaveApproverFor      Company[]                      @relation("CompanyDesignatedLeaveApprover")
+  assignedLeaveRequests           LeaveRequest[]                 @relation("LeaveRequestAssignedApprover")
+  designatedAttendanceApproverFor Company[]                      @relation("CompanyDesignatedAttendanceApprover")
+  assignedAttendanceCorrections   AttendanceCorrectionRequest[]  @relation("AttendanceCorrectionAssignedApprover")
 
   @@index([companyId])
   @@index([branchId])
@@ -1777,32 +1787,32 @@ model Attendance {
 }
 
 model AttendanceCorrectionRequest {
-  id                  String                     @id @default(uuid()) @db.Uuid
-  companyId           String                     @db.Uuid
-  attendanceId        String                     @db.Uuid
-  employeeId          String                     @db.Uuid
-  requestedByUserId   String                     @db.Uuid
-  reviewedByUserId    String?                    @db.Uuid
-  assignedApproverUserId String?                 @db.Uuid
+  id                       String                     @id @default(uuid()) @db.Uuid
+  companyId                String                     @db.Uuid
+  attendanceId             String                     @db.Uuid
+  employeeId               String                     @db.Uuid
+  requestedByUserId        String                     @db.Uuid
+  reviewedByUserId         String?                    @db.Uuid
+  assignedApproverUserId   String?                    @db.Uuid
   approvalAuthorityVersion Int?
-  type                AttendanceCorrectionType
-  status              AttendanceCorrectionStatus @default(PENDING)
-  originalPunchInAt   DateTime?
-  originalPunchOutAt  DateTime?
-  requestedPunchInAt  DateTime?
-  requestedPunchOutAt DateTime?
-  reason              String
-  reviewerComment     String?
-  reviewedAt          DateTime?
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
-  deletedAt           DateTime?
-  company             Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  attendance          Attendance                 @relation(fields: [attendanceId], references: [id], onDelete: Restrict)
-  employee            Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  requestedBy         User                       @relation("AttendanceCorrectionRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
-  reviewedBy          User?                      @relation("AttendanceCorrectionReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  assignedApprover    User?                      @relation("AttendanceCorrectionAssignedApprover", fields: [assignedApproverUserId], references: [id], onDelete: Restrict)
+  type                     AttendanceCorrectionType
+  status                   AttendanceCorrectionStatus @default(PENDING)
+  originalPunchInAt        DateTime?
+  originalPunchOutAt       DateTime?
+  requestedPunchInAt       DateTime?
+  requestedPunchOutAt      DateTime?
+  reason                   String
+  reviewerComment          String?
+  reviewedAt               DateTime?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  deletedAt                DateTime?
+  company                  Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  attendance               Attendance                 @relation(fields: [attendanceId], references: [id], onDelete: Restrict)
+  employee                 Employee                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  requestedBy              User                       @relation("AttendanceCorrectionRequester", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reviewedBy               User?                      @relation("AttendanceCorrectionReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  assignedApprover         User?                      @relation("AttendanceCorrectionAssignedApprover", fields: [assignedApproverUserId], references: [id], onDelete: Restrict)
 
   @@index([companyId, status, createdAt])
   @@index([attendanceId])
@@ -2355,30 +2365,64 @@ model NotificationPreference {
 }
 
 model Notification {
-  id             String                   @id @default(uuid()) @db.Uuid
-  companyId      String?                  @db.Uuid
-  userId         String                   @db.Uuid
-  alertId        String?                  @db.Uuid
-  type           NotificationType
-  channel        NotificationChannel
-  title          String
-  message        String
-  severity       MonitoringAlertSeverity?
-  status         NotificationStatus       @default(PENDING)
-  readAt         DateTime?
-  detailsPath    String?
-  idempotencyKey String                   @unique
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
-  company        Company?                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  alert          MonitoringAlert?         @relation(fields: [alertId], references: [id], onDelete: SetNull)
-  deliveries     NotificationDelivery[]
+  id                   String                   @id @default(uuid()) @db.Uuid
+  companyId            String?                  @db.Uuid
+  userId               String                   @db.Uuid
+  alertId              String?                  @db.Uuid
+  type                 NotificationType
+  channel              NotificationChannel
+  title                String
+  message              String
+  severity             MonitoringAlertSeverity?
+  status               NotificationStatus       @default(PENDING)
+  readAt               DateTime?
+  detailsPath          String?
+  idempotencyKey       String                   @unique
+  accountActionTokenId String?                  @unique @db.Uuid
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  company              Company?                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                 User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alert                MonitoringAlert?         @relation(fields: [alertId], references: [id], onDelete: SetNull)
+  deliveries           NotificationDelivery[]
+  accountActionToken   AccountActionToken?      @relation(fields: [accountActionTokenId], references: [id], onDelete: SetNull)
 
   @@index([userId, readAt, createdAt])
   @@index([companyId, createdAt])
   @@index([alertId])
   @@index([channel, status])
+}
+
+model AccountActionToken {
+  id              String                    @id @default(uuid()) @db.Uuid
+  purpose         AccountActionTokenPurpose
+  userId          String                    @db.Uuid
+  companyId       String?                   @db.Uuid
+  tokenHash       String                    @unique @db.Char(64)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  invalidatedAt   DateTime?
+  createdByUserId String?                   @db.Uuid
+  createdAt       DateTime                  @default(now())
+  user            User                      @relation("AccountActionTokenOwner", fields: [userId], references: [id], onDelete: Cascade)
+  company         Company?                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User?                     @relation("AccountActionTokenCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  notification    Notification?
+
+  @@index([userId, purpose, createdAt])
+  @@index([purpose, expiresAt])
+  @@index([companyId, purpose])
+}
+
+model AccountActionRequestEvidence {
+  id          String                    @id @default(uuid()) @db.Uuid
+  purpose     AccountActionTokenPurpose
+  subjectHash String                    @db.Char(64)
+  ipHash      String                    @db.Char(64)
+  createdAt   DateTime                  @default(now())
+
+  @@index([purpose, subjectHash, createdAt])
+  @@index([purpose, ipHash, createdAt])
 }
 
 model NotificationDelivery {

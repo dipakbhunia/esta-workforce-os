@@ -19,3 +19,15 @@ export function logoutRequest(refreshToken: string): Promise<AxiosResponse<{ suc
 export function meRequest(): Promise<AxiosResponse<AuthUser>> {
   return http.get<AuthUser>('/auth/me');
 }
+
+export function requestPasswordReset(email: string) {
+  return http.post<{ accepted: true }>('/auth/forgot-password', { email }, skipAuthRefresh);
+}
+
+export function activateAccount(input: { token: string; password: string; passwordConfirmation: string }) {
+  return http.post<{ success: true }>('/auth/activate-account', input, skipAuthRefresh);
+}
+
+export function completePasswordReset(input: { token: string; password: string; passwordConfirmation: string }) {
+  return http.post<{ success: true }>('/auth/reset-password', input, skipAuthRefresh);
+}

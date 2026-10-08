@@ -13,6 +13,15 @@ export const companyFormSchema = z.object({
   currency: z.string().regex(/^[A-Z]{3}$/, 'Use a 3-letter ISO currency code.').or(z.literal('')),
   address: z.string().max(500),
   status: z.enum(['ACTIVE', 'INACTIVE', 'TRIAL', 'SUSPENDED']),
+  initialAdminEmail: z.string().email('Enter a valid administrator email.').or(z.literal('')),
+  initialAdminFirstName: z.string().max(80),
+  initialAdminLastName: z.string().max(80),
+});
+
+export const companyCreateFormSchema = companyFormSchema.superRefine((value, context) => {
+  if (!value.initialAdminEmail) context.addIssue({ code: 'custom', path: ['initialAdminEmail'], message: 'Initial administrator email is required.' });
+  if (!value.initialAdminFirstName.trim()) context.addIssue({ code: 'custom', path: ['initialAdminFirstName'], message: 'First name is required.' });
+  if (!value.initialAdminLastName.trim()) context.addIssue({ code: 'custom', path: ['initialAdminLastName'], message: 'Last name is required.' });
 });
 
 export function slugifyCompanyName(value: string) {
@@ -37,6 +46,9 @@ export function companyDefaults(company?: Company): CompanyFormValues {
     currency: company?.currency ?? '',
     address: company?.address ?? '',
     status: company?.status ?? 'ACTIVE',
+    initialAdminEmail: '',
+    initialAdminFirstName: '',
+    initialAdminLastName: '',
   };
 }
 
@@ -52,6 +64,7 @@ export function toCompanyPayload(values: CompanyFormValues): CompanyPayload {
     currency: optionalValue(values.currency.toUpperCase()),
     address: optionalValue(values.address),
     status: values.status,
+    ...(values.initialAdminEmail ? { initialAdmin: { email: values.initialAdminEmail.trim(), firstName: values.initialAdminFirstName.trim(), lastName: values.initialAdminLastName.trim() } } : {}),
   };
 }
 

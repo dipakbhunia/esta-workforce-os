@@ -48,6 +48,7 @@ export interface PlatformUserMutationResult {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  invitationQueued?: boolean;
   company: null;
   branch: { id: string; name: string; code: string } | null;
   department: { id: string; name: string; code: string } | null;
@@ -160,10 +161,8 @@ export interface PlatformAuditListQuery {
 
 export interface CreatePlatformUserRequest {
   email: string;
-  password: string;
   firstName: string;
   lastName: string;
-  status?: PlatformUserStatus;
   roleIds: string[];
 }
 

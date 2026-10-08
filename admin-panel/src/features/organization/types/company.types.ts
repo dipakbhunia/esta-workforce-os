@@ -51,6 +51,7 @@ export interface CompanyPayload {
   currency?: string | null;
   address?: string | null;
   status: CompanyStatus;
+  initialAdmin?: { email: string; firstName: string; lastName: string };
 }
 
 export interface CompanyFormValues {
@@ -64,4 +65,7 @@ export interface CompanyFormValues {
   timezone: string;
   currency: string;
   address: string;
+  initialAdminEmail: string;
+  initialAdminFirstName: string;
+  initialAdminLastName: string;
 }

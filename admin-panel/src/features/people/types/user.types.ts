@@ -52,3 +52,20 @@ export interface UserListParams {
   search?: string;
   status?: UserStatus;
 }
+
+export interface ManagedRole {
+  id: string;
+  name: string;
+  systemName: RoleName | null;
+}
+
+export interface CreateManagedUserRequest {
+  email: string;
+  firstName: string;
+  lastName: string;
+  roleIds: string[];
+}
+
+export interface ManagedUserMutationResult extends ManagedUser {
+  invitationQueued: boolean;
+}

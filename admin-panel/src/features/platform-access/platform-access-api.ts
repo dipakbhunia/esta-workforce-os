@@ -46,8 +46,8 @@ export function getPlatformUser(id: string) {
 }
 
 export function createPlatformUser(request: CreatePlatformUserRequest) {
-  const { email, password, firstName, lastName, status, roleIds } = request;
-  return http.post<PlatformUserMutationResult>('/platform/access/users', { email, password, firstName, lastName, ...(status ? { status } : {}), roleIds });
+  const { email, firstName, lastName, roleIds } = request;
+  return http.post<PlatformUserMutationResult>('/platform/access/users', { email, firstName, lastName, roleIds });
 }
 
 export function updatePlatformUser(id: string, request: UpdatePlatformUserRequest) {
@@ -61,6 +61,10 @@ export function updatePlatformUserStatus(id: string, request: UpdatePlatformUser
 
 export function deletePlatformUser(id: string) {
   return http.delete<PlatformUserMutationResult>(`/platform/access/users/${encodeURIComponent(id)}`);
+}
+
+export function resendPlatformUserInvitation(id: string) {
+  return http.post<{ invitationQueued: boolean }>(`/platform/access/users/${encodeURIComponent(id)}/resend-invitation`);
 }
 
 export function assignPlatformUserRole(id: string, request: AssignPlatformUserRoleRequest) {

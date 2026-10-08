@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CompanyStatus, EmployeeStatus, Prisma, RoleName, UserStatus } from '@prisma/client';
+import { AccountActionTokenPurpose, CompanyStatus, EmployeeStatus, Prisma, RoleName, UserStatus } from '@prisma/client';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
 import {
   paginatedResult,
@@ -22,6 +22,7 @@ import { UpdateDesignatedLeaveApproverDto } from './dto/update-designated-leave-
 import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-approver-response.dto';
 import { UpdateDesignatedAttendanceApproverDto } from './dto/update-designated-attendance-approver.dto';
 import { DesignatedAttendanceApproverResponseDto } from './dto/designated-attendance-approver-response.dto';
+import { IdentityActionsService } from '../identity-actions/identity-actions.service';
 
 const companyCounts = Prisma.validator<Prisma.CompanyInclude>()({
   _count: {
@@ -52,14 +53,15 @@ type DesignatedApprover = Prisma.UserGetPayload<{
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly identityActions: IdentityActionsService = undefined as never) {}
 
   async create(
     dto: CreateCompanyDto,
     actor: AuthenticatedUser,
-  ): Promise<CompanyResponseDto> {
+  ) {
     try {
-      const company = await this.prisma.$transaction(async (tx): Promise<CompanyWithCounts> => {
+      const passwordHash = dto.initialAdmin ? await this.identityActions.unusablePasswordHash() : null;
+      const result = await this.prisma.$transaction(async (tx) => {
         const created = await tx.company.create({
           data: this.createData(dto),
           include: companyCounts,
@@ -74,9 +76,38 @@ export class CompaniesService {
             metadata: { status: created.status },
           },
         });
-        return created;
+        if (!dto.initialAdmin || !passwordHash) return { company: created, invitation: null };
+        const role = await tx.role.create({
+          data: { companyId: created.id, key: 'COMPANY_ADMIN', name: 'Company Admin', systemName: RoleName.COMPANY_ADMIN, description: 'Built-in tenant administrator role' },
+        });
+        const admin = await tx.user.create({
+          data: {
+            companyId: created.id,
+            email: dto.initialAdmin.email.trim().toLowerCase(),
+            firstName: dto.initialAdmin.firstName.trim(),
+            lastName: dto.initialAdmin.lastName.trim(),
+            passwordHash,
+            status: UserStatus.INACTIVE,
+            roles: { create: { roleId: role.id } },
+          },
+        });
+        const token = await this.identityActions.issueTokenInTransaction(tx, {
+          purpose: AccountActionTokenPurpose.INVITATION,
+          userId: admin.id,
+          companyId: created.id,
+          createdByUserId: actor.id,
+        });
+        await tx.auditLog.createMany({
+          data: [
+            { companyId: created.id, actorUserId: actor.id, action: 'USER_INVITED', entityType: 'User', entityId: admin.id, metadata: { roleIds: [role.id], initialCompanyAdmin: true } },
+            { companyId: created.id, actorUserId: actor.id, action: 'INITIAL_COMPANY_ADMIN_PROVISIONED', entityType: 'Company', entityId: created.id, metadata: { userId: admin.id, roleId: role.id } },
+          ],
+        });
+        return { company: created, invitation: { tokenId: token.id, userId: admin.id, email: admin.email } };
       });
-      return this.toResponse(company);
+      if (!result.invitation) return this.toResponse(result.company);
+      const queued = await this.identityActions.enqueueInvitation(result.invitation.tokenId, result.invitation.userId, result.company.name);
+      return { ...this.toResponse(result.company), initialAdminInvitation: { userId: result.invitation.userId, email: result.invitation.email, queued } };
     } catch (error) {
       throwIfPrismaConflict(error);
     }

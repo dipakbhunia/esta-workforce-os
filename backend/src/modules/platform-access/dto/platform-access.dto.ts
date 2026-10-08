@@ -10,10 +10,8 @@ export class PlatformUserQueryDto extends PaginationQueryDto {
 
 export class CreatePlatformUserDto {
   @ApiProperty() @IsEmail() @MaxLength(254) email!: string;
-  @ApiProperty() @IsString() @MinLength(8) @MaxLength(128) password!: string;
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(80) firstName!: string;
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(80) lastName!: string;
-  @ApiPropertyOptional({ enum: UserStatus }) @IsIn([UserStatus.ACTIVE, UserStatus.INACTIVE, UserStatus.SUSPENDED]) @IsOptional() status?: UserStatus;
   @ApiProperty({ type: [String], format: 'uuid' }) @IsArray() @ArrayNotEmpty() @ArrayMaxSize(10) @IsUUID('4', { each: true }) roleIds!: string[];
 }
 

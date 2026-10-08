@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-import { MonitoringAlertSeverity, Notification } from '@prisma/client';
+import { AccountActionTokenPurpose, MonitoringAlertSeverity, Notification, NotificationType, UserStatus } from '@prisma/client';
+import { PrismaService } from '../../database/prisma.service';
+import { buildAccountActionToken } from '../../common/utils/account-action-token.util';
 import { assertSafeEmailDetailsPath, escapeEmailHtml } from './email-content-safety';
 import { emailRendererRegistry } from './email-renderer.registry';
 
@@ -78,7 +80,7 @@ export function renderEmailHtml(notification: PersistedEmailContent): string {
 export class EmailNotificationChannel {
   private readonly logger = new Logger(EmailNotificationChannel.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService, private readonly prisma: PrismaService) {}
 
   isEnabled(): boolean {
     return this.config.get<boolean>('EMAIL_NOTIFICATIONS_ENABLED') === true && this.hasConfig();
@@ -96,15 +98,44 @@ export class EmailNotificationChannel {
     if (!this.isEnabled()) {
       return { skipped: true, safeReason: 'Email notifications are disabled or SMTP is incomplete' };
     }
+    const outbound = await this.withIdentityActionLink(notification, recipient);
     const transporter = nodemailer.createTransport(this.transportOptions());
     const response = await transporter.sendMail({
       from: this.fromAddress(),
       to: recipient,
-      subject: notification.title,
-      text: renderEmailText(notification),
-      html: renderEmailHtml(notification),
+      subject: outbound.title,
+      text: renderEmailText(outbound),
+      html: renderEmailHtml(outbound),
     });
     return { skipped: false, providerMessageId: response.messageId ?? null };
+  }
+
+  private async withIdentityActionLink(notification: Notification, recipient: string): Promise<Notification> {
+    if (!notification.accountActionTokenId) return notification;
+    const expectedPurpose = notification.type === NotificationType.ACCOUNT_INVITATION
+      ? AccountActionTokenPurpose.INVITATION
+      : notification.type === NotificationType.PASSWORD_RESET_REQUESTED
+        ? AccountActionTokenPurpose.PASSWORD_RESET
+        : null;
+    if (!expectedPurpose) throw new Error('Identity notification authority mismatch');
+    const expectedStatus = expectedPurpose === AccountActionTokenPurpose.INVITATION ? UserStatus.INACTIVE : UserStatus.ACTIVE;
+    const token = await this.prisma.accountActionToken.findFirst({
+      where: { id: notification.accountActionTokenId, purpose: expectedPurpose, consumedAt: null, invalidatedAt: null, expiresAt: { gt: new Date() } },
+      include: { user: { select: { id: true, companyId: true, email: true, status: true, deletedAt: true } } },
+    });
+    const persisted = await this.prisma.notification.findUnique({
+      where: { id: notification.id },
+      include: { deliveries: { where: { channel: 'EMAIL', recipient }, select: { id: true } } },
+    });
+    if (!token || !persisted || token.purpose !== expectedPurpose || token.userId !== token.user.id || token.consumedAt || token.invalidatedAt || token.expiresAt <= new Date() || token.user.deletedAt || token.user.status !== expectedStatus || token.userId !== persisted.userId || token.companyId !== token.user.companyId || token.companyId !== persisted.companyId || persisted.userId !== notification.userId || persisted.companyId !== notification.companyId || persisted.type !== notification.type || persisted.accountActionTokenId !== token.id || token.user.email.trim().toLowerCase() !== recipient.trim().toLowerCase() || persisted.deliveries.length !== 1) {
+      throw new Error('Account action token is no longer eligible for delivery');
+    }
+    const secret = this.config.get<string>('IDENTITY_ACTION_TOKEN_SECRET') || this.config.getOrThrow<string>('JWT_REFRESH_SECRET');
+    const value = buildAccountActionToken(token, secret);
+    const origin = this.config.getOrThrow<string>('PUBLIC_APP_ORIGIN').replace(/\/$/, '');
+    const path = token.purpose === AccountActionTokenPurpose.INVITATION ? '/activate-account' : '/reset-password';
+    const link = `${origin}${path}?token=${encodeURIComponent(value)}`;
+    return { ...notification, message: `${notification.message}\n\nSecure link: ${link}` };
   }
 
   sanitizeError(error: unknown): SafeEmailError {

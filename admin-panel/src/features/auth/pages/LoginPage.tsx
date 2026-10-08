@@ -3,7 +3,7 @@ import { Alert, Box, Button, Card, Checkbox, CircularProgress, FormControlLabel,
 import { Eye, EyeOff, LockKeyhole, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { useAuth } from '../hooks/useAuth';
 
@@ -116,6 +116,7 @@ export default function LoginPage() {
             <Button type="submit" variant="contained" size="large" disabled={loading} startIcon={loading ? <CircularProgress color="inherit" size={18} /> : <LockKeyhole size={18} />}>
               {loading ? 'Signing in...' : 'Sign in'}
             </Button>
+            <Button component={Link} to="/forgot-password" size="small">Forgot password?</Button>
           </Stack>
         </Stack>
       </Card>
