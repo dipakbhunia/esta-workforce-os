@@ -37,6 +37,17 @@ const safeErrors: Record<string, string> = {
   SMTP_UNKNOWN: 'Email delivery failed.',
 };
 
+const commercialNotificationTypes: ReadonlySet<NotificationType> = new Set([
+  NotificationType.PAYMENT_CAPTURED,
+  NotificationType.PAYMENT_FAILED,
+  NotificationType.INVOICE_ISSUED,
+  NotificationType.SUBSCRIPTION_ACTIVATED,
+  NotificationType.SUBSCRIPTION_EXPIRED,
+  NotificationType.RENEWAL_APPLIED,
+  NotificationType.RENEWAL_BLOCKED,
+  NotificationType.RENEWAL_PREPARED,
+]);
+
 export function safeEmailErrorEvidence(code: string | null | undefined): SafeEmailError {
   const safeCode = code && code in safeErrors ? code : 'SMTP_UNKNOWN';
   return { code: safeCode.slice(0, 64), message: (safeErrors[safeCode] ?? safeErrors.SMTP_UNKNOWN).slice(0, 160) };
@@ -113,7 +124,7 @@ export class EmailNotificationChannel {
   }
 
   private async assertCommercialRecipientAuthority(notification: Notification, recipient: string): Promise<void> {
-    if (notification.type !== NotificationType.PAYMENT_CAPTURED && notification.type !== NotificationType.PAYMENT_FAILED && notification.type !== NotificationType.INVOICE_ISSUED) return;
+    if (!commercialNotificationTypes.has(notification.type)) return;
     if (!notification.companyId) throw new Error('Commercial notification company authority is missing');
     const current = await this.commercialRecipients.resolve(notification.companyId);
     if (!current || current.userId !== notification.userId || current.companyId !== notification.companyId || current.email !== recipient.trim().toLowerCase()) throw new Error('Commercial billing recipient is no longer eligible for delivery');

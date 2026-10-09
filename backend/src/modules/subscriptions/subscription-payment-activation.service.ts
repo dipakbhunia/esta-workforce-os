@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   BillingInterval, PaymentPurpose, PaymentStatus, Prisma, RecurringPriceBasis,
-  SubscriptionActivationSource, SubscriptionStatus, TrialStatus,
+  NotificationType, SubscriptionActivationSource, SubscriptionStatus, TrialStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { InvoiceGenerationService } from '../invoices/invoice-generation.service';
@@ -9,6 +9,7 @@ import { CURRENT_ENTITLEMENTS, PLAN_LIMIT_KEYS } from '../plans/plan-catalog.reg
 import { assertPaymentAmount, assertPaymentCurrency } from '../payments/payment-money.util';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { subscriptionPeriodFromCapture } from './subscription-period.util';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 export const SUBSCRIPTION_ACTIVATION_BLOCKED = 'SUBSCRIPTION_PAYMENT_ACTIVATION_BLOCKED';
 export const SUBSCRIPTION_ACTIVATED_BY_PAYMENT = 'SUBSCRIPTION_ACTIVATED_BY_PAYMENT';
@@ -25,6 +26,7 @@ export class SubscriptionPaymentActivationService {
     private readonly prisma: PrismaService,
     private readonly seatUsage: SeatUsageService,
     private readonly invoiceGeneration: InvoiceGenerationService,
+    private readonly commercialNotifications: CommercialTransactionalNotificationService = undefined as never,
   ) {}
 
   async activate(paymentId: string): Promise<PaymentActivationResult> {
@@ -82,6 +84,15 @@ export class SubscriptionPaymentActivationService {
             planCode: subscription.planCodeSnapshot, seatQuantity: subscription.seatQuantity, pricingInterval: subscription.pricingInterval!,
             periodStart: period.start.toISOString(), periodEnd: period.end.toISOString(), usedSeats, overLimit: overBy > 0, overBy,
           } } });
+        if (this.commercialNotifications) {
+          const company = await tx.company.findUnique({ where: { id: payment.companyId }, select: { name: true } });
+          if (!company) throw new Error('Subscription company is unavailable');
+          await this.commercialNotifications.createInTransaction(tx, {
+            type: NotificationType.SUBSCRIPTION_ACTIVATED, sourceId: payment.id, companyId: payment.companyId,
+            payload: { companyName: company.name, subscriptionReference: subscription.id, planName: subscription.planNameSnapshot,
+              activatedAt: period.start.toISOString(), periodStart: period.start.toISOString(), periodEnd: period.end.toISOString() },
+          });
+        }
         return { outcome: 'ACTIVATED' as const, subscriptionId: subscription.id };
       });
     } catch (error) {

@@ -22,6 +22,11 @@ describe('email event policy registry', () => {
       NotificationType.PAYMENT_CAPTURED,
       NotificationType.PAYMENT_FAILED,
       NotificationType.INVOICE_ISSUED,
+      NotificationType.SUBSCRIPTION_ACTIVATED,
+      NotificationType.SUBSCRIPTION_EXPIRED,
+      NotificationType.RENEWAL_APPLIED,
+      NotificationType.RENEWAL_BLOCKED,
+      NotificationType.RENEWAL_PREPARED,
     ].includes(policy.eventKey));
     assert.ok(monitoring.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
     assert.ok(monitoring.every(preferencesApply));
@@ -45,7 +50,9 @@ describe('email event policy registry', () => {
   });
 
   it('registers commercial events as mandatory billing-contact email with no quiet hours', () => {
-    for (const type of [NotificationType.PAYMENT_CAPTURED, NotificationType.PAYMENT_FAILED, NotificationType.INVOICE_ISSUED]) {
+    for (const type of [NotificationType.PAYMENT_CAPTURED, NotificationType.PAYMENT_FAILED, NotificationType.INVOICE_ISSUED,
+      NotificationType.SUBSCRIPTION_ACTIVATED, NotificationType.SUBSCRIPTION_EXPIRED, NotificationType.RENEWAL_APPLIED,
+      NotificationType.RENEWAL_BLOCKED]) {
       const policy = getEmailEventPolicy(type);
       assert.equal(policy.category, 'COMMERCIAL');
       assert.equal(policy.deliveryPolicy, EmailDeliveryPolicy.MANDATORY);
@@ -54,6 +61,15 @@ describe('email event policy registry', () => {
       assert.equal(policy.quietHours, 'NONE');
       assert.deepEqual(policy.eligibleChannels, [NotificationChannel.EMAIL]);
     }
+  });
+
+  it('registers renewal preparation as preference-controlled and quiet-hour aware', () => {
+    const policy = getEmailEventPolicy(NotificationType.RENEWAL_PREPARED);
+    assert.equal(policy.category, 'COMMERCIAL');
+    assert.equal(policy.deliveryPolicy, EmailDeliveryPolicy.PREFERENCE_CONTROLLED);
+    assert.equal(policy.recipientResolver, 'COMMERCIAL_BILLING_CONTACT');
+    assert.equal(policy.preferenceEvaluator, 'USER_EMAIL_ENABLED');
+    assert.equal(policy.quietHours, 'NON_CRITICAL_EMAIL');
   });
 
   it('registers Leave decisions as preference-controlled workflow email only', () => {

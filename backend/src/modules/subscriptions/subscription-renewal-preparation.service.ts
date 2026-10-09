@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   BillingInterval, CompanySubscription, Payment, PaymentStatus, Prisma, RecurringPriceBasis,
-  RenewalMode, SubscriptionActivationSource, SubscriptionRenewal, SubscriptionRenewalStatus,
+  NotificationType, RenewalMode, SubscriptionActivationSource, SubscriptionRenewal, SubscriptionRenewalStatus,
   SubscriptionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -9,6 +9,7 @@ import { assertPaymentAmount, assertPaymentCurrency } from '../payments/payment-
 import { PaymentProviderOrdersService } from '../payments/payment-provider-orders.service';
 import { PaymentsService } from '../payments/payments.service';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 export const SUBSCRIPTION_RENEWAL_PREPARED = 'SUBSCRIPTION_RENEWAL_PREPARED';
 export type RenewalPreparationSource = 'MANUAL' | 'SCHEDULER';
@@ -51,6 +52,7 @@ export class SubscriptionRenewalPreparationService {
     private readonly seats: SeatUsageService,
     private readonly payments: PaymentsService,
     private readonly providerOrders: PaymentProviderOrdersService,
+    private readonly commercialNotifications: CommercialTransactionalNotificationService = undefined as never,
   ) {}
 
   async prepare(
@@ -106,6 +108,15 @@ export class SubscriptionRenewalPreparationService {
           billingInterval: authority.billingInterval, source: options.source,
         },
       } });
+      if (this.commercialNotifications) {
+        const company = await tx.company.findUnique({ where: { id: authority.companyId }, select: { name: true } });
+        if (!company) throw new Error('Renewal company is unavailable');
+        await this.commercialNotifications.createInTransaction(tx, {
+          type: NotificationType.RENEWAL_PREPARED, sourceId: renewal.id, companyId: authority.companyId,
+          payload: { companyName: company.name, renewalReference: renewal.id,
+            periodStart: renewal.cycleStart.toISOString(), periodEnd: renewal.cycleEnd.toISOString() },
+        });
+      }
       return { renewal, payment, created: true };
     });
 

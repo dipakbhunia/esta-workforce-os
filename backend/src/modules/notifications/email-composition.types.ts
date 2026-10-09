@@ -19,6 +19,8 @@ export enum EmailRendererId {
   PASSWORD_RESET_REQUESTED_SECURITY = 'PASSWORD_RESET_REQUESTED_SECURITY',
   COMMERCIAL_PAYMENT = 'COMMERCIAL_PAYMENT',
   COMMERCIAL_INVOICE = 'COMMERCIAL_INVOICE',
+  COMMERCIAL_SUBSCRIPTION = 'COMMERCIAL_SUBSCRIPTION',
+  COMMERCIAL_RENEWAL = 'COMMERCIAL_RENEWAL',
 }
 
 export enum EmailRecipientResolverId {
@@ -119,6 +121,34 @@ export interface CommercialInvoiceEmailPayload {
   dueAt: string | null;
 }
 
+export interface CommercialSubscriptionActivatedEmailPayload {
+  companyName: string;
+  subscriptionReference: string;
+  planName: string;
+  activatedAt: string;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface CommercialSubscriptionExpiredEmailPayload {
+  companyName: string;
+  subscriptionReference: string;
+  expiredAt: string;
+}
+
+export interface CommercialRenewalPeriodEmailPayload {
+  companyName: string;
+  renewalReference: string;
+  periodStart: string;
+  periodEnd: string;
+}
+
+export interface CommercialRenewalBlockedEmailPayload {
+  companyName: string;
+  renewalReference: string;
+  blockedReason: string;
+}
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
@@ -139,6 +169,11 @@ export interface EmailEventPayloadMap {
   [NotificationType.PAYMENT_CAPTURED]: CommercialPaymentEmailPayload;
   [NotificationType.PAYMENT_FAILED]: CommercialPaymentEmailPayload;
   [NotificationType.INVOICE_ISSUED]: CommercialInvoiceEmailPayload;
+  [NotificationType.SUBSCRIPTION_ACTIVATED]: CommercialSubscriptionActivatedEmailPayload;
+  [NotificationType.SUBSCRIPTION_EXPIRED]: CommercialSubscriptionExpiredEmailPayload;
+  [NotificationType.RENEWAL_APPLIED]: CommercialRenewalPeriodEmailPayload;
+  [NotificationType.RENEWAL_BLOCKED]: CommercialRenewalBlockedEmailPayload;
+  [NotificationType.RENEWAL_PREPARED]: CommercialRenewalPeriodEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;

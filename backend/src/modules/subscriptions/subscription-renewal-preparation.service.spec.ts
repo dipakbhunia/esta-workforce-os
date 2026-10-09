@@ -28,6 +28,8 @@ describe('SubscriptionRenewalPreparationService', () => {
     assert.equal(h.createdRenewals[0].paymentId, paymentId);
     assert.equal(h.createdRenewals[0].status, SubscriptionRenewalStatus.PREPARED);
     assert.equal(h.auditActions.filter(action => action === 'SUBSCRIPTION_RENEWAL_PREPARED').length, 1);
+    assert.equal(h.notifications.length, 1);
+    assert.equal(h.notifications[0].type, 'RENEWAL_PREPARED');
     assert.equal(h.providerPaymentIds[0], paymentId);
   });
 
@@ -55,6 +57,7 @@ describe('SubscriptionRenewalPreparationService', () => {
     assert.equal(h.paymentInputs.length, 0);
     assert.equal(h.createdRenewals.length, 0);
     assert.equal(h.auditActions.length, 0);
+    assert.equal(h.notifications.length, 0);
     assert.equal(h.assertedPayments, 1);
     assert.deepEqual(h.providerPaymentIds, [paymentId]);
   });
@@ -97,6 +100,7 @@ function harness(
   const createdRenewals: any[] = [];
   const auditActions: string[] = [];
   const providerPaymentIds: string[] = [];
+  const notifications: any[] = [];
   let assertedPayments = 0;
   const tx: any = {
     $queryRaw: async () => [{ id: subscriptionId }],
@@ -106,6 +110,7 @@ function harness(
       create: async ({ data }: any) => { const value = { ...renewal(), ...data }; createdRenewals.push(value); return value; },
     },
     auditLog: { create: async ({ data }: any) => { auditActions.push(data.action); return data; } },
+    company: { findUnique: async () => ({ name: 'Acme Billing' }) },
   };
   const prisma: any = {
     companySubscription: { findUnique: async () => ({ companyId }) },
@@ -117,8 +122,9 @@ function harness(
     assertRenewalPayment: async () => { assertedPayments += 1; },
   };
   const providers: any = { prepareSystem: async (id: string) => { providerPaymentIds.push(id); if (providerFails) throw new Error('provider'); } };
-  const service = new SubscriptionRenewalPreparationService(prisma, { lockCompany: async () => undefined } as never, payments, providers);
-  return { service, paymentInputs, createdRenewals, auditActions, providerPaymentIds, get assertedPayments() { return assertedPayments; } };
+  const service = new SubscriptionRenewalPreparationService(prisma, { lockCompany: async () => undefined } as never, payments, providers,
+    { createInTransaction: async (_tx: unknown, input: unknown) => { notifications.push(input); return true; } } as never);
+  return { service, paymentInputs, createdRenewals, auditActions, providerPaymentIds, notifications, get assertedPayments() { return assertedPayments; } };
 }
 
 function subscription(patch: Record<string, unknown>) {

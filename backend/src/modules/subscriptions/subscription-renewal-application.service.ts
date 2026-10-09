@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   BillingInterval, PaymentPurpose, PaymentStatus, Prisma, RecurringPriceBasis,
-  SubscriptionRenewalStatus, SubscriptionStatus,
+  NotificationType, SubscriptionRenewalStatus, SubscriptionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { InvoiceGenerationService } from '../invoices/invoice-generation.service';
 import { assertPaymentAmount, assertPaymentCurrency } from '../payments/payment-money.util';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { advanceRenewalPeriod } from './subscription-renewal-preparation.service';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 export const SUBSCRIPTION_RENEWAL_APPLIED = 'SUBSCRIPTION_RENEWAL_APPLIED';
 export const SUBSCRIPTION_RENEWAL_RECOVERED_AFTER_EXPIRATION = 'SUBSCRIPTION_RENEWAL_RECOVERED_AFTER_EXPIRATION';
@@ -35,6 +36,7 @@ export class SubscriptionRenewalApplicationService {
     private readonly prisma: PrismaService,
     private readonly seats: SeatUsageService,
     private readonly invoices: InvoiceGenerationService,
+    private readonly commercialNotifications: CommercialTransactionalNotificationService = undefined as never,
   ) {}
 
   async apply(paymentId: string): Promise<RenewalApplicationResult> {
@@ -119,6 +121,15 @@ export class SubscriptionRenewalApplicationService {
         metadata: { companyId: renewal.companyId, subscriptionId: subscription.id, renewalId: renewal.id,
           paymentId: renewal.paymentId, cycleStart: renewal.cycleStart.toISOString(), cycleEnd: renewal.cycleEnd.toISOString() },
       } });
+      if (this.commercialNotifications) {
+        const company = await tx.company.findUnique({ where: { id: renewal.companyId }, select: { name: true } });
+        if (!company) throw new Error('Renewal company is unavailable');
+        await this.commercialNotifications.createInTransaction(tx, {
+          type: NotificationType.RENEWAL_APPLIED, sourceId: renewal.id, companyId: renewal.companyId,
+          payload: { companyName: company.name, renewalReference: renewal.id,
+            periodStart: renewal.cycleStart.toISOString(), periodEnd: renewal.cycleEnd.toISOString() },
+        });
+      }
       return { outcome: 'APPLIED' as const, renewalId: renewal.id, subscriptionId: subscription.id, recoveredAfterExpiration };
     });
 
@@ -227,6 +238,14 @@ export class SubscriptionRenewalApplicationService {
       entityType: 'SubscriptionRenewal', entityId: renewal.id,
       metadata: { subscriptionId: renewal.subscriptionId, paymentId: renewal.paymentId, blockCode: code },
     } });
+    if (this.commercialNotifications) {
+      const company = await tx.company.findUnique({ where: { id: renewal.companyId }, select: { name: true } });
+      if (!company) throw new Error('Renewal company is unavailable');
+      await this.commercialNotifications.createInTransaction(tx, {
+        type: NotificationType.RENEWAL_BLOCKED, sourceId: renewal.id, companyId: renewal.companyId,
+        payload: { companyName: company.name, renewalReference: renewal.id, blockedReason: safeBlockMessage },
+      });
+    }
     return { outcome: 'BLOCKED', renewalId: renewal.id, subscriptionId: renewal.subscriptionId, code };
   }
 

@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, SubscriptionStatus } from '@prisma/client';
+import { NotificationType, Prisma, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { isSubscriptionPeriodDue } from './subscription-period-validity.util';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 export type SubscriptionExpirationSource = 'MANUAL' | 'SCHEDULER';
 export type SubscriptionExpirationOutcome =
@@ -24,6 +25,7 @@ export class SubscriptionExpirationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly seatUsage: SeatUsageService,
+    private readonly commercialNotifications: CommercialTransactionalNotificationService = undefined as never,
   ) {}
 
   async expire(
@@ -77,6 +79,16 @@ export class SubscriptionExpirationService {
           },
         },
       });
+      if (this.commercialNotifications) {
+        const company = await tx.company.findUnique({ where: { id: current.companyId }, select: { name: true } });
+        if (!company) throw new Error('Subscription company is unavailable');
+        await this.commercialNotifications.createInTransaction(tx, {
+          type: NotificationType.SUBSCRIPTION_EXPIRED,
+          sourceId: `${current.id}:${periodEnd.toISOString()}`,
+          companyId: current.companyId,
+          payload: { companyName: company.name, subscriptionReference: current.id, expiredAt: periodEnd.toISOString() },
+        });
+      }
       return { outcome: 'EXPIRED' as const, subscriptionId };
     });
   }

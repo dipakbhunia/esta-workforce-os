@@ -102,6 +102,31 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
     buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
       `${sourceId}:${eventKey}:${userId}:${channel}`,
   }] as const),
+  ...([NotificationType.SUBSCRIPTION_ACTIVATED, NotificationType.SUBSCRIPTION_EXPIRED, NotificationType.RENEWAL_APPLIED, NotificationType.RENEWAL_BLOCKED] as const).map((eventKey) => [eventKey, {
+    eventKey,
+    category: EmailEventCategory.COMMERCIAL,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.MANDATORY,
+    recipientResolver: EmailRecipientResolverId.COMMERCIAL_BILLING_CONTACT,
+    preferenceEvaluator: EmailPreferencePolicyId.NONE,
+    renderer: eventKey === NotificationType.SUBSCRIPTION_ACTIVATED || eventKey === NotificationType.SUBSCRIPTION_EXPIRED
+      ? EmailRendererId.COMMERCIAL_SUBSCRIPTION : EmailRendererId.COMMERCIAL_RENEWAL,
+    quietHours: EmailQuietHoursPolicyId.NONE,
+    buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
+      `${sourceId}:${eventKey}:${userId}:${channel}`,
+  }] as const),
+  [NotificationType.RENEWAL_PREPARED, {
+    eventKey: NotificationType.RENEWAL_PREPARED,
+    category: EmailEventCategory.COMMERCIAL,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.PREFERENCE_CONTROLLED,
+    recipientResolver: EmailRecipientResolverId.COMMERCIAL_BILLING_CONTACT,
+    preferenceEvaluator: EmailPreferencePolicyId.USER_EMAIL_ENABLED,
+    renderer: EmailRendererId.COMMERCIAL_RENEWAL,
+    quietHours: EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL,
+    buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
+      `${sourceId}:${NotificationType.RENEWAL_PREPARED}:${userId}:${channel}`,
+  }],
   [NotificationType.LEAVE_APPLIED, {
     eventKey: NotificationType.LEAVE_APPLIED,
     category: EmailEventCategory.WORKFLOW,

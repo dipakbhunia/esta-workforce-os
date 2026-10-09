@@ -137,4 +137,16 @@ describe('EmailNotificationChannel commercial authority', () => {
     await assert.rejects(() => invoke({ ...valid, billingContact: { ...valid.billingContact, deletedAt: new Date() } }), /no longer eligible/i);
     await assert.rejects(() => invoke({ ...valid, billingContact: { ...valid.billingContact, companyId: 'company-2' } }), /no longer eligible/i);
   });
+
+  it('applies the same dispatch authority to subscription and renewal events', async () => {
+    for (const type of [NotificationType.SUBSCRIPTION_ACTIVATED, NotificationType.SUBSCRIPTION_EXPIRED,
+      NotificationType.RENEWAL_APPLIED, NotificationType.RENEWAL_BLOCKED, NotificationType.RENEWAL_PREPARED]) {
+      const resolved = { userId: 'user-1', companyId: 'company-1', email: 'billing@example.test' };
+      const channel = new EmailNotificationChannel({ get: () => undefined } as never, {} as never, { resolve: async () => resolved } as never);
+      await (channel as unknown as { assertCommercialRecipientAuthority(value: unknown, address: string): Promise<void> })
+        .assertCommercialRecipientAuthority({ ...notification, type }, 'billing@example.test');
+      await assert.rejects(() => (channel as unknown as { assertCommercialRecipientAuthority(value: unknown, address: string): Promise<void> })
+        .assertCommercialRecipientAuthority({ ...notification, type }, 'stale@example.test'));
+    }
+  });
 });

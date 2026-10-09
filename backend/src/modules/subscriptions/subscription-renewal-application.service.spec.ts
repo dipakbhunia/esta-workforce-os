@@ -35,7 +35,7 @@ function harness(options: Record<string, any> = {}) {
     blockedAt: options.renewalStatus === SubscriptionRenewalStatus.BLOCKED ? new Date() : null,
     blockCode: options.renewalStatus === SubscriptionRenewalStatus.BLOCKED ? 'INCOMPATIBLE_SUBSCRIPTION_STATE' : null,
     safeBlockMessage: null, payment };
-  const audits: any[] = []; const events: string[] = []; const generated: string[] = [];
+  const audits: any[] = []; const events: string[] = []; const generated: string[] = []; const notifications: any[] = [];
   const tx: any = {
     $queryRaw: async (query: any) => { const sql = Array.isArray(query?.strings) ? query.strings.join('?') : String(query); for (const table of ['CompanySubscription', 'Payment', 'SubscriptionRenewal']) if (sql.includes(`FROM "${table}"`)) events.push(`lock:${table}`); return [{ id: 'locked' }]; },
     subscriptionRenewal: {
@@ -52,6 +52,7 @@ function harness(options: Record<string, any> = {}) {
       findFirst: async ({ where }: any) => audits.find(audit => audit.action === where.action && audit.entityId === where.entityId) ?? null,
       create: async ({ data }: any) => { audits.push(data); events.push(`audit:${data.action}`); return data; },
     },
+    company: { findUnique: async () => ({ name: 'Acme Billing' }) },
   };
   const prisma: any = {
     payment: { findUnique: async () => ({ companyId: ids.company, renewal: { id: ids.renewal } }) },
@@ -60,8 +61,9 @@ function harness(options: Record<string, any> = {}) {
   };
   const service = new SubscriptionRenewalApplicationService(prisma,
     { lockCompany: async () => events.push('company:lock') } as never,
-    { generate: async (id: string) => { generated.push(id); events.push('invoice:generate'); if (options.invoiceThrows) throw new Error('invoice unavailable'); return { outcome: 'ISSUED' }; } } as never);
-  return { service, subscription, payment, renewal, audits, events, generated };
+    { generate: async (id: string) => { generated.push(id); events.push('invoice:generate'); if (options.invoiceThrows) throw new Error('invoice unavailable'); return { outcome: 'ISSUED' }; } } as never,
+    { createInTransaction: async (_tx: unknown, input: unknown) => { notifications.push(input); return true; } } as never);
+  return { service, subscription, payment, renewal, audits, events, generated, notifications };
 }
 
 describe('SubscriptionRenewalApplicationService', () => {
@@ -75,6 +77,8 @@ describe('SubscriptionRenewalApplicationService', () => {
     assert.deepEqual(h.audits.map(audit => audit.action), [SUBSCRIPTION_RENEWAL_APPLIED]);
     assert.ok(h.events.indexOf('transaction:commit') < h.events.indexOf('invoice:generate'));
     assert.deepEqual(h.generated, [ids.payment]);
+    assert.equal(h.notifications.length, 1);
+    assert.equal(h.notifications[0].type, 'RENEWAL_APPLIED');
     assert.deepEqual(h.events.filter(event => event.startsWith('lock:')), ['lock:CompanySubscription', 'lock:Payment', 'lock:SubscriptionRenewal']);
   });
 
@@ -135,6 +139,7 @@ describe('SubscriptionRenewalApplicationService', () => {
       const h = harness(options); const result = await h.service.apply(ids.payment);
       assert.equal(result.outcome, 'BLOCKED'); assert.equal(h.renewal.status, SubscriptionRenewalStatus.BLOCKED);
       assert.ok(h.renewal.blockCode); assert.equal(h.audits.filter(audit => audit.action === SUBSCRIPTION_RENEWAL_BLOCKED).length, 1);
+      assert.equal(h.notifications.length, 1); assert.equal(h.notifications[0].type, 'RENEWAL_BLOCKED');
       assert.deepEqual(h.generated, []);
     }
   });

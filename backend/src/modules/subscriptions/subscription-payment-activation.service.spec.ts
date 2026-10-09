@@ -27,6 +27,7 @@ function harness(options: Record<string, any> = {}) {
   const trial: Record<string, any> | null = options.trial ? { id: ids.trial, companyId: ids.company, status: TrialStatus.ACTIVE, startsAt: new Date('2026-01-01'), endsAt: new Date('2026-02-15'), convertedAt: null, convertedSubscriptionId: null } : null;
   const audits: Record<string, any>[] = []; const events: string[] = [];
   const generated: string[] = [];
+  const notifications: any[] = [];
   const tx: any = {
     $queryRaw: async () => [{ id: 'locked' }],
     payment: { findUnique: async () => payment },
@@ -44,6 +45,7 @@ function harness(options: Record<string, any> = {}) {
       findFirst: async ({ where }: any) => audits.find((audit) => audit.action === where.action && audit.entityId === where.entityId) ?? null,
       create: async ({ data }: any) => { audits.push(data); events.push(`audit:${data.action}`); return data; },
     },
+    company: { findUnique: async () => ({ name: 'Acme Billing' }) },
   };
   const prisma: any = { payment: { findUnique: async () => payment }, $transaction: async (callback: any) => {
     const result = await callback(tx); events.push('transaction:commit'); return result;
@@ -53,8 +55,9 @@ function harness(options: Record<string, any> = {}) {
     generated.push(paymentId); events.push(`invoice:generate:${paymentId}`);
     if (options.generationFailure) throw new Error('generation failed');
   } };
-  const service = new SubscriptionPaymentActivationService(prisma, seats, generation);
-  return { service, company, payment, subscription, trial, audits, events, generated, prisma };
+  const service = new SubscriptionPaymentActivationService(prisma, seats, generation,
+    { createInTransaction: async (_tx: unknown, input: unknown) => { notifications.push(input); return true; } } as never);
+  return { service, company, payment, subscription, trial, audits, events, generated, notifications, prisma };
 }
 
 describe('SubscriptionPaymentActivationService', () => {
@@ -69,6 +72,9 @@ describe('SubscriptionPaymentActivationService', () => {
     assert.equal(h.audits[1].metadata.overLimit, true); assert.equal(h.audits[1].metadata.overBy, 2);
     assert.deepEqual(h.events.slice(0, 2), ['company:lock', 'trial:update']);
     assert.deepEqual(h.generated, [ids.payment]);
+    assert.equal(h.notifications.length, 1);
+    assert.equal(h.notifications[0].type, 'SUBSCRIPTION_ACTIVATED');
+    assert.equal(h.notifications[0].sourceId, ids.payment);
     assert.equal(h.events.at(-2), 'transaction:commit');
     assert.equal(h.events.at(-1), `invoice:generate:${ids.payment}`);
   });

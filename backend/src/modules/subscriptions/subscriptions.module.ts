@@ -10,6 +10,7 @@ import { SubscriptionExpirationService } from './subscription-expiration.service
 import { SubscriptionExpirationScheduler } from './subscription-expiration.scheduler';
 import { SubscriptionRenewalPreparationService } from './subscription-renewal-preparation.service';
 import { SubscriptionRenewalApplicationService } from './subscription-renewal-application.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
-@Module({ imports: [InvoiceFoundationModule, UsageSeatsModule, forwardRef(() => PaymentsModule)], controllers: [SubscriptionsController], providers: [SubscriptionsService, SubscriptionPaymentActivationService, SubscriptionPaymentActivationScheduler, SubscriptionExpirationService, SubscriptionExpirationScheduler, SubscriptionRenewalPreparationService, SubscriptionRenewalApplicationService], exports: [SubscriptionsService, SubscriptionPaymentActivationService, SubscriptionExpirationService, SubscriptionRenewalPreparationService, SubscriptionRenewalApplicationService] })
+@Module({ imports: [InvoiceFoundationModule, UsageSeatsModule, NotificationsModule, forwardRef(() => PaymentsModule)], controllers: [SubscriptionsController], providers: [SubscriptionsService, SubscriptionPaymentActivationService, SubscriptionPaymentActivationScheduler, SubscriptionExpirationService, SubscriptionExpirationScheduler, SubscriptionRenewalPreparationService, SubscriptionRenewalApplicationService], exports: [SubscriptionsService, SubscriptionPaymentActivationService, SubscriptionExpirationService, SubscriptionRenewalPreparationService, SubscriptionRenewalApplicationService] })
 export class SubscriptionsModule {}

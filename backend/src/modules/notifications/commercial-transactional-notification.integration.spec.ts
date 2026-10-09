@@ -51,4 +51,26 @@ describeDb('PC-M1 PostgreSQL commercial notification atomicity', () => {
     }));
     assert.equal(await prisma.notification.count({ where: { idempotencyKey: { startsWith: rollbackSourceId } } }), 0);
   });
+
+  it('persists each subscription and renewal event once and honors renewal-prepared preference', async () => {
+    const cases = [
+      [NotificationType.SUBSCRIPTION_ACTIVATED, { companyName: 'PC-M2', subscriptionReference: 'SUB-1', planName: 'Growth', activatedAt: '2026-10-09T00:00:00.000Z', periodStart: '2026-10-09T00:00:00.000Z', periodEnd: '2026-11-09T00:00:00.000Z' }],
+      [NotificationType.SUBSCRIPTION_EXPIRED, { companyName: 'PC-M2', subscriptionReference: 'SUB-1', expiredAt: '2026-11-09T00:00:00.000Z' }],
+      [NotificationType.RENEWAL_APPLIED, { companyName: 'PC-M2', renewalReference: 'REN-1', periodStart: '2026-11-09T00:00:00.000Z', periodEnd: '2026-12-09T00:00:00.000Z' }],
+      [NotificationType.RENEWAL_BLOCKED, { companyName: 'PC-M2', renewalReference: 'REN-2', blockedReason: 'Commercial evidence did not reconcile' }],
+      [NotificationType.RENEWAL_PREPARED, { companyName: 'PC-M2', renewalReference: 'REN-3', periodStart: '2026-12-09T00:00:00.000Z', periodEnd: '2027-01-09T00:00:00.000Z' }],
+    ] as const;
+    for (const [type, payload] of cases) {
+      const sourceId = randomUUID();
+      const results = await Promise.all(Array.from({ length: 2 }, () => prisma.$transaction((tx) => service.createInTransaction(tx, { type, sourceId, companyId, payload }))));
+      assert.equal(results.filter(Boolean).length, 1);
+      assert.equal(await prisma.notification.count({ where: { idempotencyKey: `${sourceId}:${type}:${userId}:EMAIL` } }), 1);
+    }
+    await prisma.notificationPreference.upsert({ where: { userId }, create: { userId, companyId, emailEnabled: false }, update: { emailEnabled: false } });
+    const suppressed = await prisma.$transaction((tx) => service.createInTransaction(tx, {
+      type: NotificationType.RENEWAL_PREPARED, sourceId: randomUUID(), companyId,
+      payload: { companyName: 'PC-M2', renewalReference: 'REN-4', periodStart: '2027-01-09T00:00:00.000Z', periodEnd: '2027-02-09T00:00:00.000Z' },
+    }));
+    assert.equal(suppressed, false);
+  });
 });

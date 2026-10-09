@@ -9,19 +9,22 @@ const now = new Date('2026-08-31T12:00:00.000Z');
 function harness(status: SubscriptionStatus, currentPeriodEnd: Date | null) {
   let row = { id: 'subscription-1', companyId: 'company-1', status, currentPeriodEnd, endedAt: null as Date | null };
   const audits: Array<Record<string, unknown>> = [];
+  const notifications: Array<Record<string, any>> = [];
   const tx = {
     companySubscription: {
       findUnique: async () => row,
       update: async ({ data }: { data: { status: SubscriptionStatus; endedAt: Date } }) => (row = { ...row, ...data }),
     },
     auditLog: { create: async ({ data }: { data: Record<string, unknown> }) => { audits.push(data); return data; } },
+    company: { findUnique: async () => ({ name: 'Acme Billing' }) },
   };
   const prisma = {
     companySubscription: { findUnique: async () => ({ companyId: row.companyId }), findMany: async () => [] },
     $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
   };
-  const service = new SubscriptionExpirationService(prisma as never, { lockCompany: async () => undefined } as never);
-  return { service, row: () => row, audits };
+  const service = new SubscriptionExpirationService(prisma as never, { lockCompany: async () => undefined } as never,
+    { createInTransaction: async (_tx: unknown, input: Record<string, any>) => { notifications.push(input); return true; } } as never);
+  return { service, row: () => row, audits, notifications };
 }
 
 describe('SubscriptionExpirationService', () => {
@@ -33,6 +36,9 @@ describe('SubscriptionExpirationService', () => {
       assert.equal(h.row().status, SubscriptionStatus.EXPIRED);
       assert.equal(h.row().endedAt?.toISOString(), boundary.toISOString());
       assert.equal(h.audits.length, 1);
+      assert.equal(h.notifications.length, 1);
+      assert.equal(h.notifications[0].type, 'SUBSCRIPTION_EXPIRED');
+      assert.equal(h.notifications[0].sourceId, `subscription-1:${boundary.toISOString()}`);
     }
   });
 
@@ -48,6 +54,7 @@ describe('SubscriptionExpirationService', () => {
       const h = harness(status, end);
       assert.equal((await h.service.expire('subscription-1', { now, source: 'SCHEDULER' })).outcome, outcome);
       assert.equal(h.audits.length, 0);
+      assert.equal(h.notifications.length, 0);
     }
   });
 
