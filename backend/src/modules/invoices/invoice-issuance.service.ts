@@ -7,9 +7,11 @@ import {
   PlanBillingModel,
   Prisma,
   RecurringPriceBasis,
+  NotificationType,
   SubscriptionActivationSource,
 } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 export const INVOICE_ISSUED = 'INVOICE_ISSUED';
 export const INVOICE_ISSUANCE_CLOCK = Symbol('INVOICE_ISSUANCE_CLOCK');
@@ -77,6 +79,7 @@ export class InvoiceIssuanceService {
     private readonly prisma: PrismaService,
     @Optional() @Inject(INVOICE_ISSUANCE_CLOCK) private readonly clock?: InvoiceIssuanceClock,
     @Optional() @Inject(INVOICE_ISSUANCE_TEST_HOOK) private readonly testHook?: InvoiceIssuanceTestHook,
+    private readonly commercialNotifications: CommercialTransactionalNotificationService = undefined as never,
   ) {}
 
   async issue(sourcePaymentId: string, actorUserId?: string): Promise<IssuedInvoiceResult> {
@@ -227,6 +230,14 @@ export class InvoiceIssuanceService {
           entityId: createdInvoice.id,
           metadata: { sourcePaymentId: payment.id, sourceSubscriptionId: subscription.id, invoiceNumber },
         } });
+        if (this.commercialNotifications) {
+          const company = await tx.company.findUnique({ where: { id: payment.companyId }, select: { name: true } });
+          if (!company) throw new InvoiceIssuanceError('COMPANY_NOT_FOUND', 'Invoice company was not found');
+          await this.commercialNotifications.createInTransaction(tx, {
+            type: NotificationType.INVOICE_ISSUED, sourceId: createdInvoice.id, companyId: payment.companyId,
+            payload: { companyName: company.name, invoiceNumber, totalMinor: payment.amountMinor.toString(), currency: payment.currency, issuedAt: issuedAt.toISOString(), dueAt: null },
+          });
+        }
         return this.map({ ...createdInvoice, lines: [line] });
       });
     } catch (error) {

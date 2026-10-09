@@ -9,6 +9,7 @@ import { PaymentProviderEventRecoveryScheduler } from './payment-provider-event-
 import { PaymentWebhooksController } from './payment-webhooks.controller';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { SubscriptionTaxCalculationService } from './subscription-tax-calculation.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
-@Module({ imports: [ProviderRuntimeModule, forwardRef(() => SubscriptionsModule)], controllers: [PaymentsController, PaymentWebhooksController], providers: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService, PaymentProviderEventRecoveryScheduler], exports: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService] })
+@Module({ imports: [ProviderRuntimeModule, forwardRef(() => SubscriptionsModule), NotificationsModule], controllers: [PaymentsController, PaymentWebhooksController], providers: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService, PaymentProviderEventRecoveryScheduler], exports: [PaymentsService, SubscriptionTaxCalculationService, PaymentProviderOrdersService, PaymentCheckoutConfirmationsService, PaymentProviderEventsService] })
 export class PaymentsModule {}

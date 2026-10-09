@@ -5,8 +5,10 @@ import { InvoiceGenerationService } from './invoice-generation.service';
 import { InvoiceIssuanceService } from './invoice-issuance.service';
 import { PlatformInvoicesController } from './platform-invoices.controller';
 import { PlatformInvoicesService } from './platform-invoices.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
+  imports: [NotificationsModule],
   controllers: [PlatformInvoicesController],
   providers: [
     InvoiceIssuanceService,

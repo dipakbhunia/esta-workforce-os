@@ -19,6 +19,9 @@ describe('email event policy registry', () => {
       NotificationType.ATTENDANCE_CORRECTION_APPROVED,
       NotificationType.ATTENDANCE_CORRECTION_REJECTED,
       NotificationType.ATTENDANCE_CORRECTION_APPLIED,
+      NotificationType.PAYMENT_CAPTURED,
+      NotificationType.PAYMENT_FAILED,
+      NotificationType.INVOICE_ISSUED,
     ].includes(policy.eventKey));
     assert.ok(monitoring.every((policy) => policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED));
     assert.ok(monitoring.every(preferencesApply));
@@ -39,6 +42,18 @@ describe('email event policy registry', () => {
     assert.equal(accountStatus.quietHours, 'NONE');
     assert.equal(accountStatus.buildIdempotencyKey({ sourceId: 'mutation', userId: 'target', channel: NotificationChannel.EMAIL }),
       'mutation:ACCOUNT_STATUS_CHANGED:target:EMAIL');
+  });
+
+  it('registers commercial events as mandatory billing-contact email with no quiet hours', () => {
+    for (const type of [NotificationType.PAYMENT_CAPTURED, NotificationType.PAYMENT_FAILED, NotificationType.INVOICE_ISSUED]) {
+      const policy = getEmailEventPolicy(type);
+      assert.equal(policy.category, 'COMMERCIAL');
+      assert.equal(policy.deliveryPolicy, EmailDeliveryPolicy.MANDATORY);
+      assert.equal(policy.recipientResolver, 'COMMERCIAL_BILLING_CONTACT');
+      assert.equal(policy.preferenceEvaluator, 'NONE');
+      assert.equal(policy.quietHours, 'NONE');
+      assert.deepEqual(policy.eligibleChannels, [NotificationChannel.EMAIL]);
+    }
   });
 
   it('registers Leave decisions as preference-controlled workflow email only', () => {

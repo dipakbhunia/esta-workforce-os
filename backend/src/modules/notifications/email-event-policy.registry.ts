@@ -10,6 +10,7 @@ export enum EmailEventCategory {
   MONITORING = 'MONITORING',
   SECURITY = 'SECURITY',
   WORKFLOW = 'WORKFLOW',
+  COMMERCIAL = 'COMMERCIAL',
 }
 
 export enum EmailDeliveryPolicy {
@@ -85,6 +86,18 @@ const policies = new Map<NotificationType, EmailEventPolicy>([
     renderer: eventKey === NotificationType.ACCOUNT_INVITATION
       ? EmailRendererId.ACCOUNT_INVITATION_SECURITY
       : EmailRendererId.PASSWORD_RESET_REQUESTED_SECURITY,
+    quietHours: EmailQuietHoursPolicyId.NONE,
+    buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
+      `${sourceId}:${eventKey}:${userId}:${channel}`,
+  }] as const),
+  ...([NotificationType.PAYMENT_CAPTURED, NotificationType.PAYMENT_FAILED, NotificationType.INVOICE_ISSUED] as const).map((eventKey) => [eventKey, {
+    eventKey,
+    category: EmailEventCategory.COMMERCIAL,
+    eligibleChannels: [NotificationChannel.EMAIL],
+    deliveryPolicy: EmailDeliveryPolicy.MANDATORY,
+    recipientResolver: EmailRecipientResolverId.COMMERCIAL_BILLING_CONTACT,
+    preferenceEvaluator: EmailPreferencePolicyId.NONE,
+    renderer: eventKey === NotificationType.INVOICE_ISSUED ? EmailRendererId.COMMERCIAL_INVOICE : EmailRendererId.COMMERCIAL_PAYMENT,
     quietHours: EmailQuietHoursPolicyId.NONE,
     buildIdempotencyKey: ({ sourceId, userId, channel }: { sourceId: string; userId: string; channel: NotificationChannel }) =>
       `${sourceId}:${eventKey}:${userId}:${channel}`,

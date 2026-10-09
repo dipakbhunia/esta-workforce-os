@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common';
-import { PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderEventStatus, PaymentProviderOrderStatus, PaymentProviderType, PaymentPurpose, PaymentStatus, Prisma } from '@prisma/client';
+import { NotificationType, PaymentAttemptOperation, PaymentAttemptStatus, PaymentProviderEventStatus, PaymentProviderOrderStatus, PaymentProviderType, PaymentPurpose, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { BillingProviderCredentialsService } from '../billing-settings/billing-provider-credentials.service';
 import { transitionPaymentState } from './payment-state-machine';
@@ -7,6 +7,7 @@ import type { StoredNormalizedProviderEvent } from './payment-provider-event.typ
 import { ProviderRegistryService } from './providers/provider-registry.service';
 import { SubscriptionPaymentActivationService } from '../subscriptions/subscription-payment-activation.service';
 import { SubscriptionRenewalApplicationService } from '../subscriptions/subscription-renewal-application.service';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 30 * 60_000;
@@ -17,7 +18,7 @@ class ProviderOrderNotFoundError extends Error {}
 
 @Injectable()
 export class PaymentProviderEventsService {
-  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService, private readonly providers: ProviderRegistryService, private readonly activation: SubscriptionPaymentActivationService, private readonly renewal: SubscriptionRenewalApplicationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly credentials: BillingProviderCredentialsService, private readonly providers: ProviderRegistryService, private readonly activation: SubscriptionPaymentActivationService, private readonly renewal: SubscriptionRenewalApplicationService, private readonly commercialNotifications: CommercialTransactionalNotificationService = undefined as never) {}
 
   async ingest(provider: PaymentProviderType, configurationId: string, rawBody: Buffer, signature: string, providerEventId?: string) {
     let candidates;
@@ -159,6 +160,15 @@ export class PaymentProviderEventsService {
       if (target === PaymentStatus.CAPTURED && providerOrder.status === PaymentProviderOrderStatus.CREATED) await tx.paymentProviderOrder.update({ where: { id: providerOrder.id }, data: { status: PaymentProviderOrderStatus.PAID, providerStatus: 'paid' } });
       const action = target === PaymentStatus.AUTHORIZED ? 'PAYMENT_AUTHORIZED' : target === PaymentStatus.FAILED ? 'PAYMENT_FAILED' : transition.recoveredAfterFailure ? 'PAYMENT_RECOVERED_AFTER_PROVIDER_FAILURE' : 'PAYMENT_CAPTURED';
       if (transition.changed) await tx.auditLog.create({ data: { companyId: payment.companyId, action, entityType: 'Payment', entityId: payment.id, metadata: { provider: payment.provider, providerMode: payment.providerMode, providerEventId: event.id, providerOrderRecordId: providerOrder.id } } });
+      if (this.commercialNotifications && transition.changed && (target === PaymentStatus.CAPTURED || target === PaymentStatus.FAILED)) {
+        const company = await tx.company.findUnique({ where: { id: payment.companyId }, select: { name: true } });
+        if (!company) throw new Error('Payment company is unavailable');
+        await this.commercialNotifications.createInTransaction(tx, {
+          type: target === PaymentStatus.CAPTURED ? NotificationType.PAYMENT_CAPTURED : NotificationType.PAYMENT_FAILED,
+          sourceId: payment.id, companyId: payment.companyId,
+          payload: { companyName: company.name, paymentReference: payment.businessReference, amountMinor: payment.amountMinor.toString(), currency: payment.currency, occurredAt: (transition.state.capturedAt ?? transition.state.failedAt ?? event.receivedAt).toISOString() },
+        });
+      }
       if (target === PaymentStatus.CAPTURED && providerOrder.status === PaymentProviderOrderStatus.CLOSED) await tx.auditLog.create({ data: { companyId: payment.companyId, action: 'PAYMENT_CAPTURED_AFTER_ORDER_CLOSED', entityType: 'Payment', entityId: payment.id, metadata: { providerEventId: event.id, providerOrderRecordId: providerOrder.id } } });
       if (target === PaymentStatus.CAPTURED && payment.subscription.status === 'CANCELLED') await tx.auditLog.create({ data: { companyId: payment.companyId, action: 'PAYMENT_CAPTURED_FOR_CANCELLED_SUBSCRIPTION', entityType: 'Payment', entityId: payment.id, metadata: { providerEventId: event.id, subscriptionId: payment.subscriptionId } } });
       await tx.paymentProviderEvent.update({ where: { id: event.id }, data: { paymentId: payment.id, providerOrderRecordId: providerOrder.id, status: PaymentProviderEventStatus.PROCESSED, processedAt: new Date(), processingStartedAt: null, safeErrorMessage: null } });

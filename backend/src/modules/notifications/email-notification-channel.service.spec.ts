@@ -117,3 +117,24 @@ describe('EmailNotificationChannel identity authority', () => {
     await assert.rejects(() => invoke(channel(token, { ...persisted, deliveries: [] })), /no longer eligible/i);
   });
 });
+
+describe('EmailNotificationChannel commercial authority', () => {
+  const notification = { id: 'notification-1', userId: 'user-1', companyId: 'company-1', type: NotificationType.PAYMENT_CAPTURED } as never;
+  const valid = { billingContactUserId: 'user-1', billingContact: { id: 'user-1', companyId: 'company-1', email: 'billing@example.test', status: 'ACTIVE', deletedAt: null } };
+  const invoke = (profile: unknown, recipient = 'billing@example.test') => {
+    const user = (profile as typeof valid | null)?.billingContact;
+    const resolved = user && (profile as typeof valid).billingContactUserId === user.id && user.companyId === 'company-1' && user.status === 'ACTIVE' && !user.deletedAt
+      ? { userId: user.id, companyId: user.companyId, email: user.email.toLowerCase() } : null;
+    const channel = new EmailNotificationChannel({ get: () => undefined } as never, {} as never, { resolve: async () => resolved } as never);
+    return (channel as unknown as { assertCommercialRecipientAuthority(value: unknown, address: string): Promise<void> }).assertCommercialRecipientAuthority(notification, recipient);
+  };
+
+  it('revalidates current designated authority and rejects reassignment, email, status, deletion, and tenant mismatches', async () => {
+    await invoke(valid);
+    await assert.rejects(() => invoke({ ...valid, billingContactUserId: 'user-2' }), /no longer eligible/i);
+    await assert.rejects(() => invoke(valid, 'old@example.test'), /no longer eligible/i);
+    await assert.rejects(() => invoke({ ...valid, billingContact: { ...valid.billingContact, status: 'INACTIVE' } }), /no longer eligible/i);
+    await assert.rejects(() => invoke({ ...valid, billingContact: { ...valid.billingContact, deletedAt: new Date() } }), /no longer eligible/i);
+    await assert.rejects(() => invoke({ ...valid, billingContact: { ...valid.billingContact, companyId: 'company-2' } }), /no longer eligible/i);
+  });
+});

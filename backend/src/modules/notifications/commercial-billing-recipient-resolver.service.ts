@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { UserStatus } from '@prisma/client';
+import { Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import type { NotificationRecipient } from './notification-recipient-resolver.service';
 
@@ -8,7 +8,11 @@ export class CommercialBillingRecipientResolver {
   constructor(private readonly prisma: PrismaService) {}
 
   async resolve(companyId: string): Promise<NotificationRecipient | null> {
-    const profile = await this.prisma.companyBillingProfile.findFirst({
+    return this.resolveInTransaction(this.prisma, companyId);
+  }
+
+  async resolveInTransaction(client: Prisma.TransactionClient | PrismaService, companyId: string): Promise<NotificationRecipient | null> {
+    const profile = await client.companyBillingProfile.findFirst({
       where: { companyId, company: { deletedAt: null } },
       select: {
         companyId: true,

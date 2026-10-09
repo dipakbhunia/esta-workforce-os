@@ -63,6 +63,21 @@ describe('PaymentProviderEventsService truth processing', () => {
     const failed = harness(PaymentStatus.PENDING, 'PAYMENT_FAILED'); await failed.service.process(ids.event); assert.equal(failed.payment.status, PaymentStatus.FAILED); assert.equal(failed.payment.failureCode, 'DECLINED'); assert.equal(failed.order.status, PaymentProviderOrderStatus.CREATED);
   });
 
+  for (const [truth, type] of [['PAYMENT_CAPTURED', 'PAYMENT_CAPTURED'], ['PAYMENT_FAILED', 'PAYMENT_FAILED']] as const) {
+    it(`atomically requests ${type} commercial intent only for changed verified truth`, async () => {
+      const h = harness(PaymentStatus.PENDING, truth);
+      h.payment.businessReference = 'PAY-1001';
+      (h.service as any).prisma.company = { findUnique: async () => ({ name: 'Acme Billing' }) };
+      const calls: any[] = [];
+      (h.service as any).commercialNotifications = { createInTransaction: async (_tx: unknown, input: unknown) => { calls.push(input); return true; } };
+      await h.service.process(ids.event);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].type, type);
+      assert.equal(calls[0].sourceId, ids.payment);
+      assert.equal(calls[0].payload.amountMinor, '99000');
+    });
+  }
+
   it('recovers FAILED to CAPTURED without erasing historical failure evidence', async () => {
     const h = harness(PaymentStatus.FAILED); await h.service.process(ids.event);
     assert.equal(h.payment.status, PaymentStatus.CAPTURED); assert.equal(h.payment.failureCode, 'OLD_FAILURE'); assert.equal(h.payment.safeFailureMessage, 'Old failure'); assert.equal(h.payment.failedAt, now); assert.ok(h.audits.some((value) => value.action === 'PAYMENT_RECOVERED_AFTER_PROVIDER_FAILURE'));

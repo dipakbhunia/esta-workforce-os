@@ -7,6 +7,7 @@ import { NotificationRecipientResolver } from './notification-recipient-resolver
 import { NotificationDeliveriesController, NotificationPreferencesController, NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { CommercialBillingRecipientResolver } from './commercial-billing-recipient-resolver.service';
+import { CommercialTransactionalNotificationService } from './commercial-transactional-notification.service';
 
 @Module({
   imports: [DatabaseModule],
@@ -18,7 +19,8 @@ import { CommercialBillingRecipientResolver } from './commercial-billing-recipie
     NotificationDeliveryService,
     EmailNotificationChannel,
     CommercialBillingRecipientResolver,
+    CommercialTransactionalNotificationService,
   ],
-  exports: [NotificationsService, CommercialBillingRecipientResolver],
+  exports: [NotificationsService, CommercialBillingRecipientResolver, CommercialTransactionalNotificationService],
 })
 export class NotificationsModule {}

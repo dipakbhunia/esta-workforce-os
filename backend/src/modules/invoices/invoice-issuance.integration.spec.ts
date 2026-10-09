@@ -9,6 +9,8 @@ import {
 import {
   INVOICE_ISSUED, InvoiceIssuanceError, InvoiceIssuanceService,
 } from './invoice-issuance.service';
+import { CommercialBillingRecipientResolver } from '../notifications/commercial-billing-recipient-resolver.service';
+import { CommercialTransactionalNotificationService } from '../notifications/commercial-transactional-notification.service';
 
 const enabled = process.env.RUN_INVOICE_ISSUANCE_DB_INTEGRATION === '1';
 const describeDb = enabled ? describe : describe.skip;
@@ -22,11 +24,13 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
     const fixture = await createFixture({ amount: 9_007_199_254_740_991n, basis: RecurringPriceBasis.FIXED_TOTAL });
     const actorId = randomUUID();
     await prisma.user.create({ data: {
-      id: actorId, email: `ifd-${actorId}@example.invalid`, passwordHash: 'integration-probe',
+      id: actorId, companyId: fixture.companyId, email: `ifd-${actorId}@example.invalid`, passwordHash: 'integration-probe',
       firstName: 'IF-D', lastName: 'Actor',
     } });
     try {
-      const service = new InvoiceIssuanceService(prisma as never, { now: () => new Date('2026-09-08T12:00:00.000Z') });
+      await prisma.companyBillingProfile.update({ where: { companyId: fixture.companyId }, data: { billingContactUserId: actorId } });
+      const notifications = new CommercialTransactionalNotificationService(new CommercialBillingRecipientResolver(prisma as never));
+      const service = new InvoiceIssuanceService(prisma as never, { now: () => new Date('2026-09-08T12:00:00.000Z') }, undefined, notifications);
       const [persistedPayment, persistedSubscription] = await Promise.all([
         prisma.payment.findUniqueOrThrow({ where: { id: fixture.paymentId }, select: { amountMinor: true } }),
         prisma.companySubscription.findUniqueOrThrow({ where: { id: fixture.subscriptionId }, select: {
@@ -85,10 +89,14 @@ describeDb('IF-B PostgreSQL invoice issuance', () => {
         action: INVOICE_ISSUED, entityType: 'Invoice', entityId: first.id,
         companyId: fixture.companyId,
       } }), 1);
+      assert.equal(await prisma.notification.count({ where: { idempotencyKey: `${first.id}:INVOICE_ISSUED:${actorId}:EMAIL` } }), 1);
       assert.equal(JSON.stringify(first).match(/secret|signature|token|payload|credential/gi), null);
     } finally {
-      await cleanup(fixture);
+      await prisma.notification.deleteMany({ where: { companyId: fixture.companyId } });
+      await prisma.auditLog.deleteMany({ where: { companyId: fixture.companyId } });
+      await prisma.companyBillingProfile.update({ where: { companyId: fixture.companyId }, data: { billingContactUserId: null } });
       await prisma.user.deleteMany({ where: { id: actorId } });
+      await cleanup(fixture);
     }
   });
 

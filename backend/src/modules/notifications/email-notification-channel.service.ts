@@ -7,6 +7,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { buildAccountActionToken } from '../../common/utils/account-action-token.util';
 import { assertSafeEmailDetailsPath, escapeEmailHtml } from './email-content-safety';
 import { emailRendererRegistry } from './email-renderer.registry';
+import { CommercialBillingRecipientResolver } from './commercial-billing-recipient-resolver.service';
 
 export interface EmailDeliveryResult {
   skipped: boolean;
@@ -80,7 +81,7 @@ export function renderEmailHtml(notification: PersistedEmailContent): string {
 export class EmailNotificationChannel {
   private readonly logger = new Logger(EmailNotificationChannel.name);
 
-  constructor(private readonly config: ConfigService, private readonly prisma: PrismaService) {}
+  constructor(private readonly config: ConfigService, private readonly prisma: PrismaService, private readonly commercialRecipients: CommercialBillingRecipientResolver = undefined as never) {}
 
   isEnabled(): boolean {
     return this.config.get<boolean>('EMAIL_NOTIFICATIONS_ENABLED') === true && this.hasConfig();
@@ -98,6 +99,7 @@ export class EmailNotificationChannel {
     if (!this.isEnabled()) {
       return { skipped: true, safeReason: 'Email notifications are disabled or SMTP is incomplete' };
     }
+    await this.assertCommercialRecipientAuthority(notification, recipient);
     const outbound = await this.withIdentityActionLink(notification, recipient);
     const transporter = nodemailer.createTransport(this.transportOptions());
     const response = await transporter.sendMail({
@@ -108,6 +110,13 @@ export class EmailNotificationChannel {
       html: renderEmailHtml(outbound),
     });
     return { skipped: false, providerMessageId: response.messageId ?? null };
+  }
+
+  private async assertCommercialRecipientAuthority(notification: Notification, recipient: string): Promise<void> {
+    if (notification.type !== NotificationType.PAYMENT_CAPTURED && notification.type !== NotificationType.PAYMENT_FAILED && notification.type !== NotificationType.INVOICE_ISSUED) return;
+    if (!notification.companyId) throw new Error('Commercial notification company authority is missing');
+    const current = await this.commercialRecipients.resolve(notification.companyId);
+    if (!current || current.userId !== notification.userId || current.companyId !== notification.companyId || current.email !== recipient.trim().toLowerCase()) throw new Error('Commercial billing recipient is no longer eligible for delivery');
   }
 
   private async withIdentityActionLink(notification: Notification, recipient: string): Promise<Notification> {

@@ -17,6 +17,8 @@ export enum EmailRendererId {
   ATTENDANCE_CORRECTION_APPLIED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPLIED_WORKFLOW',
   ACCOUNT_INVITATION_SECURITY = 'ACCOUNT_INVITATION_SECURITY',
   PASSWORD_RESET_REQUESTED_SECURITY = 'PASSWORD_RESET_REQUESTED_SECURITY',
+  COMMERCIAL_PAYMENT = 'COMMERCIAL_PAYMENT',
+  COMMERCIAL_INVOICE = 'COMMERCIAL_INVOICE',
 }
 
 export enum EmailRecipientResolverId {
@@ -25,6 +27,7 @@ export enum EmailRecipientResolverId {
   WORKFLOW_APPLICANT = 'WORKFLOW_APPLICANT',
   WORKFLOW_ASSIGNED_APPROVER = 'WORKFLOW_ASSIGNED_APPROVER',
   WORKFLOW_EXACT_PARTICIPANT = 'WORKFLOW_EXACT_PARTICIPANT',
+  COMMERCIAL_BILLING_CONTACT = 'COMMERCIAL_BILLING_CONTACT',
 }
 
 export enum EmailPreferencePolicyId {
@@ -99,6 +102,23 @@ export interface PasswordResetRequestedEmailPayload {
   expiresAt: string;
 }
 
+export interface CommercialPaymentEmailPayload {
+  companyName: string;
+  paymentReference: string;
+  amountMinor: string;
+  currency: string;
+  occurredAt: string;
+}
+
+export interface CommercialInvoiceEmailPayload {
+  companyName: string;
+  invoiceNumber: string;
+  totalMinor: string;
+  currency: string;
+  issuedAt: string;
+  dueAt: string | null;
+}
+
 export interface EmailEventPayloadMap {
   [NotificationType.ALERT_OPENED]: MonitoringEmailPayload;
   [NotificationType.ALERT_REOPENED]: MonitoringEmailPayload;
@@ -116,6 +136,9 @@ export interface EmailEventPayloadMap {
   [NotificationType.ATTENDANCE_CORRECTION_APPLIED]: AttendanceCorrectionAppliedEmailPayload;
   [NotificationType.ACCOUNT_INVITATION]: AccountInvitationEmailPayload;
   [NotificationType.PASSWORD_RESET_REQUESTED]: PasswordResetRequestedEmailPayload;
+  [NotificationType.PAYMENT_CAPTURED]: CommercialPaymentEmailPayload;
+  [NotificationType.PAYMENT_FAILED]: CommercialPaymentEmailPayload;
+  [NotificationType.INVOICE_ISSUED]: CommercialInvoiceEmailPayload;
 }
 
 export type EmailEventKey = keyof EmailEventPayloadMap;
