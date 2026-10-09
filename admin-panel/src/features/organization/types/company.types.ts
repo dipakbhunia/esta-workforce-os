@@ -69,3 +69,11 @@ export interface CompanyFormValues {
   initialAdminFirstName: string;
   initialAdminLastName: string;
 }
+
+export interface BillingContactUser { id: string; firstName: string; lastName: string; email: string }
+export interface BillingContactConfiguration {
+  companyId: string;
+  billingProfileExists: boolean;
+  billingContactUserId: string | null;
+  billingContact: BillingContactUser | null;
+}

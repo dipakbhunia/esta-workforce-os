@@ -663,6 +663,7 @@ model CompanyBillingProfile {
   companyId              String                 @unique @db.Uuid
   billingName            String
   billingEmail           String?
+  billingContactUserId   String?                @db.Uuid
   addressLine1           String
   addressLine2           String?
   city                   String
@@ -678,6 +679,9 @@ model CompanyBillingProfile {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
   company                Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  billingContact         User?                  @relation("CompanyBillingContact", fields: [billingContactUserId, companyId], references: [id, companyId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([billingContactUserId, companyId])
 }
 
 model InvoiceNumberSequence {
@@ -1307,11 +1311,13 @@ model User {
   billingProviderCredentials      BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
   createdPayments                 Payment[]                      @relation("PaymentCreatedBy")
   preparedSubscriptionRenewals    SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
+  billingContactFor               CompanyBillingProfile?         @relation("CompanyBillingContact")
   designatedLeaveApproverFor      Company[]                      @relation("CompanyDesignatedLeaveApprover")
   assignedLeaveRequests           LeaveRequest[]                 @relation("LeaveRequestAssignedApprover")
   designatedAttendanceApproverFor Company[]                      @relation("CompanyDesignatedAttendanceApprover")
   assignedAttendanceCorrections   AttendanceCorrectionRequest[]  @relation("AttendanceCorrectionAssignedApprover")
 
+  @@unique([id, companyId])
   @@index([companyId])
   @@index([branchId])
   @@index([departmentId])

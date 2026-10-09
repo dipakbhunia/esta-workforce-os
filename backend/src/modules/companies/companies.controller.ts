@@ -35,6 +35,7 @@ import { UpdateDesignatedLeaveApproverDto } from './dto/update-designated-leave-
 import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-approver-response.dto';
 import { UpdateDesignatedAttendanceApproverDto } from './dto/update-designated-attendance-approver.dto';
 import { DesignatedAttendanceApproverResponseDto } from './dto/designated-attendance-approver-response.dto';
+import { BillingContactIdentityDto, BillingContactResponseDto, EligibleBillingContactQueryDto, UpdateBillingContactDto } from './dto/billing-contact.dto';
 
 @ApiTags('Companies')
 @ApiBearerAuth()
@@ -101,6 +102,30 @@ export class CompaniesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.companiesService.updateDesignatedAttendanceApprover(dto, user);
+  }
+
+  @Get(':id/billing-contact')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Get the designated commercial Billing Contact' })
+  @ApiOkResponse({ type: BillingContactResponseDto })
+  getBillingContact(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.companiesService.getBillingContact(id, actor);
+  }
+
+  @Get(':id/billing-contact/eligible-users')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'List eligible same-company Billing Contact users' })
+  @ApiOkResponse({ type: [BillingContactIdentityDto] })
+  listEligibleBillingContacts(@Param('id', ParseUUIDPipe) id: string, @Query() query: EligibleBillingContactQueryDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.companiesService.listEligibleBillingContacts(id, query, actor);
+  }
+
+  @Patch(':id/billing-contact')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN)
+  @ApiOperation({ summary: 'Set or clear the designated commercial Billing Contact' })
+  @ApiOkResponse({ type: BillingContactResponseDto })
+  updateBillingContact(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBillingContactDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.companiesService.updateBillingContact(id, dto, actor);
   }
 
   @Get(':id')

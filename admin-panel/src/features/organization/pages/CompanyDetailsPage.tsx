@@ -1,7 +1,7 @@
-import { Alert, Box, Button, Link, Snackbar, Stack, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Link, Snackbar, Stack, TextField, Typography } from '@mui/material';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BadgeCheck, Building2, Edit3, Network, Trash2, UserRound, Users } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
@@ -11,8 +11,8 @@ import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusChip } from '@/components/status-chip';
 import { SummaryCardsContainer } from '@/components/summary-cards-container';
-import { deleteCompany, getCompany } from '../services/companies-api';
-import type { CompanyStatus } from '../types/company.types';
+import { deleteCompany, getBillingContact, getCompany, getEligibleBillingContacts, updateBillingContact } from '../services/companies-api';
+import type { BillingContactUser, CompanyStatus } from '../types/company.types';
 import { companyErrorMessage, formatDateTime } from '../utils/company-form';
 import { SeatUsageSummary } from '@/features/usage-seats/SeatUsageSummary';
 import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
@@ -33,6 +33,45 @@ export default function CompanyDetailsPage() {
   const companyQuery = useQuery({ queryKey: ['company', id], queryFn: () => getCompany(id!), enabled: Boolean(id) });
   const usageQuery = useQuery({ queryKey: ['usage-seats', 'company', id, { summary: true }], queryFn: () => getCompanySeatUsage(id!, { page: 1, limit: 1 }), enabled: Boolean(id), refetchInterval: 60_000 });
   const storageQuery = useQuery({ queryKey: ['storage-usage', 'company', id], queryFn: () => getCompanyStorageUsage(id!), enabled: Boolean(id), refetchInterval: 60_000 });
+  const [selectedBillingContact, setSelectedBillingContact] = useState<BillingContactUser | null>(null);
+  const [billingContactInput, setBillingContactInput] = useState('');
+  const [billingContactSearch, setBillingContactSearch] = useState('');
+  const [debouncedBillingContactSearch, setDebouncedBillingContactSearch] = useState('');
+  const billingContactInputTouched = useRef(false);
+  const billingContactQuery = useQuery({ queryKey: ['company', id, 'billing-contact'], queryFn: () => getBillingContact(id!), enabled: Boolean(id) });
+  const eligibleContactsQuery = useQuery({
+    queryKey: ['company', id, 'billing-contact', 'eligible', debouncedBillingContactSearch],
+    queryFn: () => getEligibleBillingContacts(id!, debouncedBillingContactSearch || undefined),
+    enabled: Boolean(id),
+  });
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedBillingContactSearch(billingContactSearch.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [billingContactSearch]);
+  useEffect(() => {
+    const current = billingContactQuery.data?.data.billingContact ?? null;
+    setSelectedBillingContact(current);
+    if (!billingContactInputTouched.current) setBillingContactInput(current ? billingContactLabel(current) : '');
+  }, [billingContactQuery.data]);
+  const eligibleBillingContacts = useMemo(() => {
+    const contacts = new Map<string, BillingContactUser>();
+    if (selectedBillingContact) contacts.set(selectedBillingContact.id, selectedBillingContact);
+    for (const contact of eligibleContactsQuery.data?.data ?? []) contacts.set(contact.id, contact);
+    return [...contacts.values()];
+  }, [eligibleContactsQuery.data, selectedBillingContact]);
+  const billingContactMutation = useMutation({
+    mutationFn: (userId: string | null) => updateBillingContact(id!, userId),
+    onSuccess: async (response) => {
+      const current = response.data.billingContact;
+      setSelectedBillingContact(current);
+      setBillingContactInput(current ? billingContactLabel(current) : '');
+      setBillingContactSearch('');
+      billingContactInputTouched.current = false;
+      setToast({ severity: 'success', message: 'Billing Contact updated.' });
+      await queryClient.invalidateQueries({ queryKey: ['company', id, 'billing-contact'] });
+    },
+    onError: (error) => setToast({ severity: 'error', message: companyErrorMessage(error, 'Billing Contact could not be updated.') }),
+  });
   const archiveMutation = useMutation({
     mutationFn: () => deleteCompany(id!),
     onSuccess: async () => {
@@ -50,6 +89,10 @@ export default function CompanyDetailsPage() {
   const company = companyQuery.data?.data;
   const seatUsage = usageQuery.data?.data;
   const storageUsage = storageQuery.data?.data;
+  const initialBillingContactLoading = billingContactQuery.isLoading ||
+    (eligibleContactsQuery.isLoading && !debouncedBillingContactSearch && !eligibleContactsQuery.data);
+  const initialBillingContactError = billingContactQuery.isError ||
+    (eligibleContactsQuery.isError && !debouncedBillingContactSearch && !eligibleContactsQuery.data);
 
   return (
     <PageLayout>
@@ -89,6 +132,16 @@ export default function CompanyDetailsPage() {
           </Box>
         </SectionCard>
 
+        <SectionCard title="Designated Billing Contact" description="Commercial billing emails will be sent to the designated Billing Contact when commercial notifications are enabled.">
+          {initialBillingContactLoading ? <LoadingSkeleton rows={2} /> : initialBillingContactError ? <Alert severity="error" action={<Button color="inherit" onClick={() => { void billingContactQuery.refetch(); void eligibleContactsQuery.refetch(); }}>Retry</Button>}>Billing Contact configuration could not be loaded.</Alert> : !billingContactQuery.data?.data.billingProfileExists ? <Alert severity="warning">A Company Billing Profile must exist before a Billing Contact can be configured.</Alert> : <Stack gap={1.5}>
+            {eligibleContactsQuery.isError ? <Alert severity="warning" action={<Button color="inherit" onClick={() => void eligibleContactsQuery.refetch()}>Retry search</Button>}>Eligible Billing Contacts could not be loaded. The current selection is preserved.</Alert> : null}
+            <Stack direction={{ xs: 'column', md: 'row' }} gap={2} alignItems={{ md: 'flex-start' }}>
+              <Autocomplete sx={{ flex: 1, minWidth: 0 }} options={eligibleBillingContacts} value={selectedBillingContact} inputValue={billingContactInput} loading={eligibleContactsQuery.isFetching} filterOptions={(options) => options} onChange={(_, value) => { setSelectedBillingContact(value); setBillingContactInput(value ? billingContactLabel(value) : ''); }} onInputChange={(_, value, reason) => { if (reason === 'input' || reason === 'clear') { setBillingContactInput(value); billingContactInputTouched.current = true; setBillingContactSearch(value); } }} getOptionLabel={billingContactLabel} isOptionEqualToValue={(option, value) => option.id === value.id} noOptionsText={debouncedBillingContactSearch ? 'No eligible users match this search' : 'No eligible active users'} renderInput={(params) => <TextField {...params} label="Billing Contact" helperText="Search active, non-deleted users from this company by name or email." />} />
+              <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} width={{ xs: '100%', md: 'auto' }}><Button variant="contained" disabled={billingContactMutation.isPending || selectedBillingContact?.id === billingContactQuery.data.data.billingContactUserId} onClick={() => billingContactMutation.mutate(selectedBillingContact?.id ?? null)}>Save</Button><Button variant="outlined" disabled={billingContactMutation.isPending || !billingContactQuery.data.data.billingContactUserId} onClick={() => { setSelectedBillingContact(null); billingContactMutation.mutate(null); }}>Clear</Button></Stack>
+            </Stack>
+          </Stack>}
+        </SectionCard>
+
         {usageQuery.isLoading ? <LoadingSkeleton rows={3} /> : usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current commercial seat usage could not be loaded.</Alert> : seatUsage ? <SeatUsageSummary value={seatUsage} title="Seat Usage" description="Canonical current commercial source and workforce-seat usage. Company operational status remains separate." /> : null}
 
         {storageQuery.isLoading ? <LoadingSkeleton rows={3} /> : storageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void storageQuery.refetch()}>Retry</Button>}>Current screenshot storage usage could not be loaded.</Alert> : storageUsage ? <StorageUsageSummary value={storageUsage} title="Storage Usage" description="Canonical screenshot metadata measurement and commercial snapshot capacity. Company operational status remains separate." /> : null}
@@ -117,3 +170,7 @@ function statusTone(status: CompanyStatus) {
 }
 
 const detailGrid = { display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 2 };
+
+function billingContactLabel(contact: BillingContactUser) {
+  return `${contact.firstName} ${contact.lastName} — ${contact.email}`;
+}

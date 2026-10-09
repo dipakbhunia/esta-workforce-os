@@ -23,6 +23,7 @@ import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-appro
 import { UpdateDesignatedAttendanceApproverDto } from './dto/update-designated-attendance-approver.dto';
 import { DesignatedAttendanceApproverResponseDto } from './dto/designated-attendance-approver-response.dto';
 import { IdentityActionsService } from '../identity-actions/identity-actions.service';
+import { EligibleBillingContactQueryDto, UpdateBillingContactDto } from './dto/billing-contact.dto';
 
 const companyCounts = Prisma.validator<Prisma.CompanyInclude>()({
   _count: {
@@ -50,6 +51,15 @@ const designatedApproverSelect = {
 type DesignatedApprover = Prisma.UserGetPayload<{
   select: typeof designatedApproverSelect;
 }>;
+
+const billingContactSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+} satisfies Prisma.UserSelect;
+
+type BillingContact = Prisma.UserGetPayload<{ select: typeof billingContactSelect }>;
 
 @Injectable()
 export class CompaniesService {
@@ -286,6 +296,73 @@ export class CompaniesService {
     });
   }
 
+  async getBillingContact(companyId: string, actor: AuthenticatedUser) {
+    this.assertTenantAccess(companyId, actor);
+    await this.requireCompany(companyId);
+    const profile = await this.prisma.companyBillingProfile.findUnique({
+      where: { companyId },
+      select: { billingContactUserId: true },
+    });
+    if (!profile) return { companyId, billingProfileExists: false, billingContactUserId: null, billingContact: null };
+    return this.billingContactResponse(this.prisma, companyId, profile.billingContactUserId);
+  }
+
+  async listEligibleBillingContacts(companyId: string, query: EligibleBillingContactQueryDto, actor: AuthenticatedUser): Promise<BillingContact[]> {
+    this.assertTenantAccess(companyId, actor);
+    await this.requireCompany(companyId);
+    const search = query.search?.trim();
+    const users = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        status: UserStatus.ACTIVE,
+        deletedAt: null,
+        ...(search ? { OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ] } : {}),
+      },
+      select: billingContactSelect,
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { id: 'asc' }],
+      take: 100,
+    });
+    return users.filter((user) => this.validEmail(user.email));
+  }
+
+  async updateBillingContact(companyId: string, dto: UpdateBillingContactDto, actor: AuthenticatedUser) {
+    this.assertTenantAccess(companyId, actor);
+    return this.prisma.$transaction(async (tx) => {
+      const company = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Company"
+        WHERE "id" = ${companyId}::uuid AND "deletedAt" IS NULL
+        FOR UPDATE
+      `);
+      if (company.length !== 1) throw new NotFoundException('Company not found');
+      const profiles = await tx.$queryRaw<Array<{ id: string; billingContactUserId: string | null }>>(Prisma.sql`
+        SELECT "id", "billingContactUserId" FROM "CompanyBillingProfile"
+        WHERE "companyId" = ${companyId}::uuid
+        FOR UPDATE
+      `);
+      const profile = profiles[0];
+      if (!profile) throw new NotFoundException('Company billing profile not found');
+      const requestedId = dto.billingContactUserId;
+      if (requestedId !== null) await this.requireEligibleBillingContact(tx, companyId, requestedId);
+      if (profile.billingContactUserId === requestedId) {
+        return this.billingContactResponse(tx, companyId, requestedId);
+      }
+      await tx.companyBillingProfile.update({ where: { id: profile.id }, data: { billingContactUserId: requestedId } });
+      await tx.auditLog.create({ data: {
+        companyId,
+        actorUserId: actor.id,
+        action: 'COMPANY_BILLING_CONTACT_CHANGED',
+        entityType: 'CompanyBillingProfile',
+        entityId: profile.id,
+        metadata: { previousBillingContactUserId: profile.billingContactUserId, billingContactUserId: requestedId },
+      } });
+      return this.billingContactResponse(tx, companyId, requestedId);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  }
+
   async update(
     id: string,
     dto: UpdateCompanyDto,
@@ -372,6 +449,45 @@ export class CompaniesService {
     if (!isSuperAdmin(user) && user.companyId !== id) {
       throw new ForbiddenException('Cross-tenant access is not allowed');
     }
+  }
+
+  private async requireCompany(companyId: string): Promise<void> {
+    const company = await this.prisma.company.findFirst({ where: { id: companyId, deletedAt: null }, select: { id: true } });
+    if (!company) throw new NotFoundException('Company not found');
+  }
+
+  private async requireEligibleBillingContact(tx: Prisma.TransactionClient, companyId: string, userId: string): Promise<BillingContact> {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id" FROM "User"
+      WHERE "id" = ${userId}::uuid AND "companyId" = ${companyId}::uuid
+        AND "status" = 'ACTIVE' AND "deletedAt" IS NULL
+      FOR KEY SHARE
+    `);
+    if (locked.length !== 1) throw new NotFoundException('Eligible Billing Contact user not found');
+    const user = await tx.user.findFirst({
+      where: { id: userId, companyId, status: UserStatus.ACTIVE, deletedAt: null },
+      select: billingContactSelect,
+    });
+    if (!user || !this.validEmail(user.email)) throw new NotFoundException('Eligible Billing Contact user not found');
+    return user;
+  }
+
+  private async billingContactResponse(client: Prisma.TransactionClient | PrismaService, companyId: string, userId: string | null) {
+    if (!userId) return { companyId, billingProfileExists: true, billingContactUserId: null, billingContact: null };
+    const user = await client.user.findFirst({
+      where: { id: userId, companyId, status: UserStatus.ACTIVE, deletedAt: null },
+      select: billingContactSelect,
+    });
+    return {
+      companyId,
+      billingProfileExists: true,
+      billingContactUserId: user?.id ?? userId,
+      billingContact: user && this.validEmail(user.email) ? user : null,
+    };
+  }
+
+  private validEmail(value: string): boolean {
+    return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
   }
 
   private eligibleDesignatedApproverWhere(
