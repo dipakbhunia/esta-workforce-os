@@ -66,6 +66,7 @@ export const implementedNavPaths = new Set([
   '/platform/access/roles-permissions',
   '/platform/access/audit-logs',
   '/platform-communication/email-delivery-logs',
+  '/platform-communication/email-configuration',
   '/settings/users',
   '/settings/roles',
   '/settings/permissions',

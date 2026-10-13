@@ -5,6 +5,7 @@ import {
   EmailEnvelopePresentation,
   EmailRendererId,
   EmailRendererRegistration,
+  EmailVerificationEmailPayload,
   PasswordResetRequestedEmailPayload,
 } from './email-composition.types';
 
@@ -58,5 +59,22 @@ export const passwordResetRequestedEmailRendererRegistration: EmailRendererRegis
     message: `A password reset was requested for your account. Use the secure one-time link below before ${payload.expiresAt}. If you did not request this, you can safely ignore this email.`,
     safeDetailsPath: null,
     rendererVersion: 'password-reset-requested-v1',
+  }),
+};
+
+export const emailVerificationEmailRendererRegistration: EmailRendererRegistration<typeof NotificationType.EMAIL_VERIFICATION> = {
+  event: NotificationType.EMAIL_VERIFICATION,
+  rendererId: EmailRendererId.EMAIL_VERIFICATION_SECURITY,
+  rendererVersion: 'email-verification-v1',
+  envelope,
+  validatePayload(payload: unknown): EmailVerificationEmailPayload {
+    const value = payload as Partial<EmailVerificationEmailPayload>;
+    return { expiresAt: expiry(value?.expiresAt) };
+  },
+  render: (_event, payload) => ({
+    subject: 'Verify your Esta Workforce OS email address',
+    message: `Verify ownership of your current email address using the secure one-time link below before ${payload.expiresAt}. If you did not request this, you can safely ignore this email.`,
+    safeDetailsPath: null,
+    rendererVersion: 'email-verification-v1',
   }),
 };

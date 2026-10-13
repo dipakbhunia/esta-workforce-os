@@ -212,11 +212,22 @@ export class UsersService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`account-action:${id}:${AccountActionTokenPurpose.EMAIL_VERIFICATION}`}, 0))::text`;
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${id}::uuid FOR UPDATE`;
+        const current = await tx.user.findUniqueOrThrow({
+          where: { id },
+          select: { email: true },
+        });
+        const normalizedEmail = dto.email?.trim().toLowerCase();
+        const emailChanged =
+          normalizedEmail !== undefined &&
+          normalizedEmail !== current.email.trim().toLowerCase();
+        const now = new Date();
         const updated = await tx.user.update({
           where: { id },
           data: {
             ...(dto.email !== undefined
-              ? { email: dto.email.trim().toLowerCase() }
+              ? { email: normalizedEmail }
               : {}),
             ...(dto.firstName !== undefined
               ? { firstName: dto.firstName.trim() }
@@ -235,6 +246,31 @@ export class UsersService {
           },
           select: userSelect,
         });
+        if (emailChanged) {
+          await tx.accountActionToken.updateMany({
+            where: {
+              userId: id,
+              purpose: AccountActionTokenPurpose.EMAIL_VERIFICATION,
+              consumedAt: null,
+              invalidatedAt: null,
+            },
+            data: { invalidatedAt: now },
+          });
+          await tx.refreshToken.updateMany({
+            where: { userId: id, revokedAt: null },
+            data: { revokedAt: now },
+          });
+          await tx.auditLog.create({
+            data: {
+              companyId: user.companyId,
+              actorUserId: actor.id,
+              action: 'USER_EMAIL_CHANGED',
+              entityType: 'User',
+              entityId: id,
+              metadata: { verificationInvalidated: true, sessionsRevoked: true },
+            },
+          });
+        }
         if (isSuperAdmin(actor) && user.companyId === null) {
           await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_UPDATED', {
             changedFields: Object.keys(dto).sort(),

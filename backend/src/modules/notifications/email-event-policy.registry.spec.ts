@@ -12,6 +12,7 @@ describe('email event policy registry', () => {
       NotificationType.ACCOUNT_STATUS_CHANGED,
         NotificationType.ACCOUNT_INVITATION,
         NotificationType.PASSWORD_RESET_REQUESTED,
+        NotificationType.EMAIL_VERIFICATION,
       NotificationType.LEAVE_APPROVED,
       NotificationType.LEAVE_REJECTED,
       NotificationType.LEAVE_APPLIED,
@@ -45,6 +46,13 @@ describe('email event policy registry', () => {
     assert.equal(accountStatus.preferenceEvaluator, 'NONE');
     assert.deepEqual(accountStatus.eligibleChannels, [NotificationChannel.EMAIL]);
     assert.equal(accountStatus.quietHours, 'NONE');
+    const emailVerification = getEmailEventPolicy(NotificationType.EMAIL_VERIFICATION);
+    assert.equal(emailVerification.category, 'SECURITY');
+    assert.equal(emailVerification.deliveryPolicy, EmailDeliveryPolicy.MANDATORY);
+    assert.equal(preferencesApply(emailVerification), false);
+    assert.equal(emailVerification.preferenceEvaluator, 'NONE');
+    assert.deepEqual(emailVerification.eligibleChannels, [NotificationChannel.EMAIL]);
+    assert.equal(emailVerification.quietHours, 'NONE');
     assert.equal(accountStatus.buildIdempotencyKey({ sourceId: 'mutation', userId: 'target', channel: NotificationChannel.EMAIL }),
       'mutation:ACCOUNT_STATUS_CHANGED:target:EMAIL');
   });

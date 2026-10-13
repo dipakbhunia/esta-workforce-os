@@ -1,5 +1,7 @@
 ﻿import Joi = require('joi');
 
+import { isIP } from 'node:net';
+
 const paymentCredentialKey = Joi.string().allow('').custom((value: string, helpers) => {
   if (!value) return value;
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
@@ -42,12 +44,42 @@ export const environmentValidationSchema = Joi.object({
   SMTP_FROM_NAME: Joi.string().allow('', null).default('Esta Workforce OS'),
   PAYMENT_CREDENTIAL_ENCRYPTION_KEY: paymentCredentialKey.optional(),
   PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION: Joi.string().trim().min(1).max(64).allow('').optional(),
+  SMTP_CREDENTIAL_ENCRYPTION_CURRENT_KEY_ID: Joi.string().trim().pattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).allow('').optional(),
+  SMTP_CREDENTIAL_ENCRYPTION_KEYS: Joi.string().max(16384).allow('').optional(),
+  SMTP_TEST_ALLOWED_HOSTS: Joi.string().max(4096).allow('').optional(),
+  SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
 }).custom((value: Record<string, unknown>, helpers) => {
   const key = typeof value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY === 'string'
     ? value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY.trim() : '';
   const version = typeof value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION === 'string'
     ? value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION.trim() : '';
   if (Boolean(key) !== Boolean(version)) return helpers.error('object.paymentCredentialPair');
+  const smtpCurrentKeyId = typeof value.SMTP_CREDENTIAL_ENCRYPTION_CURRENT_KEY_ID === 'string'
+    ? value.SMTP_CREDENTIAL_ENCRYPTION_CURRENT_KEY_ID.trim() : '';
+  const smtpKeyRing = typeof value.SMTP_CREDENTIAL_ENCRYPTION_KEYS === 'string'
+    ? value.SMTP_CREDENTIAL_ENCRYPTION_KEYS.trim() : '';
+  if (Boolean(smtpCurrentKeyId) !== Boolean(smtpKeyRing)) return helpers.error('object.smtpCredentialKeyRingPair');
+  if (smtpKeyRing) {
+    try {
+      const parsed: unknown = JSON.parse(smtpKeyRing);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return helpers.error('object.invalidSmtpCredentialKeyRing');
+      const entries = Object.entries(parsed as Record<string, unknown>);
+      if (!entries.length || entries.some(([id, encoded]) => {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) || typeof encoded !== 'string'
+          || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) return true;
+        const decoded = Buffer.from(encoded, 'base64');
+        return decoded.length !== 32 || decoded.toString('base64') !== encoded;
+      }) || !(smtpCurrentKeyId in (parsed as Record<string, unknown>))) return helpers.error('object.invalidSmtpCredentialKeyRing');
+    } catch {
+      return helpers.error('object.invalidSmtpCredentialKeyRing');
+    }
+  }
+  const smtpAllowedHosts = typeof value.SMTP_TEST_ALLOWED_HOSTS === 'string' ? value.SMTP_TEST_ALLOWED_HOSTS.trim() : '';
+  if (smtpAllowedHosts && smtpAllowedHosts.split(',').some((entry) => {
+    const host = entry.trim().toLowerCase().replace(/\.$/, '');
+    return !host || host.includes('*') || host.includes('://') || host.includes('@') || /[/:?#\[\]\\]/.test(host) || isIP(host) !== 0
+      || host.length > 253 || host.split('.').some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+  })) return helpers.error('object.invalidSmtpTestAllowlist');
   const production = value.NODE_ENV === 'production';
   const configuredOrigin = typeof value.PUBLIC_APP_ORIGIN === 'string' ? value.PUBLIC_APP_ORIGIN : '';
   if (!configuredOrigin) {
@@ -71,6 +103,9 @@ export const environmentValidationSchema = Joi.object({
   return value;
 }).messages({
   'object.paymentCredentialPair': 'Payment credential encryption key and version must be configured together',
+  'object.smtpCredentialKeyRingPair': 'SMTP credential encryption key ring and current key ID must be configured together',
+  'object.invalidSmtpCredentialKeyRing': 'SMTP credential encryption key ring is invalid',
+  'object.invalidSmtpTestAllowlist': 'SMTP test allowlist must contain exact canonical hostnames only',
   'any.invalid': 'Payment credential encryption key must be canonical base64 encoding of exactly 32 bytes',
   'object.productionAppOriginRequired': 'PUBLIC_APP_ORIGIN is required in production',
   'object.productionAppOriginHttps': 'PUBLIC_APP_ORIGIN must use HTTPS in production',

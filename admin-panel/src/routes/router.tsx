@@ -18,6 +18,9 @@ import { AppLayout } from '@/layouts';
 const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'));
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage'));
 const AccountActionPage = lazy(() => import('@/features/auth/pages/AccountActionPage'));
+const VerifyEmailPage = lazy(() => import('@/features/auth/pages/VerifyEmailPage'));
+const EmailVerificationSettingsPage = lazy(() => import('@/features/auth/pages/EmailVerificationSettingsPage'));
+const EmailTemplatesPage = lazy(() => import('@/features/platform-communication/pages/EmailTemplatesPage'));
 const DashboardPage = lazy(() => import('@/features/dashboard/pages/DashboardPage'));
 const CompaniesPage = lazy(() => import('@/features/organization/pages/CompaniesPage'));
 const CompanyCreatePage = lazy(() => import('@/features/organization/pages/CompanyCreatePage'));
@@ -54,6 +57,7 @@ const PlatformRolesPermissionsPage = lazy(() => import('@/features/platform-acce
 const PlatformAuditLogsPage = lazy(() => import('@/features/platform-access/pages/PlatformAuditLogsPage'));
 const EmailDeliveryLogsPage = lazy(() => import('@/features/platform-communication/pages/EmailDeliveryLogsPage'));
 const EmailDeliveryDetailsPage = lazy(() => import('@/features/platform-communication/pages/EmailDeliveryDetailsPage'));
+const EmailConfigurationPage = lazy(() => import('@/features/platform-communication/pages/EmailConfigurationPage'));
 const BranchesPage = lazy(() => import('@/features/organization/pages/BranchesPage'));
 const BranchCreatePage = lazy(() => import('@/features/organization/pages/BranchCreatePage'));
 const BranchDetailsPage = lazy(() => import('@/features/organization/pages/BranchDetailsPage'));
@@ -201,8 +205,6 @@ function LegacyShiftEditRedirect() {
 }
 
 const comingSoonRoutes: ComingSoonRoute[] = [
-  { path: 'platform-communication/email-configuration', title: 'Email Configuration', moduleName: 'Platform Communication', description: 'Configure the platform email delivery service for SaaS communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
-  { path: 'platform-communication/email-templates', title: 'Email Templates', moduleName: 'Platform Communication', description: 'Manage reusable platform email templates for tenant and billing communications.', plannedPhase: 'Platform Communication', permission: 'settings:view', roles: superAdminRoles },
   { path: 'platform/reports/revenue', title: 'Revenue Reports', moduleName: 'Reports', description: 'Analyze SaaS revenue when subscription billing data is available.', plannedPhase: 'Platform Reports', permission: 'reports:view', roles: superAdminRoles },
   { path: 'platform/reports/subscriptions', title: 'Subscription Reports', moduleName: 'Reports', description: 'Analyze subscription lifecycle, plan adoption, and renewals.', plannedPhase: 'Platform Reports', permission: 'reports:view', roles: superAdminRoles },
   { path: 'platform/reports/usage', title: 'Usage Reports', moduleName: 'Reports', description: 'Analyze tenant seat, feature, and storage usage when metering is available.', plannedPhase: 'Platform Reports', permission: 'reports:view', roles: superAdminRoles },
@@ -275,6 +277,7 @@ export const router = createBrowserRouter([
       { path: '/forgot-password', element: lazyElement(<ForgotPasswordPage />) },
       { path: '/activate-account', element: lazyElement(<AccountActionPage mode="activate" />) },
       { path: '/reset-password', element: lazyElement(<AccountActionPage mode="reset" />) },
+      { path: '/verify-email', element: lazyElement(<VerifyEmailPage />) },
     ],
   },
   {
@@ -320,8 +323,11 @@ export const router = createBrowserRouter([
           { path: 'platform/access/users', element: protectedElement(<PlatformUsersPage />, 'people:manage', superAdminRoles) },
           { path: 'platform/access/roles-permissions', element: protectedElement(<PlatformRolesPermissionsPage />, 'people:manage', superAdminRoles) },
           { path: 'platform/access/audit-logs', element: protectedElement(<PlatformAuditLogsPage />, 'people:manage', superAdminRoles) },
+          { path: 'account/security', element: protectedElement(<EmailVerificationSettingsPage />, 'people:manage', superAdminRoles) },
           { path: 'platform-communication/email-delivery-logs', element: protectedElement(<EmailDeliveryLogsPage />, 'settings:view', superAdminRoles) },
           { path: 'platform-communication/email-delivery-logs/:deliveryId', element: protectedElement(<EmailDeliveryDetailsPage />, 'settings:view', superAdminRoles) },
+          { path: 'platform-communication/email-configuration', element: protectedElement(<EmailConfigurationPage />, 'settings:view', superAdminRoles) },
+          { path: 'platform-communication/email-templates', element: protectedElement(<EmailTemplatesPage />, 'settings:view', superAdminRoles) },
           { path: 'organization/branches', element: protectedElement(<BranchesPage />, 'branches:view', hrRoles) },
           { path: 'organization/branches/create', element: protectedElement(<BranchCreatePage />, 'branches:manage', hrRoles) },
           { path: 'organization/branches/:id', element: protectedElement(<BranchDetailsPage />, 'branches:view', hrRoles) },

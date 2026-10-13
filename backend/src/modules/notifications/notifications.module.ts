@@ -8,9 +8,11 @@ import { NotificationDeliveriesController, NotificationPreferencesController, No
 import { NotificationsService } from './notifications.service';
 import { CommercialBillingRecipientResolver } from './commercial-billing-recipient-resolver.service';
 import { CommercialTransactionalNotificationService } from './commercial-transactional-notification.service';
+import { SmtpRuntimeModule } from '../smtp-runtime/smtp-runtime.module';
+import { EmailTemplateRuntimeResolver } from './email-template-runtime-resolver.service';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, SmtpRuntimeModule],
   controllers: [NotificationsController, NotificationPreferencesController, NotificationDeliveriesController],
   providers: [
     NotificationsService,
@@ -20,6 +22,7 @@ import { CommercialTransactionalNotificationService } from './commercial-transac
     EmailNotificationChannel,
     CommercialBillingRecipientResolver,
     CommercialTransactionalNotificationService,
+    EmailTemplateRuntimeResolver,
   ],
   exports: [NotificationsService, CommercialBillingRecipientResolver, CommercialTransactionalNotificationService],
 })

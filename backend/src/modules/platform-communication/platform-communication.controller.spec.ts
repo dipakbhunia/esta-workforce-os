@@ -9,6 +9,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PlatformEmailDeliveryQueryDto } from './dto/platform-email-delivery-query.dto';
 import { PlatformCommunicationController } from './platform-communication.controller';
+import { ActivateSmtpConfigurationDto, CreateSmtpConfigurationDraftDto, SendSmtpTestEmailDto, TestSmtpConnectionDto, ToggleDatabaseSmtpDto, UpdateSmtpConfigurationDraftDto } from './dto/smtp-configuration.dto';
+import { CreateEmailTemplateDraftDto, EmailTemplateHistoryQueryDto, PublishEmailTemplateVersionDto,
+  PreviewEmailTemplateVersionDto, UpdateEmailTemplateDraftDto } from './dto/email-template.dto';
 
 const pipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
 const validate = (value: Record<string, unknown>) => pipe.transform(value, { type: 'query', metatype: PlatformEmailDeliveryQueryDto });
@@ -43,5 +46,77 @@ describe('PlatformCommunicationController', () => {
 
   it('uses established malformed UUID rejection semantics', async () => {
     await assert.rejects(() => new ParseUUIDPipe().transform('bad', { type: 'param', data: 'id' }), BadRequestException);
+  });
+
+  it('registers only bounded configuration lifecycle routes', () => {
+    const prototype = PlatformCommunicationController.prototype;
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getEmailConfiguration), 'email-configuration');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.listEmailConfigurationVersions), 'email-configuration/versions');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.createEmailConfigurationDraft), 'email-configuration/versions');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.updateEmailConfigurationDraft), 'email-configuration/versions/:id');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.validateEmailConfigurationDraft), 'email-configuration/versions/:id/validate');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.testEmailConfigurationConnection), 'email-configuration/versions/:id/test-connection');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.sendEmailConfigurationTestEmail), 'email-configuration/versions/:id/test-email');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.activateEmailConfiguration), 'email-configuration/versions/:id/activate');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.rollbackEmailConfiguration), 'email-configuration/versions/:id/rollback');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.disableDatabaseEmail), 'email-configuration/disable');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.enableDatabaseEmail), 'email-configuration/enable');
+    for (const forbidden of ['activate', 'rollback', 'enable', 'disable']) assert.equal(forbidden in prototype, false);
+  });
+
+  it('registers the bounded Email Templates management routes', () => {
+    const prototype = PlatformCommunicationController.prototype;
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.listEmailTemplates), 'email-templates');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getEmailTemplate), 'email-templates/:type');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.listEmailTemplateVersions), 'email-templates/:type/versions');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.createEmailTemplateDraft), 'email-templates/:type/versions');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.updateEmailTemplateDraft), 'email-templates/:type/versions/:id');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.validateEmailTemplateDraft), 'email-templates/:type/versions/:id/validate');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.publishEmailTemplateVersion), 'email-templates/:type/versions/:id/publish');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.rollbackEmailTemplateVersion), 'email-templates/:type/versions/:id/rollback');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.previewEmailTemplateVersion), 'email-templates/:type/versions/:id/preview');
+  });
+
+  it('rejects unbounded Email Template DTO fields and invalid revisions', async () => {
+    const bodyPipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
+    const create = { templateRevision: 0, subjectTemplate: 'Subject', textBodyTemplate: 'Body', placeholderContractVersion: 1 };
+    await bodyPipe.transform(create, { type: 'body', metatype: CreateEmailTemplateDraftDto });
+    await assert.rejects(() => bodyPipe.transform({ ...create, htmlTemplate: '<b>unsafe</b>' },
+      { type: 'body', metatype: CreateEmailTemplateDraftDto }), BadRequestException);
+    await assert.rejects(() => bodyPipe.transform({ ...create, placeholderContractVersion: 2 },
+      { type: 'body', metatype: CreateEmailTemplateDraftDto }), BadRequestException);
+    await assert.rejects(() => bodyPipe.transform({ revision: 0, subjectTemplate: 'S', textBodyTemplate: 'B', placeholderContractVersion: 1 },
+      { type: 'body', metatype: UpdateEmailTemplateDraftDto }), BadRequestException);
+    await assert.rejects(() => bodyPipe.transform({ templateRevision: 0, targetRevision: 1 },
+      { type: 'body', metatype: PublishEmailTemplateVersionDto }), BadRequestException);
+    const query = await bodyPipe.transform({ page: '2', limit: '100' }, { type: 'query', metatype: EmailTemplateHistoryQueryDto });
+    assert.deepEqual({ page: query.page, limit: query.limit }, { page: 2, limit: 100 });
+    await bodyPipe.transform({ revision: 1 }, { type: 'body', metatype: PreviewEmailTemplateVersionDto });
+    await assert.rejects(() => bodyPipe.transform({ revision: 1, recipient: 'attacker@example.test' },
+      { type: 'body', metatype: PreviewEmailTemplateVersionDto }), BadRequestException);
+  });
+
+  it('rejects unknown and invalid SMTP draft fields', async () => {
+    const bodyPipe = new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true });
+    const create = (value: Record<string, unknown>) => bodyPipe.transform(value, { type: 'body', metatype: CreateSmtpConfigurationDraftDto });
+    const valid = { host: 'smtp.example.test', port: 587, securityMode: 'STARTTLS', username: 'mailer',
+      password: 'strong-password', senderEmail: 'sender@example.test', senderDisplayName: 'Sender' };
+    await create(valid);
+    for (const input of [{ ...valid, secret: 'extra' }, { ...valid, port: 0 }, { ...valid, password: 'short' }]) {
+      await assert.rejects(() => create(input), BadRequestException);
+    }
+    await assert.rejects(() => bodyPipe.transform({ revision: 0 }, { type: 'body', metatype: UpdateSmtpConfigurationDraftDto }), BadRequestException);
+    await assert.rejects(() => bodyPipe.transform({ revision: 0 }, { type: 'body', metatype: TestSmtpConnectionDto }), BadRequestException);
+    await assert.rejects(() => bodyPipe.transform({ revision: 1, password: 'forbidden' },
+      { type: 'body', metatype: TestSmtpConnectionDto }), BadRequestException);
+    await bodyPipe.transform({ revision: 1 }, { type: 'body', metatype: SendSmtpTestEmailDto });
+    for (const body of [{ revision: 0 }, { revision: 1, recipient: 'attacker@example.test' },
+      { revision: 1, subject: 'controlled' }, { revision: 1, body: 'controlled' }]) {
+      await assert.rejects(() => bodyPipe.transform(body, { type: 'body', metatype: SendSmtpTestEmailDto }), BadRequestException);
+    }
+    await bodyPipe.transform({ settingsRevision: 0, targetRevision: 1 }, { type: 'body', metatype: ActivateSmtpConfigurationDto });
+    await assert.rejects(() => bodyPipe.transform({ settingsRevision: 0, targetRevision: 1, enabled: true },
+      { type: 'body', metatype: ActivateSmtpConfigurationDto }), BadRequestException);
+    await bodyPipe.transform({ settingsRevision: 1 }, { type: 'body', metatype: ToggleDatabaseSmtpDto });
   });
 });

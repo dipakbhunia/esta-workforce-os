@@ -4,6 +4,7 @@ import { emailRendererRegistry } from './email-renderer.registry';
 import { EmailDeliveryPolicy, getEmailEventPolicy } from './email-event-policy.registry';
 import { EmailPreferencePolicyId, EmailQuietHoursPolicyId, type CommercialInvoiceEmailPayload, type CommercialPaymentEmailPayload, type CommercialRenewalBlockedEmailPayload, type CommercialRenewalPeriodEmailPayload, type CommercialSubscriptionActivatedEmailPayload, type CommercialSubscriptionExpiredEmailPayload } from './email-composition.types';
 import { CommercialBillingRecipientResolver } from './commercial-billing-recipient-resolver.service';
+import { EmailTemplateRuntimeResolver } from './email-template-runtime-resolver.service';
 
 type CommercialType = typeof NotificationType.PAYMENT_CAPTURED | typeof NotificationType.PAYMENT_FAILED | typeof NotificationType.INVOICE_ISSUED |
   typeof NotificationType.SUBSCRIPTION_ACTIVATED | typeof NotificationType.SUBSCRIPTION_EXPIRED | typeof NotificationType.RENEWAL_APPLIED |
@@ -13,7 +14,8 @@ type CommercialPayload = CommercialPaymentEmailPayload | CommercialInvoiceEmailP
 
 @Injectable()
 export class CommercialTransactionalNotificationService {
-  constructor(private readonly recipients: CommercialBillingRecipientResolver) {}
+  constructor(private readonly recipients: CommercialBillingRecipientResolver,
+    private readonly emailTemplates?: EmailTemplateRuntimeResolver) {}
 
   async createInTransaction(
     tx: Prisma.TransactionClient,
@@ -21,7 +23,10 @@ export class CommercialTransactionalNotificationService {
   ): Promise<boolean> {
     const recipient = await this.recipients.resolveInTransaction(tx, input.companyId);
     if (!recipient || recipient.companyId !== input.companyId) return false;
-    const composition = emailRendererRegistry.render(input.type, input.payload as never);
+    const resolved = this.emailTemplates
+      ? await this.emailTemplates.resolve(tx, input.type, input.payload as never)
+      : { composition: emailRendererRegistry.render(input.type, input.payload as never), emailTemplateVersionId: null };
+    const composition = resolved.composition;
     const policy = getEmailEventPolicy(input.type);
     let nextRetryAt: Date | null = null;
     if (policy.deliveryPolicy === EmailDeliveryPolicy.PREFERENCE_CONTROLLED) {
@@ -39,6 +44,7 @@ export class CommercialTransactionalNotificationService {
         companyId: input.companyId, userId: recipient.userId, type: input.type, channel: NotificationChannel.EMAIL,
         title: composition.subject, message: composition.message, status: NotificationStatus.PENDING,
         detailsPath: null,
+        ...(resolved.emailTemplateVersionId ? { emailTemplateVersionId: resolved.emailTemplateVersionId } : {}),
         idempotencyKey: policy.buildIdempotencyKey({ sourceId: input.sourceId, userId: recipient.userId, channel: NotificationChannel.EMAIL }),
         deliveries: { create: { channel: NotificationChannel.EMAIL, recipient: recipient.email, status: NotificationStatus.PENDING, nextRetryAt } },
       } });

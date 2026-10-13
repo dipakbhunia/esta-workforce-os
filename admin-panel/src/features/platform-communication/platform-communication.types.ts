@@ -9,6 +9,60 @@ export interface EmailCapability {
   fromEmailConfigured: boolean;
 }
 
+export type SmtpSecurityMode = 'PLAIN' | 'STARTTLS' | 'TLS';
+export type SmtpConfigurationLifecycle = 'DRAFT' | 'VALIDATED' | 'TESTED' | 'ACTIVE' | 'REVOKED';
+
+export interface SmtpConfigurationVersion {
+  id: string;
+  version: number;
+  lifecycle: SmtpConfigurationLifecycle;
+  host: string;
+  port: number;
+  securityMode: SmtpSecurityMode;
+  username: string;
+  senderEmail: string;
+  senderDisplayName: string;
+  revision: number;
+  passwordConfigured: boolean;
+  structurallyValidatedAt: string | null;
+  connectionTestedAt: string | null;
+  connectionTestSucceeded: boolean | null;
+  restrictedTestEmailSentAt: string | null;
+  firstActivatedAt: string | null;
+  lastActivatedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformEmailSettings {
+  enabled: boolean;
+  revision: number;
+  activeConfigurationVersionId: string | null;
+  databaseAuthorityEstablishedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface SmtpConfigurationResponse {
+  settings: PlatformEmailSettings;
+  latestVersion: SmtpConfigurationVersion | null;
+}
+
+export interface SmtpConfigurationHistoryResponse {
+  data: SmtpConfigurationVersion[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
+export interface SmtpConfigurationDraftPayload {
+  host: string;
+  port: number;
+  securityMode: SmtpSecurityMode;
+  username: string;
+  password: string;
+  senderEmail: string;
+  senderDisplayName: string;
+}
+
 export interface PlatformEmailDelivery {
   deliveryId: string;
   notificationId: string;
@@ -52,3 +106,22 @@ export interface EmailDeliveryListResponse {
     totalPages: number;
   };
 }
+
+export type EmailTemplateLifecycle = 'DRAFT' | 'PUBLISHED' | 'RETIRED';
+export interface EmailTemplateVersion {
+  id: string; templateId: string; version: number; lifecycle: EmailTemplateLifecycle;
+  subjectTemplate: string; textBodyTemplate: string; placeholderContractVersion: number; revision: number;
+  validationResultCode: string | null; validatedAt: string | null; publishedAt: string | null;
+  retiredAt: string | null; createdAt: string; updatedAt: string;
+}
+export interface EmailTemplateCatalogItem {
+  templateKey: string; notificationType: string; category: string; allowedVariables: string[];
+  optionalVariables: string[]; placeholderContractVersion: number; systemManagedActionLink: boolean;
+  configured: boolean; template: null | { id: string; templateKey: string; revision: number;
+    activeVersionId: string | null; activeVersion: EmailTemplateVersion | null;
+    latestVersion: Pick<EmailTemplateVersion, 'id' | 'version' | 'lifecycle' | 'revision' | 'updatedAt'> | null };
+}
+export interface EmailTemplateHistoryResponse { data: EmailTemplateVersion[]; meta: { page: number; limit: number; total: number; totalPages: number } }
+export interface EmailTemplatePreview { synthetic: true; notificationType: string; templateId: string; versionId: string;
+  version: number; lifecycle: EmailTemplateLifecycle; revision: number; subject: string; textBody: string; html: string;
+  systemManagedActionLink: boolean; actionLinkIncluded: false }

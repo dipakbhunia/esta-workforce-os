@@ -18,7 +18,7 @@ import { attendanceCorrectionDecisionEmailRendererRegistrations } from './attend
 import { leaveAppliedEmailRendererRegistration } from './leave-applied-email.renderer';
 import { leaveCancelledEmailRendererRegistration } from './leave-cancelled-email.renderer';
 import { attendanceCorrectionAppliedEmailRendererRegistration } from './attendance-correction-applied-email.renderer';
-import { accountInvitationEmailRendererRegistration, passwordResetRequestedEmailRendererRegistration } from './identity-action-email.renderer';
+import { accountInvitationEmailRendererRegistration, emailVerificationEmailRendererRegistration, passwordResetRequestedEmailRendererRegistration } from './identity-action-email.renderer';
 import { commercialEmailRendererRegistrations } from './commercial-email.renderer';
 
 export class EmailRendererRegistry {
@@ -87,5 +87,6 @@ export const emailRendererRegistry = new EmailRendererRegistry([
   attendanceCorrectionAppliedEmailRendererRegistration,
   accountInvitationEmailRendererRegistration,
   passwordResetRequestedEmailRendererRegistration,
+  emailVerificationEmailRendererRegistration,
   ...commercialEmailRendererRegistrations,
 ]);

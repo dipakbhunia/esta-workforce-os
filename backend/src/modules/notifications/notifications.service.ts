@@ -9,6 +9,7 @@ import { NotificationRecipientResolver } from './notification-recipient-resolver
 import { EmailDeliveryPolicy, EmailEventCategory, getEmailEventPolicy, preferencesApply } from './email-event-policy.registry';
 import { AccountStatusChangedEmailPayload, AttendanceCorrectionAppliedEmailPayload, AttendanceCorrectionDecisionEmailPayload, EmailCompositionResult, EmailEventKey, EmailEventPayloadMap, EmailPreferencePolicyId, EmailQuietHoursPolicyId, EmailRecipientResolverId, EmailRendererId, LeaveAppliedEmailPayload, LeaveCancelledEmailPayload, LeaveDecisionEmailPayload, PasswordChangedEmailPayload } from './email-composition.types';
 import { emailRendererRegistry } from './email-renderer.registry';
+import { EmailTemplateRuntimeResolver } from './email-template-runtime-resolver.service';
 
 type AlertForNotification = Prisma.MonitoringAlertGetPayload<{ include: ReturnType<NotificationsService['alertInclude']> }>;
 type NotificationWithAlert = Prisma.NotificationGetPayload<{ include: ReturnType<NotificationsService['notificationInclude']> }>;
@@ -26,6 +27,7 @@ export class NotificationsService {
     private readonly recipients: NotificationRecipientResolver,
     private readonly preferences: NotificationPreferenceService,
     private readonly emailChannel: EmailNotificationChannel,
+    private readonly emailTemplates?: EmailTemplateRuntimeResolver,
   ) {}
 
   async createPasswordChangedEmail(input: {
@@ -60,6 +62,73 @@ export class NotificationsService {
 
   async createPasswordResetRequestedEmail(input: { tokenId: string; targetUserId: string }): Promise<{ created: boolean }> {
     return this.createIdentityActionEmail(NotificationType.PASSWORD_RESET_REQUESTED, input.tokenId, input.targetUserId, (expiresAt) => ({ expiresAt }));
+  }
+
+  async createEmailVerificationEmailInTransaction(
+    tx: Prisma.TransactionClient,
+    input: { tokenId: string; targetUserId: string },
+  ): Promise<{ created: boolean }> {
+    const type = NotificationType.EMAIL_VERIFICATION;
+    const policy = getEmailEventPolicy(type);
+    const now = new Date();
+    const token = await tx.accountActionToken.findFirst({
+      where: {
+        id: input.tokenId,
+        userId: input.targetUserId,
+        purpose: AccountActionTokenPurpose.EMAIL_VERIFICATION,
+        consumedAt: null,
+        invalidatedAt: null,
+        expiresAt: { gt: now },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            companyId: true,
+            email: true,
+            emailRevision: true,
+            status: true,
+            deletedAt: true,
+            roles: { select: { role: { select: { systemName: true } } } },
+          },
+        },
+      },
+    });
+    const normalizedEmail = token?.user.email.trim().toLowerCase();
+    if (
+      !token ||
+      policy.deliveryPolicy !== EmailDeliveryPolicy.MANDATORY ||
+      policy.category !== EmailEventCategory.SECURITY ||
+      token.user.companyId !== null ||
+      token.companyId !== null ||
+      token.user.status !== UserStatus.ACTIVE ||
+      token.user.deletedAt ||
+      !token.user.roles.some(({ role }) => role.systemName === RoleName.SUPER_ADMIN) ||
+      token.targetEmail !== normalizedEmail ||
+      token.emailRevision !== token.user.emailRevision
+    ) throw new Error(`${type} authority mismatch`);
+    const composition = emailRendererRegistry.render(type, { expiresAt: token.expiresAt.toISOString() });
+    try {
+      await tx.notification.create({
+        data: {
+          companyId: null,
+          userId: token.user.id,
+          type,
+          channel: NotificationChannel.EMAIL,
+          title: composition.subject,
+          message: composition.message,
+          status: NotificationStatus.PENDING,
+          detailsPath: null,
+          idempotencyKey: policy.buildIdempotencyKey({ sourceId: token.id, userId: token.user.id, channel: NotificationChannel.EMAIL }),
+          accountActionTokenId: token.id,
+          deliveries: { create: { channel: NotificationChannel.EMAIL, recipient: normalizedEmail, status: NotificationStatus.PENDING } },
+        },
+      });
+      return { created: true };
+    } catch (error) {
+      if (isNotificationIdempotencyConflict(error)) return { created: false };
+      throw error;
+    }
   }
 
   private async createIdentityActionEmail<K extends typeof NotificationType.ACCOUNT_INVITATION | typeof NotificationType.PASSWORD_RESET_REQUESTED>(
@@ -144,7 +213,8 @@ export class NotificationsService {
       !policy.eligibleChannels.includes(channel)
     ) throw new Error(`${type} email policy is invalid`);
 
-    const composition = emailRendererRegistry.render(type, input.payload);
+    const resolved = await this.resolveEmailTemplate(this.prisma, type, input.payload);
+    const composition = resolved.composition;
     const recipient = await this.recipients.resolveWorkflowAssignedApprover(
       input.assignedApproverUserId,
       input.expectedCompanyId,
@@ -177,6 +247,7 @@ export class NotificationsService {
           severity: null,
           status: NotificationStatus.PENDING,
           detailsPath: composition.safeDetailsPath,
+          ...(resolved.emailTemplateVersionId ? { emailTemplateVersionId: resolved.emailTemplateVersionId } : {}),
           idempotencyKey,
           deliveries: {
             create: {
@@ -213,7 +284,8 @@ export class NotificationsService {
       policy.quietHours !== EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL ||
       !policy.eligibleChannels.includes(channel)
     ) throw new Error(`${type} email policy is invalid`);
-    const composition = emailRendererRegistry.render(type, input.payload);
+    const resolved = await this.resolveEmailTemplate(this.prisma, type, input.payload);
+    const composition = resolved.composition;
     const recipient = await this.recipients.resolveWorkflowAssignedApprover(
       input.assignedApproverUserId,
       input.expectedCompanyId,
@@ -244,6 +316,7 @@ export class NotificationsService {
           severity: null,
           status: NotificationStatus.PENDING,
           detailsPath: composition.safeDetailsPath,
+          ...(resolved.emailTemplateVersionId ? { emailTemplateVersionId: resolved.emailTemplateVersionId } : {}),
           idempotencyKey,
           deliveries: { create: { channel, recipient: recipient.email, status: NotificationStatus.PENDING, nextRetryAt } },
         },
@@ -274,7 +347,8 @@ export class NotificationsService {
       !policy.eligibleChannels.includes(channel)
     ) throw new Error(`${type} email policy is invalid`);
 
-    const composition = emailRendererRegistry.render(type, input.payload);
+    const resolved = await this.resolveEmailTemplate(this.prisma, type, input.payload);
+    const composition = resolved.composition;
     const participantUserIds = [...new Set(input.participantUserIds)];
     let created = 0;
     for (const participantUserId of participantUserIds) {
@@ -308,6 +382,7 @@ export class NotificationsService {
             severity: null,
             status: NotificationStatus.PENDING,
             detailsPath: composition.safeDetailsPath,
+            ...(resolved.emailTemplateVersionId ? { emailTemplateVersionId: resolved.emailTemplateVersionId } : {}),
             idempotencyKey,
             deliveries: {
               create: {
@@ -365,7 +440,8 @@ export class NotificationsService {
       !policy.eligibleChannels.includes(channel)
     ) throw new Error(`${input.type} email policy is invalid`);
 
-    const composition = emailRendererRegistry.render(input.type, input.payload);
+    const resolved = await this.resolveEmailTemplate(this.prisma, input.type, input.payload);
+    const composition = resolved.composition;
     const recipient = await this.recipients.resolveWorkflowApplicant(input.applicantUserId, input.expectedCompanyId);
     if (!recipient || recipient.companyId !== input.expectedCompanyId) {
       throw new Error(`${input.type} recipient was not found`);
@@ -391,6 +467,7 @@ export class NotificationsService {
           severity: null,
           status: NotificationStatus.PENDING,
           detailsPath: composition.safeDetailsPath,
+          ...(resolved.emailTemplateVersionId ? { emailTemplateVersionId: resolved.emailTemplateVersionId } : {}),
           idempotencyKey,
           deliveries: { create: { channel, recipient: recipient.email, status: NotificationStatus.PENDING, nextRetryAt } },
         },
@@ -421,7 +498,8 @@ export class NotificationsService {
     ) {
       throw new Error(`${type} email policy is invalid`);
     }
-    const composition = emailRendererRegistry.render(type, input.payload);
+    const resolved = await this.resolveEmailTemplate(this.prisma, type, input.payload);
+    const composition = resolved.composition;
     const recipient = await this.recipients.resolveAffectedUser(input.targetUserId);
     if (!recipient) throw new Error(`${type} recipient was not found`);
     const idempotencyKey = policy.buildIdempotencyKey({
@@ -442,6 +520,7 @@ export class NotificationsService {
           severity: null,
           status: NotificationStatus.PENDING,
           detailsPath: composition.safeDetailsPath,
+          ...(resolved.emailTemplateVersionId ? { emailTemplateVersionId: resolved.emailTemplateVersionId } : {}),
           idempotencyKey,
           deliveries: {
             create: {
@@ -469,7 +548,7 @@ export class NotificationsService {
     const alert = await this.prisma.monitoringAlert.findUnique({ where: { id: alertId }, include: this.alertInclude() });
     if (!alert) return;
     if (policy.renderer !== EmailRendererId.MONITORING_ALERT) throw new Error('Unsupported Monitoring email renderer');
-    const composition = emailRendererRegistry.render(notificationType, {
+    const payload = {
       alertId: alert.id,
       title: alert.title,
       message: alert.message,
@@ -478,7 +557,9 @@ export class NotificationsService {
         ? `${alert.employee.user.firstName} ${alert.employee.user.lastName}`.trim()
         : null,
       deviceDisplayName: alert.device?.deviceName ?? null,
-    });
+    };
+    const composition = emailRendererRegistry.render(notificationType, payload);
+    const managedEmail = await this.resolveEmailTemplate(this.prisma, notificationType, payload);
     const recipients = policy.recipientResolver === 'MONITORING_ALERT'
       ? await this.recipients.resolveForAlert({ companyId: alert.companyId, employeeId: alert.employeeId, severity: alert.severity })
       : [];
@@ -491,7 +572,8 @@ export class NotificationsService {
         const delayUntil = policy.quietHours === EmailQuietHoursPolicyId.NON_CRITICAL_EMAIL
           ? this.emailRetryStart(alert.severity, preference.quietHoursStart, preference.quietHoursEnd)
           : null;
-        await this.createNotification(alert, composition, recipient.userId, NotificationChannel.EMAIL, notificationType, NotificationStatus.PENDING, recipient.email, delayUntil);
+        await this.createNotification(alert, managedEmail.composition, recipient.userId, NotificationChannel.EMAIL,
+          notificationType, NotificationStatus.PENDING, recipient.email, delayUntil, managedEmail.emailTemplateVersionId);
       }
     }
   }
@@ -587,7 +669,8 @@ export class NotificationsService {
     return this.emailChannel.capability();
   }
 
-  private async createNotification(alert: AlertForNotification, composition: EmailCompositionResult, userId: string, channel: NotificationChannel, type: NotificationType, status: NotificationStatus, recipient?: string, nextRetryAt?: Date | null) {
+  private async createNotification(alert: AlertForNotification, composition: EmailCompositionResult, userId: string, channel: NotificationChannel, type: NotificationType, status: NotificationStatus, recipient?: string, nextRetryAt?: Date | null,
+    emailTemplateVersionId: string | null = null) {
     const idempotencyKey = getEmailEventPolicy(type).buildIdempotencyKey({ sourceId: alert.id, userId, channel });
     try {
       const notification = await this.prisma.notification.create({
@@ -602,6 +685,7 @@ export class NotificationsService {
           severity: alert.severity,
           status,
           detailsPath: composition.safeDetailsPath,
+          ...(emailTemplateVersionId ? { emailTemplateVersionId } : {}),
           idempotencyKey,
           ...(channel === NotificationChannel.EMAIL && recipient ? {
             deliveries: { create: { channel, recipient, status: NotificationStatus.PENDING, nextRetryAt } },
@@ -613,6 +697,12 @@ export class NotificationsService {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return null;
       throw error;
     }
+  }
+
+  private resolveEmailTemplate<K extends EmailEventKey>(reader: PrismaService | Prisma.TransactionClient, type: K,
+    payload: EmailEventPayloadMap[K]) {
+    if (this.emailTemplates) return this.emailTemplates.resolve(reader, type, payload);
+    return Promise.resolve({ composition: emailRendererRegistry.render(type, payload), emailTemplateVersionId: null });
   }
 
   private shouldCreateEmail(severity: MonitoringAlertSeverity, type: NotificationType, emailEnabled: boolean): boolean {

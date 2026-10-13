@@ -167,6 +167,24 @@ enum NotificationStatus {
   CANCELLED
 }
 
+enum SmtpSecurityMode {
+  IMPLICIT_TLS
+  STARTTLS
+}
+
+enum SmtpConfigurationLifecycle {
+  DRAFT
+  VALIDATED
+  TESTED
+  REVOKED
+}
+
+enum EmailTemplateVersionLifecycle {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
 enum NotificationType {
   ALERT_OPENED
   ALERT_REOPENED
@@ -184,6 +202,7 @@ enum NotificationType {
   ATTENDANCE_CORRECTION_APPLIED
   ACCOUNT_INVITATION
   PASSWORD_RESET_REQUESTED
+  EMAIL_VERIFICATION
   PAYMENT_CAPTURED
   PAYMENT_FAILED
   INVOICE_ISSUED
@@ -197,6 +216,7 @@ enum NotificationType {
 enum AccountActionTokenPurpose {
   INVITATION
   PASSWORD_RESET
+  EMAIL_VERIFICATION
 }
 
 enum ProductivityCategory {
@@ -1263,6 +1283,9 @@ model User {
   designationId                  String?                       @db.Uuid
   shiftId                        String?                       @db.Uuid
   email                          String                        @unique
+  emailRevision                  Int                           @default(0)
+  verifiedEmail                  String?
+  emailVerifiedAt                DateTime?
   passwordHash                   String
   firstName                      String
   lastName                       String
@@ -1317,6 +1340,14 @@ model User {
   gstTaxPoliciesCreated           GstTaxPolicyVersion[]
   billingProviderUpdates          BillingProviderConfiguration[] @relation("BillingProviderConfigurationUpdatedBy")
   billingProviderCredentials      BillingProviderCredential[]    @relation("BillingProviderCredentialCreatedBy")
+  platformEmailSettingsUpdates    PlatformEmailSettings[]        @relation("PlatformEmailSettingsUpdatedBy")
+  smtpConfigurationsCreated       SmtpConfigurationVersion[]     @relation("SmtpConfigurationCreatedBy")
+  smtpConfigurationsActivated     SmtpConfigurationVersion[]     @relation("SmtpConfigurationActivatedBy")
+  smtpConfigurationsRevoked       SmtpConfigurationVersion[]     @relation("SmtpConfigurationRevokedBy")
+  emailTemplateVersionsCreated    EmailTemplateVersion[]         @relation("EmailTemplateVersionCreatedBy")
+  emailTemplateVersionsValidated  EmailTemplateVersion[]         @relation("EmailTemplateVersionValidatedBy")
+  emailTemplateVersionsPublished  EmailTemplateVersion[]         @relation("EmailTemplateVersionPublishedBy")
+  emailTemplateVersionsRetired    EmailTemplateVersion[]         @relation("EmailTemplateVersionRetiredBy")
   createdPayments                 Payment[]                      @relation("PaymentCreatedBy")
   preparedSubscriptionRenewals    SubscriptionRenewal[]          @relation("SubscriptionRenewalPreparedBy")
   billingContactFor               CompanyBillingProfile?         @relation("CompanyBillingContact")
@@ -2379,32 +2410,36 @@ model NotificationPreference {
 }
 
 model Notification {
-  id                   String                   @id @default(uuid()) @db.Uuid
-  companyId            String?                  @db.Uuid
-  userId               String                   @db.Uuid
-  alertId              String?                  @db.Uuid
-  type                 NotificationType
-  channel              NotificationChannel
-  title                String
-  message              String
-  severity             MonitoringAlertSeverity?
-  status               NotificationStatus       @default(PENDING)
-  readAt               DateTime?
-  detailsPath          String?
-  idempotencyKey       String                   @unique
-  accountActionTokenId String?                  @unique @db.Uuid
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  company              Company?                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user                 User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  alert                MonitoringAlert?         @relation(fields: [alertId], references: [id], onDelete: SetNull)
-  deliveries           NotificationDelivery[]
-  accountActionToken   AccountActionToken?      @relation(fields: [accountActionTokenId], references: [id], onDelete: SetNull)
+  id                      String                   @id @default(uuid()) @db.Uuid
+  companyId               String?                  @db.Uuid
+  userId                  String                   @db.Uuid
+  alertId                 String?                  @db.Uuid
+  type                    NotificationType
+  channel                 NotificationChannel
+  title                   String
+  message                 String
+  severity                MonitoringAlertSeverity?
+  status                  NotificationStatus       @default(PENDING)
+  readAt                  DateTime?
+  detailsPath             String?
+  idempotencyKey          String                   @unique
+  accountActionTokenId    String?                  @unique @db.Uuid
+  emailTemplateVersionId  String?                  @db.Uuid
+  emailCompositionVersion String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  company                 Company?                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alert                   MonitoringAlert?         @relation(fields: [alertId], references: [id], onDelete: SetNull)
+  deliveries              NotificationDelivery[]
+  accountActionToken      AccountActionToken?      @relation(fields: [accountActionTokenId], references: [id], onDelete: SetNull)
+  emailTemplateVersion    EmailTemplateVersion?    @relation(fields: [emailTemplateVersionId], references: [id], onDelete: Restrict)
 
   @@index([userId, readAt, createdAt])
   @@index([companyId, createdAt])
   @@index([alertId])
   @@index([channel, status])
+  @@index([emailTemplateVersionId])
 }
 
 model AccountActionToken {
@@ -2417,6 +2452,8 @@ model AccountActionToken {
   consumedAt      DateTime?
   invalidatedAt   DateTime?
   createdByUserId String?                   @db.Uuid
+  targetEmail     String?
+  emailRevision   Int?
   createdAt       DateTime                  @default(now())
   user            User                      @relation("AccountActionTokenOwner", fields: [userId], references: [id], onDelete: Cascade)
   company         Company?                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2465,6 +2502,110 @@ model NotificationDelivery {
   @@index([channel, status, nextRetryAt, claimExpiresAt, createdAt, id], map: "NotificationDelivery_dispatch_eligibility_idx")
   @@index([channel, status, createdAt, id], map: "NotificationDelivery_email_log_order_idx")
   @@index([recipient])
+}
+
+model PlatformEmailSettings {
+  id                             String                    @id @default(uuid()) @db.Uuid
+  scope                          String                    @unique @default("PLATFORM")
+  enabled                        Boolean                   @default(false)
+  activeConfigurationVersionId   String?                   @unique @db.Uuid
+  revision                       Int                       @default(1)
+  databaseAuthorityEstablishedAt DateTime?
+  updatedByUserId                String?                   @db.Uuid
+  createdAt                      DateTime                  @default(now())
+  updatedAt                      DateTime                  @updatedAt
+  activeConfigurationVersion     SmtpConfigurationVersion? @relation("ActiveSmtpConfiguration", fields: [activeConfigurationVersionId], references: [id], onDelete: Restrict)
+  updatedBy                      User?                     @relation("PlatformEmailSettingsUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([updatedByUserId])
+}
+
+model SmtpConfigurationVersion {
+  id                         String                     @id @default(uuid()) @db.Uuid
+  version                    Int                        @unique @default(autoincrement())
+  lifecycle                  SmtpConfigurationLifecycle @default(DRAFT)
+  host                       String
+  port                       Int
+  securityMode               SmtpSecurityMode
+  username                   String
+  encryptedPassword          Bytes
+  encryptionKeyId            String
+  senderEmail                String
+  senderDisplayName          String
+  revision                   Int                        @default(1)
+  structurallyValidatedAt    DateTime?
+  connectionTestedAt         DateTime?
+  connectionTestSucceeded    Boolean?
+  connectionTestResultCode   String?
+  restrictedTestEmailSentAt  DateTime?
+  restrictedTestEmailAddress String?
+  firstActivatedAt           DateTime?
+  lastActivatedAt            DateTime?
+  createdByUserId            String?                    @db.Uuid
+  activatedByUserId          String?                    @db.Uuid
+  revokedAt                  DateTime?
+  revokedByUserId            String?                    @db.Uuid
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+  activeForSettings          PlatformEmailSettings?     @relation("ActiveSmtpConfiguration")
+  createdBy                  User?                      @relation("SmtpConfigurationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  activatedBy                User?                      @relation("SmtpConfigurationActivatedBy", fields: [activatedByUserId], references: [id], onDelete: SetNull)
+  revokedBy                  User?                      @relation("SmtpConfigurationRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([lifecycle, createdAt])
+  @@index([createdByUserId])
+  @@index([activatedByUserId])
+  @@index([revokedByUserId])
+}
+
+model EmailTemplate {
+  id               String                 @id @default(uuid()) @db.Uuid
+  templateKey      String                 @unique
+  notificationType NotificationType       @unique
+  activeVersionId  String?                @db.Uuid
+  revision         Int                    @default(1)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  versions         EmailTemplateVersion[] @relation("EmailTemplateVersions")
+  activeVersion    EmailTemplateVersion?  @relation("ActiveEmailTemplateVersion", fields: [id, activeVersionId], references: [templateId, id], onDelete: Restrict)
+
+  @@unique([id, activeVersionId])
+}
+
+model EmailTemplateVersion {
+  id                         String                        @id @default(uuid()) @db.Uuid
+  templateId                 String                        @db.Uuid
+  version                    Int                           @default(dbgenerated())
+  lifecycle                  EmailTemplateVersionLifecycle @default(DRAFT)
+  subjectTemplate            String
+  textBodyTemplate           String
+  placeholderContractVersion Int                           @default(1)
+  revision                   Int                           @default(1)
+  validationResultCode       String?
+  createdByUserId            String?                       @db.Uuid
+  validatedByUserId          String?                       @db.Uuid
+  publishedByUserId          String?                       @db.Uuid
+  retiredByUserId            String?                       @db.Uuid
+  validatedAt                DateTime?
+  publishedAt                DateTime?
+  retiredAt                  DateTime?
+  createdAt                  DateTime                      @default(now())
+  updatedAt                  DateTime                      @updatedAt
+  template                   EmailTemplate                 @relation("EmailTemplateVersions", fields: [templateId], references: [id], onDelete: Restrict)
+  activeForTemplate          EmailTemplate?                @relation("ActiveEmailTemplateVersion")
+  createdBy                  User?                         @relation("EmailTemplateVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  validatedBy                User?                         @relation("EmailTemplateVersionValidatedBy", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+  publishedBy                User?                         @relation("EmailTemplateVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  retiredBy                  User?                         @relation("EmailTemplateVersionRetiredBy", fields: [retiredByUserId], references: [id], onDelete: SetNull)
+  notifications              Notification[]
+
+  @@unique([templateId, version])
+  @@unique([templateId, id])
+  @@index([templateId, lifecycle, createdAt])
+  @@index([createdByUserId])
+  @@index([validatedByUserId])
+  @@index([publishedByUserId])
+  @@index([retiredByUserId])
 }
 
 model AuditLog {

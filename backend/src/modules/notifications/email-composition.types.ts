@@ -17,6 +17,7 @@ export enum EmailRendererId {
   ATTENDANCE_CORRECTION_APPLIED_WORKFLOW = 'ATTENDANCE_CORRECTION_APPLIED_WORKFLOW',
   ACCOUNT_INVITATION_SECURITY = 'ACCOUNT_INVITATION_SECURITY',
   PASSWORD_RESET_REQUESTED_SECURITY = 'PASSWORD_RESET_REQUESTED_SECURITY',
+  EMAIL_VERIFICATION_SECURITY = 'EMAIL_VERIFICATION_SECURITY',
   COMMERCIAL_PAYMENT = 'COMMERCIAL_PAYMENT',
   COMMERCIAL_INVOICE = 'COMMERCIAL_INVOICE',
   COMMERCIAL_SUBSCRIPTION = 'COMMERCIAL_SUBSCRIPTION',
@@ -104,6 +105,10 @@ export interface PasswordResetRequestedEmailPayload {
   expiresAt: string;
 }
 
+export interface EmailVerificationEmailPayload {
+  expiresAt: string;
+}
+
 export interface CommercialPaymentEmailPayload {
   companyName: string;
   paymentReference: string;
@@ -166,6 +171,7 @@ export interface EmailEventPayloadMap {
   [NotificationType.ATTENDANCE_CORRECTION_APPLIED]: AttendanceCorrectionAppliedEmailPayload;
   [NotificationType.ACCOUNT_INVITATION]: AccountInvitationEmailPayload;
   [NotificationType.PASSWORD_RESET_REQUESTED]: PasswordResetRequestedEmailPayload;
+  [NotificationType.EMAIL_VERIFICATION]: EmailVerificationEmailPayload;
   [NotificationType.PAYMENT_CAPTURED]: CommercialPaymentEmailPayload;
   [NotificationType.PAYMENT_FAILED]: CommercialPaymentEmailPayload;
   [NotificationType.INVOICE_ISSUED]: CommercialInvoiceEmailPayload;

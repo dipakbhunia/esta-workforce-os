@@ -3,20 +3,23 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Notification, NotificationChannel, NotificationDelivery, NotificationStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
-import { EmailDeliveryResult, EmailNotificationChannel, SafeEmailError } from './email-notification-channel.service';
+import { EmailDeliveryResult, EmailNotificationChannel, SafeEmailError, StaleEmailVerificationDeliveryError } from './email-notification-channel.service';
+import { ResolvedSmtpSnapshot } from '../smtp-runtime/smtp-runtime.types';
+import { SmtpRuntimeResolverService } from '../smtp-runtime/smtp-runtime-resolver.service';
 
 const maxAttempts = 5;
 const leaseMilliseconds = 5 * 60_000;
 const batchLimit = 25;
 
-export type ClaimedNotificationDelivery = NotificationDelivery & { notification: Notification };
+export type ClaimedNotificationDelivery = NotificationDelivery & { notification: Notification; smtpSnapshot: Readonly<ResolvedSmtpSnapshot> };
 
 @Injectable()
 export class NotificationDeliveryService {
   private readonly logger = new Logger(NotificationDeliveryService.name);
   private processing = false;
 
-  constructor(private readonly prisma: PrismaService, private readonly emailChannel: EmailNotificationChannel) {}
+  constructor(private readonly prisma: PrismaService, private readonly emailChannel: EmailNotificationChannel,
+    private readonly smtpRuntime: SmtpRuntimeResolverService = undefined as never) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async processPendingDeliveries() {
@@ -43,7 +46,13 @@ export class NotificationDeliveryService {
   async claimNextDelivery(deliveryId?: string, now = new Date()): Promise<ClaimedNotificationDelivery | null> {
     const claimToken = randomUUID();
     const claimExpiresAt = new Date(now.getTime() + leaseMilliseconds);
-    const rows = await this.prisma.$transaction((tx) => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    return this.prisma.$transaction(async (tx) => {
+      const runtime = await this.smtpRuntime.resolveForClaim(tx);
+      if (runtime.state !== 'USABLE') {
+        this.logger.warn(`Email delivery claim paused safely: ${runtime.code}`);
+        return null;
+      }
+      const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       WITH candidate AS (
         SELECT "id"
         FROM "NotificationDelivery"
@@ -66,9 +75,11 @@ export class NotificationDeliveryService {
       FROM candidate
       WHERE delivery."id" = candidate."id"
       RETURNING delivery."id"
-    `));
-    if (!rows[0]) return null;
-    return this.prisma.notificationDelivery.findFirst({ where: { id: rows[0].id, claimToken }, include: { notification: true } });
+      `);
+      if (!rows[0]) return null;
+      const delivery = await tx.notificationDelivery.findFirst({ where: { id: rows[0].id, claimToken }, include: { notification: true } });
+      return delivery ? { ...delivery, smtpSnapshot: runtime.snapshot } : null;
+    });
   }
 
   async finalizeClaimSuccess(delivery: ClaimedNotificationDelivery, result: EmailDeliveryResult, now = new Date()): Promise<boolean> {
@@ -98,16 +109,16 @@ export class NotificationDeliveryService {
   }
 
   private async deliverClaimedEmail(delivery: ClaimedNotificationDelivery): Promise<void> {
-    if (!this.emailChannel.isEnabled()) {
-      await this.finalizeClaimCancellation(delivery);
-      return;
-    }
     try {
-      const result = await this.emailChannel.send(delivery.notification, delivery.recipient);
+      const result = await this.emailChannel.send(delivery.notification, delivery.recipient, delivery.smtpSnapshot);
       if (result.skipped) await this.finalizeClaimCancellation(delivery);
       else await this.finalizeClaimSuccess(delivery, result);
     } catch (error) {
-      await this.finalizeClaimFailure(delivery, this.emailChannel.sanitizeError(error));
+      if (error instanceof StaleEmailVerificationDeliveryError) {
+        await this.finalizeClaimCancellation(delivery);
+      } else {
+        await this.finalizeClaimFailure(delivery, this.emailChannel.sanitizeError(error));
+      }
     }
   }
 

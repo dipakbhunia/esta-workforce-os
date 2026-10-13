@@ -116,6 +116,37 @@ describe('EmailNotificationChannel identity authority', () => {
     await assert.rejects(() => invoke(channel(token, { ...persisted, companyId: 'company-2' })), /no longer eligible/i);
     await assert.rejects(() => invoke(channel(token, { ...persisted, deliveries: [] })), /no longer eligible/i);
   });
+
+  it('revalidates exact current email-verification authority immediately before dispatch', async () => {
+    const verificationNotification = { ...notification, companyId: null, type: NotificationType.EMAIL_VERIFICATION } as never;
+    const verificationToken = {
+      ...token,
+      companyId: null,
+      purpose: 'EMAIL_VERIFICATION',
+      targetEmail: 'owner@example.test',
+      emailRevision: 3,
+      user: { ...token.user, companyId: null, status: 'ACTIVE', emailRevision: 3,
+        roles: [{ role: { systemName: 'SUPER_ADMIN' } }] },
+    };
+    const persistedVerification = { ...verificationNotification, deliveries: [{ id: 'delivery-1' }] };
+    const create = (tokenResult: unknown = verificationToken) => new EmailNotificationChannel(
+      { get: (key: string) => key === 'IDENTITY_ACTION_TOKEN_SECRET' ? 'x'.repeat(32) : undefined,
+        getOrThrow: (key: string) => key === 'PUBLIC_APP_ORIGIN' ? 'https://app.example.test' : 'x'.repeat(32) } as never,
+      { accountActionToken: { findFirst: async () => tokenResult },
+        notification: { findUnique: async () => persistedVerification } } as never,
+    );
+    const invoke = (instance: EmailNotificationChannel) => (instance as unknown as {
+      withIdentityActionLink(value: unknown, address: string): Promise<unknown>;
+    }).withIdentityActionLink(verificationNotification, 'owner@example.test');
+    assert.match(JSON.stringify(await invoke(create())), /verify-email/);
+    for (const changed of [
+      { ...verificationToken, targetEmail: 'old@example.test' },
+      { ...verificationToken, emailRevision: 2 },
+      { ...verificationToken, user: { ...verificationToken.user, emailRevision: 4 } },
+      { ...verificationToken, user: { ...verificationToken.user, roles: [] } },
+      { ...verificationToken, companyId: 'company-1' },
+    ]) await assert.rejects(() => invoke(create(changed)), /no longer eligible/i);
+  });
 });
 
 describe('EmailNotificationChannel commercial authority', () => {

@@ -33,8 +33,9 @@ describeDb('PC-B PostgreSQL durable delivery claim', () => {
     const workerA = testClient('pc-b-claim-worker-a');
     const workerB = testClient('pc-b-claim-worker-b');
     const barrier = testClient('pc-b-claim-barrier');
-    const serviceA = new NotificationDeliveryService(workerA as unknown as PrismaService, {} as never);
-    const serviceB = new NotificationDeliveryService(workerB as unknown as PrismaService, {} as never);
+    const runtime = { resolveForClaim: async () => ({ state: 'USABLE', snapshot: Object.freeze({ authority: 'ENVIRONMENT', configurationVersionId: null, host: 'smtp.example.test', port: 587, securityMode: 'STARTTLS', username: '', password: '', senderEmail: 'sender@example.test', senderDisplayName: 'Sender' }) }) };
+    const serviceA = new NotificationDeliveryService(workerA as unknown as PrismaService, {} as never, runtime as never);
+    const serviceB = new NotificationDeliveryService(workerB as unknown as PrismaService, {} as never, runtime as never);
     let barrierHeld = false;
     try {
       await Promise.all([workerA.$connect(), workerB.$connect(), barrier.$connect()]);
@@ -51,6 +52,7 @@ describeDb('PC-B PostgreSQL durable delivery claim', () => {
       barrierHeld = false;
       const first = await firstClaim;
       assert.ok(first);
+      assert.equal(first.smtpSnapshot.authority, 'ENVIRONMENT'); assert.ok(Object.isFrozen(first.smtpSnapshot));
       assert.equal(first.attemptCount, 1);
       assert.ok(first.claimToken);
       const durableOwner = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: fixture.deliveryId } });
@@ -132,7 +134,7 @@ describeDb('PC-B PostgreSQL durable delivery claim', () => {
 
   it('clears ownership on successful finalization and never reclaims delivered or cancelled rows', async () => {
     const fixture = await createFixture();
-    const service = new NotificationDeliveryService(prisma as unknown as PrismaService, {} as never);
+    const service = new NotificationDeliveryService(prisma as unknown as PrismaService, {} as never, { resolveForClaim: async () => ({ state: 'USABLE', snapshot: Object.freeze({ authority: 'ENVIRONMENT', configurationVersionId: null, host: 'smtp.example.test', port: 587, securityMode: 'STARTTLS', username: '', password: '', senderEmail: 'sender@example.test', senderDisplayName: 'Sender' }) }) } as never);
     try {
       const claimed = await service.claimNextDelivery(fixture.deliveryId);
       assert.ok(claimed);
@@ -148,6 +150,21 @@ describeDb('PC-B PostgreSQL durable delivery claim', () => {
     } finally {
       await cleanupFixture(fixture.companyId);
     }
+  });
+
+  it('does not claim or consume attempts while platform SMTP is paused or unavailable', async () => {
+    const fixture = await createFixture();
+    const before = await prisma.notificationDelivery.update({ where: { id: fixture.deliveryId }, data: { nextRetryAt: new Date(Date.now() - 60_000) } });
+    try {
+      for (const state of ['PAUSED', 'UNAVAILABLE'] as const) {
+        const service = new NotificationDeliveryService(prisma as unknown as PrismaService, {} as never,
+          { resolveForClaim: async () => ({ state, authority: 'DATABASE', code: `DATABASE_SMTP_${state}` }) } as never);
+        assert.equal(await service.claimNextDelivery(fixture.deliveryId), null);
+      }
+      const after = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: fixture.deliveryId } });
+      assert.equal(after.attemptCount, before.attemptCount); assert.equal(after.claimToken, null);
+      assert.deepEqual(after.nextRetryAt, before.nextRetryAt); assert.equal(after.status, NotificationStatus.PENDING);
+    } finally { await cleanupFixture(fixture.companyId); }
   });
 });
 

@@ -4,10 +4,12 @@ import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { AccountActionTokenPurpose, MonitoringAlertSeverity, Notification, NotificationType, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { buildAccountActionToken } from '../../common/utils/account-action-token.util';
+import { buildAccountActionToken, buildEmailVerificationToken } from '../../common/utils/account-action-token.util';
 import { assertSafeEmailDetailsPath, escapeEmailHtml } from './email-content-safety';
 import { emailRendererRegistry } from './email-renderer.registry';
 import { CommercialBillingRecipientResolver } from './commercial-billing-recipient-resolver.service';
+import { ResolvedSmtpSnapshot } from '../smtp-runtime/smtp-runtime.types';
+import { SmtpConnectionTestAdapter } from '../platform-communication/smtp-connection-test.adapter';
 
 export interface EmailDeliveryResult {
   skipped: boolean;
@@ -16,6 +18,13 @@ export interface EmailDeliveryResult {
 }
 
 export interface SafeEmailError { code: string; message: string }
+
+export class StaleEmailVerificationDeliveryError extends Error {
+  constructor() {
+    super('Email verification authority is no longer eligible for delivery');
+    this.name = 'StaleEmailVerificationDeliveryError';
+  }
+}
 
 export interface PersistedEmailContent {
   type: Notification['type'];
@@ -92,7 +101,8 @@ export function renderEmailHtml(notification: PersistedEmailContent): string {
 export class EmailNotificationChannel {
   private readonly logger = new Logger(EmailNotificationChannel.name);
 
-  constructor(private readonly config: ConfigService, private readonly prisma: PrismaService, private readonly commercialRecipients: CommercialBillingRecipientResolver = undefined as never) {}
+  constructor(private readonly config: ConfigService, private readonly prisma: PrismaService, private readonly commercialRecipients: CommercialBillingRecipientResolver = undefined as never,
+    private readonly secureTransport: SmtpConnectionTestAdapter = undefined as never) {}
 
   isEnabled(): boolean {
     return this.config.get<boolean>('EMAIL_NOTIFICATIONS_ENABLED') === true && this.hasConfig();
@@ -106,15 +116,20 @@ export class EmailNotificationChannel {
     };
   }
 
-  async send(notification: Notification, recipient: string): Promise<EmailDeliveryResult> {
-    if (!this.isEnabled()) {
+  async send(notification: Notification, recipient: string, smtp?: Readonly<ResolvedSmtpSnapshot>): Promise<EmailDeliveryResult> {
+    if (!smtp && !this.isEnabled()) {
       return { skipped: true, safeReason: 'Email notifications are disabled or SMTP is incomplete' };
     }
     await this.assertCommercialRecipientAuthority(notification, recipient);
     const outbound = await this.withIdentityActionLink(notification, recipient);
-    const transporter = nodemailer.createTransport(this.transportOptions());
+    if (smtp?.authority === 'DATABASE') {
+      const response = await this.secureTransport.sendEmail(smtp, smtp.password, { recipient, senderEmail: smtp.senderEmail,
+        senderDisplayName: smtp.senderDisplayName, subject: outbound.title, text: renderEmailText(outbound), html: renderEmailHtml(outbound) });
+      return { skipped: false, providerMessageId: response.messageId };
+    }
+    const transporter = nodemailer.createTransport(smtp ? this.transportOptionsFromSnapshot(smtp) : this.transportOptions());
     const response = await transporter.sendMail({
-      from: this.fromAddress(),
+      from: smtp ? { name: smtp.senderDisplayName, address: smtp.senderEmail } : this.fromAddress(),
       to: recipient,
       subject: outbound.title,
       text: renderEmailText(outbound),
@@ -136,24 +151,51 @@ export class EmailNotificationChannel {
       ? AccountActionTokenPurpose.INVITATION
       : notification.type === NotificationType.PASSWORD_RESET_REQUESTED
         ? AccountActionTokenPurpose.PASSWORD_RESET
+        : notification.type === NotificationType.EMAIL_VERIFICATION
+          ? AccountActionTokenPurpose.EMAIL_VERIFICATION
         : null;
     if (!expectedPurpose) throw new Error('Identity notification authority mismatch');
     const expectedStatus = expectedPurpose === AccountActionTokenPurpose.INVITATION ? UserStatus.INACTIVE : UserStatus.ACTIVE;
     const token = await this.prisma.accountActionToken.findFirst({
       where: { id: notification.accountActionTokenId, purpose: expectedPurpose, consumedAt: null, invalidatedAt: null, expiresAt: { gt: new Date() } },
-      include: { user: { select: { id: true, companyId: true, email: true, status: true, deletedAt: true } } },
+      include: { user: { select: { id: true, companyId: true, email: true, emailRevision: true, status: true, deletedAt: true, roles: { select: { role: { select: { systemName: true } } } } } } },
     });
     const persisted = await this.prisma.notification.findUnique({
       where: { id: notification.id },
       include: { deliveries: { where: { channel: 'EMAIL', recipient }, select: { id: true } } },
     });
-    if (!token || !persisted || token.purpose !== expectedPurpose || token.userId !== token.user.id || token.consumedAt || token.invalidatedAt || token.expiresAt <= new Date() || token.user.deletedAt || token.user.status !== expectedStatus || token.userId !== persisted.userId || token.companyId !== token.user.companyId || token.companyId !== persisted.companyId || persisted.userId !== notification.userId || persisted.companyId !== notification.companyId || persisted.type !== notification.type || persisted.accountActionTokenId !== token.id || token.user.email.trim().toLowerCase() !== recipient.trim().toLowerCase() || persisted.deliveries.length !== 1) {
+    const normalizedRecipient = recipient.trim().toLowerCase();
+    const emailVerificationEligible = expectedPurpose !== AccountActionTokenPurpose.EMAIL_VERIFICATION || Boolean(token && (
+      token.companyId === null &&
+      token.user.companyId === null &&
+      token.targetEmail === normalizedRecipient &&
+      token.emailRevision === token.user.emailRevision &&
+      token.user.roles.some(({ role }) => role.systemName === 'SUPER_ADMIN')
+    ));
+    if (!token || !persisted || token.purpose !== expectedPurpose || token.userId !== token.user.id || token.consumedAt || token.invalidatedAt || token.expiresAt <= new Date() || token.user.deletedAt || token.user.status !== expectedStatus || token.userId !== persisted.userId || token.companyId !== token.user.companyId || token.companyId !== persisted.companyId || persisted.userId !== notification.userId || persisted.companyId !== notification.companyId || persisted.type !== notification.type || persisted.accountActionTokenId !== token.id || token.user.email.trim().toLowerCase() !== normalizedRecipient || !emailVerificationEligible || persisted.deliveries.length !== 1) {
+      if (notification.type === NotificationType.EMAIL_VERIFICATION) {
+        throw new StaleEmailVerificationDeliveryError();
+      }
       throw new Error('Account action token is no longer eligible for delivery');
     }
     const secret = this.config.get<string>('IDENTITY_ACTION_TOKEN_SECRET') || this.config.getOrThrow<string>('JWT_REFRESH_SECRET');
-    const value = buildAccountActionToken(token, secret);
+    const value = expectedPurpose === AccountActionTokenPurpose.EMAIL_VERIFICATION
+      ? buildEmailVerificationToken({
+        id: token.id,
+        purpose: AccountActionTokenPurpose.EMAIL_VERIFICATION,
+        userId: token.userId,
+        companyId: token.companyId,
+        targetEmail: token.targetEmail!,
+        emailRevision: token.emailRevision!,
+        expiresAt: token.expiresAt,
+      }, secret)
+      : buildAccountActionToken(token, secret);
     const origin = this.config.getOrThrow<string>('PUBLIC_APP_ORIGIN').replace(/\/$/, '');
-    const path = token.purpose === AccountActionTokenPurpose.INVITATION ? '/activate-account' : '/reset-password';
+    const path = token.purpose === AccountActionTokenPurpose.INVITATION
+      ? '/activate-account'
+      : token.purpose === AccountActionTokenPurpose.EMAIL_VERIFICATION
+        ? '/verify-email'
+        : '/reset-password';
     const link = `${origin}${path}?token=${encodeURIComponent(value)}`;
     return { ...notification, message: `${notification.message}\n\nSecure link: ${link}` };
   }
@@ -193,6 +235,12 @@ export class EmailNotificationChannel {
       greetingTimeout: 30_000,
       socketTimeout: 60_000,
     };
+  }
+
+  private transportOptionsFromSnapshot(smtp: Readonly<ResolvedSmtpSnapshot>): SMTPTransport.Options {
+    return { host: smtp.host, port: smtp.port, secure: smtp.securityMode === 'IMPLICIT_TLS',
+      auth: smtp.username && smtp.password ? { user: smtp.username, pass: smtp.password } : undefined,
+      connectionTimeout: 30_000, greetingTimeout: 30_000, socketTimeout: 60_000 };
   }
 
   private fromAddress(): string {

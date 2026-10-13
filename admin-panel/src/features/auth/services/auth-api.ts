@@ -31,3 +31,20 @@ export function activateAccount(input: { token: string; password: string; passwo
 export function completePasswordReset(input: { token: string; password: string; passwordConfirmation: string }) {
   return http.post<{ success: true }>('/auth/reset-password', input, skipAuthRefresh);
 }
+
+export interface EmailVerificationStatus {
+  verified: boolean;
+  verifiedAt: string | null;
+}
+
+export function getEmailVerificationStatus() {
+  return http.get<EmailVerificationStatus>('/auth/email-verification/status');
+}
+
+export function requestEmailVerification() {
+  return http.post<{ accepted: true }>('/auth/email-verification/request');
+}
+
+export function verifyEmail(token: string) {
+  return http.post<{ success: true }>('/auth/verify-email', { token }, skipAuthRefresh);
+}

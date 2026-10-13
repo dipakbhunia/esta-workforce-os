@@ -16,8 +16,11 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Request } from 'express';
+import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { LoginDto } from './dto/login.dto';
@@ -25,7 +28,7 @@ import { LogoutResponseDto } from './dto/logout-response.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
-import { CompleteAccountActionDto, ForgotPasswordDto } from '../identity-actions/dto/identity-action.dto';
+import { CompleteAccountActionDto, ForgotPasswordDto, VerifyEmailDto } from '../identity-actions/dto/identity-action.dto';
 import { IdentityActionsService } from '../identity-actions/identity-actions.service';
 
 @ApiTags('Auth')
@@ -49,6 +52,30 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() dto: CompleteAccountActionDto, @Req() request: Request) {
     return this.identityActions.resetPassword(dto, this.getRequestContext(request));
+  }
+
+  @Post('email-verification/request')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPER_ADMIN)
+  requestEmailVerification(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: Request,
+  ) {
+    return this.identityActions.requestEmailVerification(user, this.getRequestContext(request));
+  }
+
+  @Get('email-verification/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(RoleName.SUPER_ADMIN)
+  emailVerificationStatus(@CurrentUser() user: AuthenticatedUser) {
+    return this.identityActions.emailVerificationStatus(user);
+  }
+
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  verifyEmail(@Body() dto: VerifyEmailDto, @Req() request: Request) {
+    return this.identityActions.verifyEmail(dto, this.getRequestContext(request));
   }
 
   @Post('login')

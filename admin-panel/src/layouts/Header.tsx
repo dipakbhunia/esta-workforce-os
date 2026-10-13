@@ -1,6 +1,6 @@
 ﻿import { Avatar, Badge, Box, Button, Divider, IconButton, InputAdornment, Menu, MenuItem, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Building2, Download, LogOut, Menu as MenuIcon, Search } from 'lucide-react';
+import { Bell, Building2, Download, LockKeyhole, LogOut, Menu as MenuIcon, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '@/features/auth';
@@ -126,6 +126,7 @@ export function Header({ onOpenMobileSidebar }: { onOpenMobileSidebar: () => voi
             <Typography variant="caption" color="text.secondary">{primaryRole} - {companyLabel}</Typography>
           </Box>
           <Divider />
+          {roles.includes('SUPER_ADMIN') ? <MenuItem component={RouterLink} to="/account/security" onClick={() => setProfileAnchor(null)}><LockKeyhole size={17} style={{ marginRight: 8 }} /> Account security</MenuItem> : null}
           <MenuItem onClick={handleLogout}><LogOut size={17} style={{ marginRight: 8 }} /> Logout</MenuItem>
         </Menu>
       </Stack>

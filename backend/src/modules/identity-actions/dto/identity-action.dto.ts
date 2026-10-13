@@ -27,3 +27,11 @@ export class CompleteAccountActionDto {
   @MaxLength(128)
   passwordConfirmation!: string;
 }
+
+export class VerifyEmailDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(40)
+  @MaxLength(256)
+  token!: string;
+}

@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
-import { AccountActionTokenPurpose, PrismaClient, RoleName, UserStatus } from '@prisma/client';
+import { AccountActionTokenPurpose, CompanyStatus, PrismaClient, RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { JwtService } from '@nestjs/jwt';
 import { buildAccountActionToken } from '../../common/utils/account-action-token.util';
+import { AuthService } from '../auth/auth.service';
 import { CompaniesService } from '../companies/companies.service';
 import { UsersService } from '../users/users.service';
 import { IdentityActionsService } from './identity-actions.service';
@@ -22,6 +24,15 @@ describeDb('PC-L PostgreSQL identity lifecycle', () => {
       createPasswordResetRequestedEmail: async (input: Record<string, unknown>) => { enqueued.push({ type: 'RESET', ...input }); return { created: true }; },
     };
     const identity = new IdentityActionsService(prisma as never, config as never, notificationAuthority as never);
+    const authConfig = {
+      getOrThrow: (key: string) => ({
+        JWT_ACCESS_SECRET: `${secret}-access`,
+        JWT_REFRESH_SECRET: `${secret}-refresh`,
+        JWT_ACCESS_EXPIRES_IN: '15m',
+        JWT_REFRESH_EXPIRES_IN: '7d',
+      })[key],
+    };
+    const auth = new AuthService(prisma as never, new JwtService(), authConfig as never);
     const users = new UsersService(prisma as never, {} as never, identity);
     const companies = new CompaniesService(prisma as never, identity);
     const actorId = randomUUID(); let platformRoleId = randomUUID(); let createdPlatformRole = false;
@@ -67,6 +78,23 @@ describeDb('PC-L PostgreSQL identity lifecycle', () => {
       const activated = await prisma.user.findUniqueOrThrow({ where: { id: initialAdmin.id } });
       assert.equal(activated.status, UserStatus.ACTIVE);
       assert.equal(await bcrypt.compare('activated-password', activated.passwordHash), true);
+
+      const login = await auth.login({ email: initialAdmin.email, password: 'activated-password' }, {});
+      assert.equal(login.user.id, initialAdmin.id);
+      assert.equal(login.user.companyId, companyResult.id);
+      assert.equal(login.user.status, UserStatus.ACTIVE);
+      assert.deepEqual(login.user.roles, [RoleName.COMPANY_ADMIN]);
+      assert.equal(login.user.roles.includes(RoleName.SUPER_ADMIN), false);
+      const authenticated = await auth.getAuthenticatedUser(initialAdmin.id);
+      assert.equal(authenticated.companyId, companyResult.id);
+      assert.deepEqual(authenticated.roles, [RoleName.COMPANY_ADMIN]);
+
+      await prisma.company.update({ where: { id: companyResult.id }, data: { status: CompanyStatus.SUSPENDED } });
+      await assert.rejects(
+        () => auth.login({ email: initialAdmin.email, password: 'activated-password' }, {}),
+        /Company account is not active/,
+      );
+      await prisma.company.update({ where: { id: companyResult.id }, data: { status: CompanyStatus.ACTIVE } });
 
       await prisma.refreshToken.create({ data: { id: randomUUID(), userId: initialAdmin.id, tokenHash: randomUUID(), expiresAt: new Date(Date.now() + 60_000) } });
       const resetToken = await prisma.$transaction((tx) => identity.issueTokenInTransaction(tx, { purpose: AccountActionTokenPurpose.PASSWORD_RESET, userId: initialAdmin.id, companyId: companyResult.id }));

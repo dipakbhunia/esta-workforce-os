@@ -11,6 +11,10 @@ const platformCommunicationApi = vi.hoisted(() => ({
   capability: vi.fn().mockResolvedValue({ data: { enabled: false, configured: false, fromEmailConfigured: false } }),
   list: vi.fn().mockResolvedValue({ data: { data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 0 } } }),
   detail: vi.fn(),
+  configuration: vi.fn().mockResolvedValue({ data: { settings: { enabled: false, revision: 0, activeConfigurationVersionId: null, databaseAuthorityEstablishedAt: null, updatedAt: null }, latestVersion: null } }),
+  versions: vi.fn().mockResolvedValue({ data: { data: [], meta: { page: 1, limit: 100, total: 0, totalPages: 0 } } }),
+  templates: vi.fn().mockResolvedValue({ data: [] }),
+  templateVersions: vi.fn().mockResolvedValue({ data: { data: [], meta: { page: 1, limit: 100, total: 0, totalPages: 0 } } }),
 }));
 
 vi.mock('@/features/auth/hooks/useAuth', () => ({
@@ -34,6 +38,10 @@ vi.mock('@/features/platform-communication/platform-communication-api', async (i
   getEmailCapability: platformCommunicationApi.capability,
   listEmailDeliveries: platformCommunicationApi.list,
   getEmailDelivery: platformCommunicationApi.detail,
+  getSmtpConfiguration: platformCommunicationApi.configuration,
+  listSmtpConfigurationVersions: platformCommunicationApi.versions,
+  listEmailTemplates: platformCommunicationApi.templates,
+  listEmailTemplateVersions: platformCommunicationApi.templateVersions,
 }));
 
 import { router } from './router';
@@ -65,6 +73,8 @@ const tenantDeniedPlatformPaths = [
   '/platform/access/roles-permissions',
   '/platform-communication/email-delivery-logs',
   '/platform-communication/email-delivery-logs/11111111-1111-4111-8111-111111111111',
+  '/platform-communication/email-configuration',
+  '/platform-communication/email-templates',
 ];
 
 describe('application router direct-entry isolation', () => {
@@ -73,6 +83,10 @@ describe('application router direct-entry isolation', () => {
     platformCommunicationApi.capability.mockClear();
     platformCommunicationApi.list.mockClear();
     platformCommunicationApi.detail.mockClear();
+    platformCommunicationApi.configuration.mockClear();
+    platformCommunicationApi.versions.mockClear();
+    platformCommunicationApi.templates.mockClear();
+    platformCommunicationApi.templateVersions.mockClear();
   });
 
   it.each(superAdminDeniedPaths)('denies SUPER_ADMIN at actual tenant route %s', async (path) => {
@@ -91,6 +105,10 @@ describe('application router direct-entry isolation', () => {
       expect(platformCommunicationApi.capability).not.toHaveBeenCalled();
       expect(platformCommunicationApi.list).not.toHaveBeenCalled();
       expect(platformCommunicationApi.detail).not.toHaveBeenCalled();
+      expect(platformCommunicationApi.configuration).not.toHaveBeenCalled();
+      expect(platformCommunicationApi.versions).not.toHaveBeenCalled();
+      expect(platformCommunicationApi.templates).not.toHaveBeenCalled();
+      expect(platformCommunicationApi.templateVersions).not.toHaveBeenCalled();
     }
     view.unmount();
   });
@@ -110,6 +128,25 @@ describe('application router direct-entry isolation', () => {
     expect(await screen.findByRole('heading', { name: 'Payments' }, { timeout: 15_000 })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
     expect(screen.getByText(/Read-only operational payment history/)).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('routes Email Configuration to the functional SUPER_ADMIN page', async () => {
+    await router.navigate('/platform-communication/email-configuration');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Email Configuration' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    expect(platformCommunicationApi.configuration).toHaveBeenCalled();
+    expect(platformCommunicationApi.versions).toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('routes Email Templates to the functional SUPER_ADMIN page', async () => {
+    await router.navigate('/platform-communication/email-templates');
+    const view = renderRouter();
+    expect(await screen.findByRole('heading', { name: 'Email Templates' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Coming Soon' })).not.toBeInTheDocument();
+    expect(platformCommunicationApi.templates).toHaveBeenCalled();
     view.unmount();
   });
 
