@@ -18,29 +18,32 @@ const describeDb = enabled ? describe : describe.skip;
 const prisma = new PrismaClient();
 
 describeDb('Renewal-D PostgreSQL preparation concurrency', () => {
-  before(async () => prisma.$connect());
+  before(async () => {
+    await prisma.$connect();
+    try {
+      await assertDisposableDatabase();
+    } catch (error) {
+      await prisma.$disconnect();
+      throw error;
+    }
+  });
   after(async () => prisma.$disconnect());
 
   it('converges concurrent scheduler/manual preparation to one renewal, Payment, and audit', async () => {
     const suffix = randomUUID();
-    let companyId: string | undefined;
-    let planId: string | undefined;
-    try {
-      const company = await prisma.company.create({ data: { name: 'Renewal-D', slug: `renewal-d-${suffix}` } });
-      companyId = company.id;
-      const plan = await prisma.plan.create({ data: { code: `RENEWAL-D-${suffix}`, name: 'Renewal D', billingModel: PlanBillingModel.PER_USER,
-        recurringPrices: { create: { billingInterval: BillingInterval.MONTHLY, basis: RecurringPriceBasis.PER_USER_UNIT, amountMinor: 100n, currency: 'INR' } } } });
-      planId = plan.id;
-      const provider = await prisma.billingProviderConfiguration.findFirst({ where: { enabled: true, isDefault: true } });
-      assert.ok(provider, 'an enabled default provider fixture is required');
-      const subscription = await prisma.companySubscription.create({ data: {
+    const company = await prisma.company.create({ data: { name: 'Renewal-D', slug: `renewal-d-${suffix}` } });
+    const plan = await prisma.plan.create({ data: { code: `RENEWAL-D-${suffix}`, name: 'Renewal D', billingModel: PlanBillingModel.PER_USER,
+      recurringPrices: { create: { billingInterval: BillingInterval.MONTHLY, basis: RecurringPriceBasis.PER_USER_UNIT, amountMinor: 100n, currency: 'INR' } } } });
+    const provider = await prisma.billingProviderConfiguration.findFirst({ where: { enabled: true, isDefault: true } });
+    assert.ok(provider, 'an enabled default provider fixture is required');
+    const subscription = await prisma.companySubscription.create({ data: {
         companyId: company.id, planId: plan.id, status: SubscriptionStatus.PENDING,
         activationSource: SubscriptionActivationSource.PAYMENT, billingInterval: BillingInterval.MONTHLY,
         planCodeSnapshot: plan.code, planNameSnapshot: plan.name, billingModelSnapshot: PlanBillingModel.PER_USER,
         currency: 'INR', recurringPriceBasis: RecurringPriceBasis.PER_USER_UNIT,
         recurringUnitPriceMinor: 100n, recurringTotalPriceMinor: 1_000n, recurringCurrency: 'INR',
         pricingInterval: BillingInterval.MONTHLY, pricingResolvedAt: new Date(), seatQuantity: 10,
-      } });
+    } });
       const activation = await prisma.payment.create({ data: {
         companyId: company.id, subscriptionId: subscription.id, providerConfigurationId: provider.id,
         purpose: PaymentPurpose.SUBSCRIPTION_ACTIVATION, status: PaymentStatus.CAPTURED,
@@ -96,30 +99,23 @@ describeDb('Renewal-D PostgreSQL preparation concurrency', () => {
       await assert.rejects(() => subscriptions.suspend(subscription.id, actor), /dispatch is still unresolved/);
       await assert.rejects(() => subscriptions.amend(subscription.id, { seatQuantity: 11 }, actor), /dispatch is still unresolved/);
       assert.equal((await prisma.companySubscription.findUniqueOrThrow({ where: { id: subscription.id } })).status, SubscriptionStatus.ACTIVE);
-      assert.equal((await prisma.subscriptionRenewal.findUniqueOrThrow({ where: { id: manual.renewalId } })).status, 'PREPARED');
-    } finally {
-      if (companyId) await cleanup(companyId);
-      if (planId) {
-        await prisma.planRecurringPrice.deleteMany({ where: { planId } });
-        await prisma.plan.deleteMany({ where: { id: planId } });
-      }
-    }
+    assert.equal((await prisma.subscriptionRenewal.findUniqueOrThrow({ where: { id: manual.renewalId } })).status, 'PREPARED');
   });
 });
 
-async function cleanup(companyId: string) {
-  await prisma.auditLog.deleteMany({ where: { companyId } });
-  await prisma.$executeRawUnsafe('ALTER TABLE "SubscriptionRenewal" DISABLE TRIGGER "SubscriptionRenewal_immutability"');
-  try {
-    await prisma.subscriptionRenewal.deleteMany({ where: { companyId } });
-  } finally {
-    await prisma.$executeRawUnsafe('ALTER TABLE "SubscriptionRenewal" ENABLE TRIGGER "SubscriptionRenewal_immutability"');
+async function assertDisposableDatabase() {
+  const expectedDatabase = process.env.RENEWAL_PREPARATION_DISPOSABLE_DATABASE;
+  if (process.env.ALLOW_DISPOSABLE_DATABASE_TESTS !== '1' || !expectedDatabase ||
+      !/^esta_r3_5_renewal_[a-z0-9_]+$/.test(expectedDatabase)) {
+    throw new Error('Renewal-D integration requires an explicitly identified disposable database');
   }
-  await prisma.paymentAttempt.deleteMany({ where: { payment: { companyId } } });
-  await prisma.companySubscription.updateMany({ where: { companyId }, data: {
-    status: SubscriptionStatus.CANCELLED, activatedByPaymentId: null,
-  } });
-  await prisma.payment.deleteMany({ where: { companyId } });
-  await prisma.companySubscription.deleteMany({ where: { companyId } });
-  await prisma.company.delete({ where: { id: companyId } });
+  const [identity] = await prisma.$queryRaw<Array<{ database_name: string; database_owner: string }>>`
+    SELECT current_database() AS database_name,
+      pg_get_userbyid(database_definition.datdba) AS database_owner
+    FROM pg_database database_definition
+    WHERE database_definition.datname = current_database()`;
+  if (!identity || identity.database_name !== expectedDatabase || identity.database_name === 'esta_workforce' ||
+      identity.database_owner !== 'esta') {
+    throw new Error('Renewal-D integration database identity or ownership is unsafe');
+  }
 }
