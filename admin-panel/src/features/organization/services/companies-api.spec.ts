@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { get, patch } = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn() }));
-vi.mock('@/services/http', () => ({ http: { get, patch } }));
+const { get, post, patch } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
+vi.mock('@/services/http', () => ({ http: { get, post, patch } }));
 
-import { getBillingContact, getEligibleBillingContacts, updateBillingContact } from './companies-api';
+import { getBillingContact, getEligibleBillingContacts, resendInitialAdminInvitation, updateBillingContact } from './companies-api';
 
 describe('company Billing Contact API', () => {
-  beforeEach(() => { get.mockReset(); patch.mockReset(); });
+  beforeEach(() => { get.mockReset(); post.mockReset(); patch.mockReset(); });
 
   it('uses tenant-scoped configuration routes and bounded payloads', async () => {
     await getBillingContact('company/id');
@@ -17,5 +17,10 @@ describe('company Billing Contact API', () => {
     expect(patch).toHaveBeenCalledWith('/companies/company/id/billing-contact', { billingContactUserId: 'user-1' });
     await updateBillingContact('company/id', null);
     expect(patch).toHaveBeenLastCalledWith('/companies/company/id/billing-contact', { billingContactUserId: null });
+  });
+
+  it('uses the existing authorized resend endpoint for the exact initial-admin identity', async () => {
+    await resendInitialAdminInvitation('initial/admin');
+    expect(post).toHaveBeenCalledWith('/users/initial%2Fadmin/resend-invitation');
   });
 });

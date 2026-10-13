@@ -15,26 +15,28 @@ export interface DateRangePickerProps {
   presetsEnabled?: boolean;
   minDate?: string;
   maxDate?: string;
+  today?: Date;
   disabled?: boolean;
   error?: boolean;
   helperText?: string;
   onClear?: () => void;
 }
 
-export function DateRangePicker({ value, onChange, defaultPreset = 'currentWeek', mode = 'filter', label = 'Date Range', presetsEnabled = mode === 'filter', minDate, maxDate, disabled, error, helperText, onClear }: DateRangePickerProps) {
+export function DateRangePicker({ value, onChange, defaultPreset = 'currentWeek', mode = 'filter', label = 'Date Range', presetsEnabled = mode === 'filter', minDate, maxDate, today, disabled, error, helperText, onClear }: DateRangePickerProps) {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [draft, setDraft] = useState<DateRangeValue>(value);
-  const initialMonth = useMemo(() => parseDateOnly(value.dateFrom) ?? new Date(), [value.dateFrom]);
+  const referenceToday = useMemo(() => today ?? new Date(), [today]);
+  const initialMonth = useMemo(() => parseDateOnly(value.dateFrom) ?? referenceToday, [referenceToday, value.dateFrom]);
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(initialMonth));
   const open = Boolean(anchorEl);
 
   useEffect(() => {
-    if (!open) setDraft(value.dateFrom || value.dateTo ? value : createDateRangeValue(defaultPreset));
-  }, [defaultPreset, open, value]);
+    if (!open) setDraft(value.dateFrom || value.dateTo ? value : createDateRangeValue(defaultPreset, referenceToday));
+  }, [defaultPreset, open, referenceToday, value]);
 
   function openPicker(event: MouseEvent<HTMLButtonElement>) {
-    const nextDraft = value.dateFrom || value.dateTo ? value : createDateRangeValue(defaultPreset);
-    const nextMonth = parseDateOnly(nextDraft.dateFrom) ?? new Date();
+    const nextDraft = value.dateFrom || value.dateTo ? value : createDateRangeValue(defaultPreset, referenceToday);
+    const nextMonth = parseDateOnly(nextDraft.dateFrom) ?? referenceToday;
     setDraft(nextDraft);
     setVisibleMonth(startOfMonth(nextMonth));
     setAnchorEl(event.currentTarget);
@@ -50,9 +52,9 @@ export function DateRangePicker({ value, onChange, defaultPreset = 'currentWeek'
       setDraft((current) => ({ ...current, preset }));
       return;
     }
-    const next = createDateRangeValue(preset);
+    const next = createDateRangeValue(preset, referenceToday);
     setDraft(next);
-    setVisibleMonth(startOfMonth(parseDateOnly(next.dateFrom) ?? new Date()));
+    setVisibleMonth(startOfMonth(parseDateOnly(next.dateFrom) ?? referenceToday));
   }
 
   function selectDate(date: Date) {
@@ -67,7 +69,7 @@ export function DateRangePicker({ value, onChange, defaultPreset = 'currentWeek'
 
   function applyDraft() {
     if (draft.preset !== 'customRange') {
-      onChange({ preset: draft.preset, ...resolvePresetRange(draft.preset) });
+      onChange({ preset: draft.preset, ...resolvePresetRange(draft.preset, referenceToday) });
       setAnchorEl(null);
       return;
     }

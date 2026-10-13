@@ -23,6 +23,14 @@ export interface Company {
   };
 }
 
+export interface CompanyCreationResponse extends Company {
+  initialAdminInvitation: {
+    userId: string;
+    email: string;
+    queued: boolean;
+  };
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   meta: {

@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { EnterpriseDateRangePicker, formatDateOnly } from '@/components/enterprise/date-range';
 import { PageHeader } from '@/components/page-header';
 import { getPlatformDashboard } from '../platform-dashboard-api';
-import { resolvePlatformDashboardRange, setPlatformDashboardRange } from '../platform-dashboard-range';
+import { resolvePlatformDashboardRange, setPlatformDashboardRange, utcCalendarToday } from '../platform-dashboard-range';
 import { PlatformGrowthTrend } from '../components/PlatformGrowthTrend';
 import { PlatformKpiGrid } from '../components/PlatformKpiGrid';
 import { PlatformAttentionSection } from '../components/PlatformAttentionSection';
@@ -16,7 +16,7 @@ import { PlatformDashboardSkeleton } from '../components/PlatformDashboardSkelet
 
 export default function PlatformDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => utcCalendarToday(), []);
   const resolvedRange = useMemo(
     () => resolvePlatformDashboardRange(searchParams, today),
     [searchParams, today],
@@ -50,6 +50,7 @@ export default function PlatformDashboardPage() {
           onChange={(value) => setSearchParams(setPlatformDashboardRange(searchParams, value))}
           defaultPreset="last30Days"
           maxDate={formatDateOnly(today)}
+          today={today}
         />
       </Stack>
       {dashboardQuery.isLoading ? (

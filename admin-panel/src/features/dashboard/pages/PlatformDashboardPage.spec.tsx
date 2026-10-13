@@ -4,6 +4,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDateRangeValue } from '@/components/enterprise/date-range';
 import type { PlatformDashboardResponse } from '../platform-dashboard.types';
+import { utcCalendarToday } from '../platform-dashboard-range';
 
 const { getPlatformDashboard } = vi.hoisted(() => ({ getPlatformDashboard: vi.fn() }));
 
@@ -88,7 +89,7 @@ describe('PlatformDashboardPage date range state', () => {
   });
 
   it('keeps prior data visible with a restrained indicator during an applied-range refresh', async () => {
-    const expected = createDateRangeValue('last7Days');
+    const expected = createDateRangeValue('last7Days', utcCalendarToday());
     const deferred = createDeferred<{ data: PlatformDashboardResponse }>();
     const refreshedResponse = {
       ...response,
@@ -115,7 +116,7 @@ describe('PlatformDashboardPage date range state', () => {
   }, 15_000);
 
   it('normalizes a partial pair before fetching and preserves unrelated parameters', async () => {
-    const expected = createDateRangeValue('last30Days');
+    const expected = createDateRangeValue('last30Days', utcCalendarToday());
     const { router } = renderPage('/?from=2026-08-01&tab=health');
 
     await waitFor(() => expect(router.state.location.search).toContain(`from=${expected.dateFrom}`));
@@ -143,7 +144,7 @@ describe('PlatformDashboardPage date range state', () => {
   }, 15_000);
 
   it('applies a draft range, refetches, and follows Back/Forward URL state', async () => {
-    const expected = createDateRangeValue('last7Days');
+    const expected = createDateRangeValue('last7Days', utcCalendarToday());
     const appliedResponse = {
       ...response,
       range: { ...response.range, from: expected.dateFrom, to: expected.dateTo },

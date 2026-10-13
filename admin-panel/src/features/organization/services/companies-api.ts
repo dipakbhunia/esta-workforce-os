@@ -1,5 +1,5 @@
 import { http } from '@/services/http';
-import type { BillingContactConfiguration, BillingContactUser, Company, CompanyListParams, CompanyPayload, PaginatedResponse } from '../types/company.types';
+import type { BillingContactConfiguration, BillingContactUser, Company, CompanyCreationResponse, CompanyListParams, CompanyPayload, PaginatedResponse } from '../types/company.types';
 
 export function getCompanies(params: CompanyListParams) {
   return http.get<PaginatedResponse<Company>>('/companies', { params });
@@ -10,7 +10,11 @@ export function getCompany(id: string) {
 }
 
 export function createCompany(payload: CompanyPayload) {
-  return http.post<Company>('/companies', payload);
+  return http.post<CompanyCreationResponse>('/companies', payload);
+}
+
+export function resendInitialAdminInvitation(userId: string) {
+  return http.post<{ invitationQueued: boolean }>(`/users/${encodeURIComponent(userId)}/resend-invitation`);
 }
 
 export function updateCompany(id: string, payload: CompanyPayload) {

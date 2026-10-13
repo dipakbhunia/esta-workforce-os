@@ -38,7 +38,7 @@ export function CompanyForm({ company, loading = false, submitLabel, errorMessag
     if (!manualSlug) {
       const generatedSlug = slugifyCompanyName(name);
       if (generatedSlug !== slug) {
-        setValue('slug', generatedSlug, { shouldDirty: Boolean(name), shouldValidate: false });
+        setValue('slug', generatedSlug, { shouldDirty: Boolean(name), shouldValidate: true });
       }
     }
   }, [manualSlug, name, setValue, slug]);
