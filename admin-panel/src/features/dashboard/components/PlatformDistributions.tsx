@@ -13,9 +13,9 @@ export function PlatformDistributions({
   plans: PlatformDashboardResponse['planDistribution'];
   trials: PlatformDashboardResponse['trialDistribution'];
 }) {
-  const subscriptionRows = subscriptions.map((item) => ({ label: displayEnum(item.status), value: item.count }));
-  const planRows = plans.map((item) => ({ label: item.planName, value: item.subscriptionCount }));
-  const trialRows = trials.map((item) => ({ label: displayEnum(item.status), value: item.count }));
+  const subscriptionRows = subscriptions.map((item) => ({ id: item.status, label: displayEnum(item.status), value: item.count }));
+  const planRows = plans.map((item) => ({ id: item.planId, label: item.planName, value: item.subscriptionCount }));
+  const trialRows = trials.map((item) => ({ id: item.status, label: displayEnum(item.status), value: item.count }));
 
   return (
     <Grid container spacing={2} aria-label="Platform commercial distributions">
@@ -55,7 +55,7 @@ function DistributionCard({
 }: {
   title: string;
   description: string;
-  rows: Array<{ label: string; value: number }>;
+  rows: Array<{ id: string; label: string; value: number }>;
   emptyMessage: string;
 }) {
   return (
@@ -70,6 +70,7 @@ function DistributionCard({
       {rows.length ? (
         <EnterpriseBarChart
           data={rows}
+          itemKey="id"
           categoryKey="label"
           valueKey="value"
           valueFormatter={(value) => countFormatter.format(value)}

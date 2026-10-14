@@ -1,5 +1,5 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { exactBytes, formatBytes } from '@/features/storage-usage/storage-usage-utils';
 import { PlatformAttentionSection } from './PlatformAttentionSection';
 import { PlatformDistributions } from './PlatformDistributions';
@@ -30,6 +30,39 @@ describe('Platform Dashboard distributions', () => {
     expect(screen.getByText('No subscription distribution is available.')).toBeInTheDocument();
     expect(screen.getByText('No plan distribution is available.')).toBeInTheDocument();
     expect(screen.getByText('No trial distribution is available.')).toBeInTheDocument();
+  });
+
+  it('preserves distinct plan identities when display names are duplicated', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { rerender } = render(<PlatformDistributions
+      subscriptions={[]}
+      plans={[
+        { planId: 'plan-a', planCode: 'RENEWAL_D_A', planName: 'Renewal D', subscriptionCount: 1 },
+        { planId: 'plan-b', planCode: 'RENEWAL_D_B', planName: 'Renewal D', subscriptionCount: 2 },
+      ]}
+      trials={[]}
+    />);
+
+    expect(screen.getAllByText('Renewal D')).toHaveLength(2);
+    expect(screen.getAllByLabelText(/Renewal D:/).map((node) => node.getAttribute('aria-label'))).toEqual([
+      'Renewal D: 1',
+      'Renewal D: 2',
+    ]);
+
+    rerender(<PlatformDistributions
+      subscriptions={[]}
+      plans={[
+        { planId: 'plan-b', planCode: 'RENEWAL_D_B', planName: 'Renewal D', subscriptionCount: 5 },
+        { planId: 'plan-a', planCode: 'RENEWAL_D_A', planName: 'Renewal D', subscriptionCount: 3 },
+      ]}
+      trials={[]}
+    />);
+
+    expect(screen.getAllByLabelText(/Renewal D:/).map((node) => node.getAttribute('aria-label'))).toEqual([
+      'Renewal D: 5',
+      'Renewal D: 3',
+    ]);
+    expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key');
   });
 });
 

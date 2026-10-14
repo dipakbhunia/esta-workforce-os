@@ -40,7 +40,7 @@ export function EnterpriseChartCard({ title, description, loading, error, empty,
   );
 }
 
-export function EnterpriseBarChart<T extends Record<string, unknown>>({ data, categoryKey, valueKey, valueFormatter = String, colors, height = 220, horizontal = false }: { data: T[]; categoryKey: keyof T; valueKey: keyof T; valueFormatter?: (value: number) => string; colors?: string[]; height?: number; horizontal?: boolean }) {
+export function EnterpriseBarChart<T extends Record<string, unknown>>({ data, itemKey, categoryKey, valueKey, valueFormatter = String, colors, height = 220, horizontal = false }: { data: T[]; itemKey?: keyof T; categoryKey: keyof T; valueKey: keyof T; valueFormatter?: (value: number) => string; colors?: string[]; height?: number; horizontal?: boolean }) {
   const theme = useTheme();
   const max = Math.max(...data.map((item) => Number(item[valueKey]) || 0), 0);
   const palette = colors ?? [theme.palette.primary.main, theme.palette.success.main, theme.palette.secondary.main, theme.palette.error.main];
@@ -52,8 +52,9 @@ export function EnterpriseBarChart<T extends Record<string, unknown>>({ data, ca
           const value = Number(item[valueKey]) || 0;
           const percent = max > 0 ? Math.round((value / max) * 100) : 0;
           const label = String(item[categoryKey] ?? 'Item');
+          const identity = String(item[itemKey ?? categoryKey]);
           return (
-            <Box key={label}>
+            <Box key={identity}>
               <Stack direction="row" justifyContent="space-between" gap={2} sx={{ mb: 0.5 }}>
                 <Typography variant="body2" fontWeight={800}>{label}</Typography>
                 <Typography variant="body2" color="text.secondary">{valueFormatter(value)}</Typography>
@@ -72,8 +73,9 @@ export function EnterpriseBarChart<T extends Record<string, unknown>>({ data, ca
         const value = Number(item[valueKey]) || 0;
         const percent = max > 0 ? Math.max(8, (value / max) * 100) : 0;
         const label = String(item[categoryKey] ?? 'Item');
+        const identity = String(item[itemKey ?? categoryKey]);
         return (
-          <Stack key={label} alignItems="center" justifyContent="flex-end" gap={0.75} sx={{ flex: 1, minWidth: 0, height: '100%' }}>
+          <Stack key={identity} alignItems="center" justifyContent="flex-end" gap={0.75} sx={{ flex: 1, minWidth: 0, height: '100%' }}>
             <Typography variant="caption" fontWeight={800}>{valueFormatter(value)}</Typography>
             <Box title={`${label}: ${valueFormatter(value)}`} aria-label={`${label}: ${valueFormatter(value)}`} sx={{ width: '100%', maxWidth: 72, height: `${percent}%`, minHeight: value > 0 ? 18 : 0, borderRadius: '10px 10px 4px 4px', bgcolor: palette[index % palette.length], boxShadow: value > 0 ? '0 10px 22px rgba(15, 23, 42, 0.12)' : 'none', transition: 'height 220ms ease' }} />
             <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>{label}</Typography>
@@ -84,10 +86,10 @@ export function EnterpriseBarChart<T extends Record<string, unknown>>({ data, ca
   );
 }
 
-export function EnterpriseChartLegend({ items }: { items: Array<{ label: string; color: string; value?: ReactNode }> }) {
+export function EnterpriseChartLegend({ items }: { items: Array<{ id?: string; label: string; color: string; value?: ReactNode }> }) {
   return (
     <Stack direction="row" gap={1} flexWrap="wrap" aria-label="Chart legend">
-      {items.map((item) => <Stack key={item.label} direction="row" gap={0.75} alignItems="center"><Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: item.color }} /><Typography variant="caption" color="text.secondary">{item.label}{item.value !== undefined ? `: ${item.value}` : ''}</Typography></Stack>)}
+      {items.map((item) => <Stack key={item.id ?? item.label} direction="row" gap={0.75} alignItems="center"><Box sx={{ width: 10, height: 10, borderRadius: 999, bgcolor: item.color }} /><Typography variant="caption" color="text.secondary">{item.label}{item.value !== undefined ? `: ${item.value}` : ''}</Typography></Stack>)}
     </Stack>
   );
 }
