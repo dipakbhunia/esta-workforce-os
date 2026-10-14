@@ -1301,6 +1301,7 @@ model User {
   shift                          Shift?                        @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   roles                          UserRole[]
   refreshTokens                  RefreshToken[]
+  refreshSessions                RefreshSession[]
   auditLogs                      AuditLog[]                    @relation("AuditLogActor")
   createdShiftAssignments        EmployeeShiftAssignment[]     @relation("ShiftAssignmentCreator")
   updatedShiftAssignments        EmployeeShiftAssignment[]     @relation("ShiftAssignmentUpdater")
@@ -2286,16 +2287,34 @@ model RolePermission {
   @@index([permissionId])
 }
 
-model RefreshToken {
-  id        String    @id @db.Uuid
-  userId    String    @db.Uuid
-  tokenHash String    @unique
+model RefreshSession {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
   expiresAt DateTime
   revokedAt DateTime?
-  createdAt DateTime  @default(now())
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tokens    RefreshToken[]
+
+  @@unique([id, userId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id        String          @id @db.Uuid
+  userId    String          @db.Uuid
+  sessionId String?         @db.Uuid
+  tokenHash String          @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime        @default(now())
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session   RefreshSession? @relation(fields: [sessionId, userId], references: [id, userId], onDelete: Restrict)
 
   @@index([userId])
+  @@index([sessionId])
   @@index([expiresAt])
 }
 

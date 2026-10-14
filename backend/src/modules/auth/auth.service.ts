@@ -14,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { LogoutResponseDto } from './dto/logout-response.dto';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { lockUserSessionAuthority } from './refresh-session-revocation';
 
 const authUserInclude = {
   roles: {
@@ -35,6 +36,15 @@ type UserWithAuthRelations = Prisma.UserGetPayload<{
 interface RequestContext {
   ipAddress?: string;
   userAgent?: string;
+}
+
+interface PreparedTokenPair {
+  response: AuthResponseDto;
+  refreshToken: {
+    id: string;
+    tokenHash: string;
+    expiresAt: Date;
+  };
 }
 
 @Injectable()
@@ -64,14 +74,45 @@ export class AuthService {
 
     this.assertUserCanAuthenticate(user);
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "User" WHERE "id" = ${user.id}::uuid FOR UPDATE
+      `);
+      const currentUser = await tx.user.findUnique({
+        where: { id: user.id },
+        include: authUserInclude,
+      });
+      if (
+        !currentUser ||
+        currentUser.passwordHash !== user.passwordHash ||
+        currentUser.email.trim().toLowerCase() !== dto.email.trim().toLowerCase()
+      ) {
+        throw new UnauthorizedException('Invalid email or password');
+      }
+      this.assertUserCanAuthenticate(currentUser);
+      const sessionId = randomUUID();
+      const prepared = await this.prepareTokenPair(currentUser, sessionId);
+      await tx.user.update({
+        where: { id: currentUser.id },
+        data: { lastLoginAt: new Date() },
+      });
+      await tx.refreshSession.create({
+        data: {
+          id: sessionId,
+          userId: currentUser.id,
+          expiresAt: prepared.refreshToken.expiresAt,
+        },
+      });
+      await tx.refreshToken.create({
+        data: {
+          ...prepared.refreshToken,
+          userId: currentUser.id,
+          sessionId,
+        },
+      });
+      await this.writeAuditLog(tx, currentUser, 'AUTH_LOGIN', context);
+      return prepared.response;
     });
-
-    const response = await this.issueTokenPair(user);
-    await this.writeAuditLog(user, 'AUTH_LOGIN', context);
-    return response;
   }
 
   async refresh(
@@ -79,29 +120,72 @@ export class AuthService {
     context: RequestContext,
   ): Promise<AuthResponseDto> {
     const payload = await this.verifyRefreshToken(refreshToken);
-    const tokenHash = this.hashToken(refreshToken);
+    const result = await this.prisma.$transaction(async (tx) => {
+      const authority = await this.resolveAndLockSession(
+        tx,
+        payload,
+        this.hashToken(refreshToken),
+      );
+      if (!authority) return { kind: 'rejected' } as const;
 
-    const revoked = await this.prisma.refreshToken.updateMany({
-      where: {
-        id: payload.jti,
-        userId: payload.sub,
-        tokenHash,
-        revokedAt: null,
-        expiresAt: { gt: new Date() },
-      },
-      data: { revokedAt: new Date() },
+      const now = new Date();
+      if (
+        authority.session.revokedAt ||
+        authority.session.expiresAt <= now ||
+        authority.token.expiresAt <= now
+      ) {
+        return { kind: 'rejected' } as const;
+      }
+
+      if (authority.token.revokedAt) {
+        await this.revokeSessionFamily(tx, authority.session.id, now);
+        await this.writeAuditLog(
+          tx,
+          authority.user,
+          'AUTH_REFRESH_REPLAY',
+          context,
+        );
+        return { kind: 'rejected' } as const;
+      }
+
+      this.assertUserCanAuthenticate(authority.user);
+      const prepared = await this.prepareTokenPair(
+        authority.user,
+        authority.session.id,
+      );
+      const revoked = await tx.refreshToken.updateMany({
+        where: {
+          id: authority.token.id,
+          userId: authority.user.id,
+          sessionId: authority.session.id,
+          tokenHash: authority.token.tokenHash,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { revokedAt: now },
+      });
+      if (revoked.count !== 1) {
+        throw new UnauthorizedException('Refresh token is invalid or revoked');
+      }
+      await tx.refreshToken.create({
+        data: {
+          ...prepared.refreshToken,
+          userId: authority.user.id,
+          sessionId: authority.session.id,
+        },
+      });
+      await tx.refreshSession.update({
+        where: { id: authority.session.id },
+        data: { expiresAt: prepared.refreshToken.expiresAt },
+      });
+      await this.writeAuditLog(tx, authority.user, 'AUTH_REFRESH', context);
+      return { kind: 'success', response: prepared.response } as const;
     });
 
-    if (revoked.count !== 1) {
+    if (result.kind === 'rejected') {
       throw new UnauthorizedException('Refresh token is invalid or revoked');
     }
-
-    const user = await this.findUserForAuthentication(payload.sub);
-    this.assertUserCanAuthenticate(user);
-
-    const response = await this.issueTokenPair(user);
-    await this.writeAuditLog(user, 'AUTH_REFRESH', context);
-    return response;
+    return result.response;
   }
 
   async logout(
@@ -110,22 +194,23 @@ export class AuthService {
   ): Promise<LogoutResponseDto> {
     const payload = await this.verifyRefreshToken(refreshToken);
 
-    const revoked = await this.prisma.refreshToken.updateMany({
-      where: {
-        id: payload.jti,
-        userId: payload.sub,
-        tokenHash: this.hashToken(refreshToken),
-        revokedAt: null,
-      },
-      data: { revokedAt: new Date() },
+    const knownSession = await this.prisma.$transaction(async (tx) => {
+      const authority = await this.resolveAndLockSession(
+        tx,
+        payload,
+        this.hashToken(refreshToken),
+      );
+      if (!authority) return false;
+      if (!authority.session.revokedAt) {
+        await this.revokeSessionFamily(tx, authority.session.id, new Date());
+        await this.writeAuditLog(tx, authority.user, 'AUTH_LOGOUT', context);
+      }
+      return true;
     });
 
-    if (revoked.count !== 1) {
+    if (!knownSession) {
       throw new UnauthorizedException('Refresh token is invalid or revoked');
     }
-
-    const user = await this.findUserForAuthentication(payload.sub);
-    await this.writeAuditLog(user, 'AUTH_LOGOUT', context);
     return { success: true };
   }
 
@@ -135,9 +220,10 @@ export class AuthService {
     return this.toAuthenticatedUser(user);
   }
 
-  private async issueTokenPair(
+  private async prepareTokenPair(
     user: UserWithAuthRelations,
-  ): Promise<AuthResponseDto> {
+    sessionId: string,
+  ): Promise<PreparedTokenPair> {
     const authenticatedUser = this.toAuthenticatedUser(user);
     const refreshTokenId = randomUUID();
     const basePayload = {
@@ -160,6 +246,7 @@ export class AuthService {
         ...basePayload,
         type: 'refresh',
         jti: refreshTokenId,
+        sid: sessionId,
       } satisfies JwtPayload,
       {
         secret: this.configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
@@ -174,24 +261,163 @@ export class AuthService {
       throw new Error('Refresh token expiration was not generated');
     }
 
-    await this.prisma.refreshToken.create({
-      data: {
+    return {
+      response: {
+        accessToken,
+        refreshToken,
+        tokenType: 'Bearer',
+        user: authenticatedUser,
+      },
+      refreshToken: {
         id: refreshTokenId,
-        userId: user.id,
         tokenHash: this.hashToken(refreshToken),
         expiresAt: new Date(decoded.exp * 1000),
       },
-    });
-
-    return {
-      accessToken,
-      refreshToken,
-      tokenType: 'Bearer',
-      user: authenticatedUser,
     };
   }
 
-  private async verifyRefreshToken(refreshToken: string): Promise<JwtPayload> {
+  private async resolveAndLockSession(
+    tx: Prisma.TransactionClient,
+    payload: JwtPayload & { jti: string },
+    tokenHash: string,
+  ): Promise<{
+    token: {
+      id: string;
+      tokenHash: string;
+      expiresAt: Date;
+      revokedAt: Date | null;
+      sessionId: string;
+    };
+    session: {
+      id: string;
+      expiresAt: Date;
+      revokedAt: Date | null;
+    };
+    user: UserWithAuthRelations;
+  } | null> {
+    let token = await tx.refreshToken.findFirst({
+      where: { id: payload.jti, userId: payload.sub, tokenHash },
+      select: {
+        id: true,
+        userId: true,
+        sessionId: true,
+        tokenHash: true,
+        expiresAt: true,
+        revokedAt: true,
+      },
+    });
+    if (!token) return null;
+    if (!(await lockUserSessionAuthority(tx, payload.sub))) return null;
+
+    if (!token.sessionId) {
+      if (payload.sid) return null;
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'refresh-token-session:' + token.id}, 0)
+        )::text AS "lockResult"
+      `);
+      token = await tx.refreshToken.findFirst({
+        where: { id: payload.jti, userId: payload.sub, tokenHash },
+        select: {
+          id: true,
+          userId: true,
+          sessionId: true,
+          tokenHash: true,
+          expiresAt: true,
+          revokedAt: true,
+        },
+      });
+      if (!token || (token.revokedAt && !token.sessionId)) return null;
+      if (!token.sessionId) {
+        const sessionId = token.id;
+        await tx.refreshSession.create({
+          data: {
+            id: sessionId,
+            userId: token.userId,
+            expiresAt: token.expiresAt,
+          },
+        });
+        const associated = await tx.refreshToken.updateMany({
+          where: {
+            id: token.id,
+            userId: token.userId,
+            tokenHash,
+            sessionId: null,
+          },
+          data: { sessionId },
+        });
+        if (associated.count !== 1) {
+          throw new UnauthorizedException('Refresh token is invalid or revoked');
+        }
+        token = { ...token, sessionId };
+      }
+    }
+
+    if (!token.sessionId) return null;
+    if (payload.sid && payload.sid !== token.sessionId) return null;
+    const sessionId = token.sessionId;
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "RefreshSession"
+      WHERE "id" = ${sessionId}::uuid
+        AND "userId" = ${payload.sub}::uuid
+      FOR UPDATE
+    `);
+    if (locked.length !== 1) return null;
+
+    const [durableToken, session, user] = await Promise.all([
+      tx.refreshToken.findFirst({
+        where: {
+          id: payload.jti,
+          userId: payload.sub,
+          tokenHash,
+          sessionId,
+        },
+        select: {
+          id: true,
+          tokenHash: true,
+          expiresAt: true,
+          revokedAt: true,
+          sessionId: true,
+        },
+      }),
+      tx.refreshSession.findUnique({
+        where: { id: sessionId },
+        select: { id: true, expiresAt: true, revokedAt: true },
+      }),
+      tx.user.findUnique({
+        where: { id: payload.sub },
+        include: authUserInclude,
+      }),
+    ]);
+    if (!durableToken || !durableToken.sessionId || !session || !user) {
+      return null;
+    }
+    return {
+      token: { ...durableToken, sessionId: durableToken.sessionId },
+      session,
+      user,
+    };
+  }
+
+  private async revokeSessionFamily(
+    tx: Prisma.TransactionClient,
+    sessionId: string,
+    revokedAt: Date,
+  ): Promise<void> {
+    await tx.refreshSession.updateMany({
+      where: { id: sessionId, revokedAt: null },
+      data: { revokedAt },
+    });
+    await tx.refreshToken.updateMany({
+      where: { sessionId, revokedAt: null },
+      data: { revokedAt },
+    });
+  }
+
+  private async verifyRefreshToken(
+    refreshToken: string,
+  ): Promise<JwtPayload & { jti: string }> {
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(
         refreshToken,
@@ -204,7 +430,7 @@ export class AuthService {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
-      return payload;
+      return payload as JwtPayload & { jti: string };
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
@@ -258,11 +484,12 @@ export class AuthService {
   }
 
   private async writeAuditLog(
+    db: Pick<Prisma.TransactionClient, 'auditLog'>,
     user: UserWithAuthRelations,
     action: string,
     context: RequestContext,
   ): Promise<void> {
-    await this.prisma.auditLog.create({
+    await db.auditLog.create({
       data: {
         companyId: user.companyId,
         actorUserId: user.id,

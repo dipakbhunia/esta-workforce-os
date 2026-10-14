@@ -27,6 +27,27 @@ export function configureHttpAuth(handlers: HttpAuthHandlers) {
   authHandlers = handlers;
 }
 
+export function requestAuthRefresh(): Promise<string | null> {
+  if (!authHandlers) return Promise.resolve(null);
+
+  refreshPromise ??= authHandlers.refreshAccessToken()
+    .then((token) => {
+      if (!token && authHandlers?.getAccessToken()) {
+        authHandlers.onSessionExpired();
+      }
+      return token;
+    })
+    .catch((refreshError: unknown) => {
+      authHandlers?.onSessionExpired();
+      throw refreshError;
+    })
+    .finally(() => {
+      refreshPromise = null;
+    });
+
+  return refreshPromise;
+}
+
 http.interceptors.request.use((config) => {
   const token = authHandlers?.getAccessToken();
   if (token) {
@@ -53,21 +74,15 @@ http.interceptors.response.use(
     originalRequest._retry = true;
 
     try {
-      refreshPromise ??= authHandlers.refreshAccessToken().finally(() => {
-        refreshPromise = null;
-      });
-
-      const token = await refreshPromise;
+      const token = await requestAuthRefresh();
 
       if (!token) {
-        authHandlers.onSessionExpired();
         return Promise.reject(error);
       }
 
       originalRequest.headers.Authorization = `Bearer ${token}`;
       return http(originalRequest);
     } catch (refreshError) {
-      authHandlers.onSessionExpired();
       return Promise.reject(refreshError);
     }
   },

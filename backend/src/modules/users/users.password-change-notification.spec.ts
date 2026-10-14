@@ -16,7 +16,9 @@ function selfState(options: { transactionFailure?: boolean; enqueueFailure?: boo
   const enqueues: Array<Record<string, unknown>> = [];
   let passwordWrites = 0;
   let tokenRevocations = 0;
+  let sessionRevocations = 0;
   const state = {
+    $queryRaw: async () => [{ id: selfActor.id }],
     user: {
       findUnique: async () => ({
         passwordHash: bcrypt.hashSync('current-password', 4),
@@ -30,14 +32,15 @@ function selfState(options: { transactionFailure?: boolean; enqueueFailure?: boo
       if (options.transactionFailure) throw new Error('transaction failed');
       return { count: 1 };
     } },
-    $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+    refreshSession: { updateMany: async () => { sessionRevocations += 1; return { count: 1 }; } },
+    $transaction: async (callback: (tx: typeof state) => Promise<unknown>) => callback(state),
   };
   const notifications = { createPasswordChangedEmail: async (input: Record<string, unknown>) => {
     enqueues.push(input);
     if (options.enqueueFailure) throw new Error('unsafe-provider-context');
     return { created: true };
   } };
-  return { state, notifications, enqueues, passwordWrites: () => passwordWrites, tokenRevocations: () => tokenRevocations };
+  return { state, notifications, enqueues, passwordWrites: () => passwordWrites, tokenRevocations: () => tokenRevocations, sessionRevocations: () => sessionRevocations };
 }
 
 describe('UsersService password-changed notification integration', () => {
@@ -47,6 +50,7 @@ describe('UsersService password-changed notification integration', () => {
     assert.deepEqual(await service.changePassword({ currentPassword: 'current-password', newPassword: 'new-password' }, selfActor), { success: true });
     assert.equal(fixture.passwordWrites(), 1);
     assert.equal(fixture.tokenRevocations(), 1);
+    assert.equal(fixture.sessionRevocations(), 1);
     assert.equal(fixture.enqueues.length, 1);
     assert.equal(fixture.enqueues[0].targetUserId, selfActor.id);
     assert.deepEqual(fixture.enqueues[0].payload, {});
@@ -96,7 +100,9 @@ describe('UsersService password-changed notification integration', () => {
     const actor = { ...selfActor, id: '44444444-4444-4444-8444-444444444444', companyId: null, roles: [RoleName.SUPER_ADMIN] };
     const order: string[] = [];
     const tx = {
+      $queryRaw: async () => [{ id: target.id }],
       user: { update: async () => { order.push('password'); return {}; } },
+      refreshSession: { updateMany: async () => { order.push('sessions'); return { count: 1 }; } },
       refreshToken: { updateMany: async () => { order.push('tokens'); return { count: 1 }; } },
       auditLog: { create: async () => { order.push('audit'); return {}; } },
     };
@@ -109,7 +115,7 @@ describe('UsersService password-changed notification integration', () => {
       order.push('enqueue'); enqueues.push(input); return { created: true };
     } } as never);
     assert.deepEqual(await service.resetPassword(target.id, { newPassword: 'replacement-password' }, actor), { success: true });
-    assert.deepEqual(order, ['password', 'tokens', 'audit', 'commit', 'enqueue']);
+    assert.deepEqual(order, ['password', 'sessions', 'tokens', 'audit', 'commit', 'enqueue']);
     assert.equal(enqueues[0].targetUserId, target.id);
     assert.notEqual(enqueues[0].targetUserId, actor.id);
   });

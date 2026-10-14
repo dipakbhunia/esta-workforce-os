@@ -5,7 +5,7 @@ import type { AuthResponse, AuthUser } from '../types/auth.types';
 const skipAuthRefresh = { skipAuthRefresh: true } as AxiosRequestConfig & { skipAuthRefresh: boolean };
 
 export function loginRequest(email: string, password: string): Promise<AxiosResponse<AuthResponse>> {
-  return http.post<AuthResponse>('/auth/login', { email, password });
+  return http.post<AuthResponse>('/auth/login', { email, password }, skipAuthRefresh);
 }
 
 export function refreshRequest(refreshToken: string): Promise<AxiosResponse<AuthResponse>> {

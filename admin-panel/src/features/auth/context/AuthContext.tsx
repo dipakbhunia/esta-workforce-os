@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createContext, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
-import { configureHttpAuth } from '@/services/http';
+import { createContext, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { configureHttpAuth, requestAuthRefresh } from '@/services/http';
 import { loginRequest, logoutRequest, meRequest, refreshRequest } from '../services/auth-api';
 import { tokenStorage } from '../services/token-storage';
 import type { AuthUser, LoginCredentials, Permission } from '../types/auth.types';
@@ -26,66 +26,89 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const sessionGeneration = useRef(0);
 
   const clearSession = useCallback(() => {
+    sessionGeneration.current += 1;
     tokenStorage.clearTokens();
     setUser(null);
     queryClient.clear();
   }, [queryClient]);
 
-  const refresh = useCallback(async () => {
+  const performRefresh = useCallback(async () => {
+    const generation = sessionGeneration.current;
     const refreshToken = tokenStorage.getRefreshToken();
     if (!refreshToken) return null;
 
     const remember = tokenStorage.getRemember();
-    const response = await refreshRequest(refreshToken);
+    let response;
+    try {
+      response = await refreshRequest(refreshToken);
+    } catch (refreshError) {
+      if (sessionGeneration.current !== generation || tokenStorage.getRefreshToken() !== refreshToken) {
+        return tokenStorage.getAccessToken();
+      }
+      throw refreshError;
+    }
+
+    if (sessionGeneration.current !== generation || tokenStorage.getRefreshToken() !== refreshToken) {
+      return tokenStorage.getAccessToken();
+    }
+
     tokenStorage.setTokens(response.data.accessToken, response.data.refreshToken, remember);
     setUser(response.data.user);
     return response.data.accessToken;
   }, []);
 
+  const refresh = useCallback(() => requestAuthRefresh(), []);
+
   const loginMutation = useMutation({
-    mutationFn: async ({ email, password, remember }: LoginCredentials) => {
-      const response = await loginRequest(email, password);
-      tokenStorage.setTokens(response.data.accessToken, response.data.refreshToken, remember);
+    mutationFn: async ({ credentials, generation }: { credentials: LoginCredentials; generation: number }) => {
+      const response = await loginRequest(credentials.email, credentials.password);
+      if (sessionGeneration.current !== generation) return null;
+
+      tokenStorage.setTokens(response.data.accessToken, response.data.refreshToken, credentials.remember);
       const me = await meRequest();
-      return me.data;
+      if (sessionGeneration.current !== generation) return null;
+      return { generation, user: me.data };
     },
-    onSuccess: (authenticatedUser) => {
+    onSuccess: (result) => {
+      if (!result || sessionGeneration.current !== result.generation) return;
       setError(null);
-      setUser(authenticatedUser);
+      setUser(result.user);
     },
-    onError: (mutationError) => {
+    onError: (mutationError, variables) => {
+      if (sessionGeneration.current !== variables.generation) return;
       setError(authErrorMessage(mutationError));
     },
   });
 
   const login = useCallback(async (credentials: LoginCredentials) => {
+    const generation = sessionGeneration.current + 1;
+    sessionGeneration.current = generation;
     setError(null);
-    await loginMutation.mutateAsync(credentials);
+    await loginMutation.mutateAsync({ credentials, generation });
   }, [loginMutation]);
 
   const logout = useCallback(async () => {
     const refreshToken = tokenStorage.getRefreshToken();
-    try {
-      if (refreshToken) {
-        await logoutRequest(refreshToken);
-      }
-    } finally {
-      clearSession();
+    clearSession();
+    if (refreshToken) {
+      await logoutRequest(refreshToken);
     }
   }, [clearSession]);
 
   useEffect(() => {
     configureHttpAuth({
       getAccessToken: tokenStorage.getAccessToken,
-      refreshAccessToken: refresh,
+      refreshAccessToken: performRefresh,
       onSessionExpired: clearSession,
     });
-  }, [clearSession, refresh]);
+  }, [clearSession, performRefresh]);
 
   useEffect(() => {
     let mounted = true;
+    const generation = sessionGeneration.current;
 
     async function restoreSession() {
       setRestoring(true);
@@ -95,16 +118,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        await refresh();
+        const accessToken = await refresh();
+        if (!accessToken || !mounted || sessionGeneration.current !== generation) return;
         const me = await meRequest();
-        if (mounted) {
+        if (mounted && sessionGeneration.current === generation) {
           setUser(me.data);
           setError(null);
         }
       } catch (restoreError) {
-        if (mounted) {
+        if (mounted && sessionGeneration.current === generation) {
           setError(authErrorMessage(restoreError));
-          clearSession();
+          if (tokenStorage.getRefreshToken()) clearSession();
         }
       } finally {
         if (mounted) setRestoring(false);

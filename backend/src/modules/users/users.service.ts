@@ -17,6 +17,7 @@ import {
 import { isSuperAdmin } from '../../common/utils/tenant.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { revokeAllUserSessions } from '../auth/refresh-session-revocation';
 import { NotificationsService } from '../notifications/notifications.service';
 import { IdentityActionsService } from '../identity-actions/identity-actions.service';
 import { AssignRoleDto } from './dto/assign-role.dto';
@@ -256,10 +257,7 @@ export class UsersService {
             },
             data: { invalidatedAt: now },
           });
-          await tx.refreshToken.updateMany({
-            where: { userId: id, revokedAt: null },
-            data: { revokedAt: now },
-          });
+          await revokeAllUserSessions(tx, id, now);
           await tx.auditLog.create({
             data: {
               companyId: user.companyId,
@@ -298,10 +296,7 @@ export class UsersService {
         },
         select: userSelect,
       });
-      await tx.refreshToken.updateMany({
-        where: { userId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      await revokeAllUserSessions(tx, id, new Date());
       if (isSuperAdmin(actor) && user.companyId === null) {
         await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_DELETED', {
           previousStatus: user.status,
@@ -335,10 +330,7 @@ export class UsersService {
         select: userSelect,
       });
       if (dto.status !== UserStatus.ACTIVE) {
-        await tx.refreshToken.updateMany({
-          where: { userId: id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
+        await revokeAllUserSessions(tx, id, new Date());
       }
       if (isSuperAdmin(actor) && user.companyId === null) {
         await this.writePlatformAudit(tx, actor, id, 'PLATFORM_USER_STATUS_CHANGED', {
@@ -444,10 +436,7 @@ export class UsersService {
         where: { id },
         data: { passwordHash },
       });
-      await tx.refreshToken.updateMany({
-        where: { userId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      await revokeAllUserSessions(tx, id, new Date());
       if (isSuperAdmin(actor) && user.companyId === null) {
         await this.writePlatformAudit(
           tx,
@@ -691,16 +680,13 @@ export class UsersService {
     password: string,
   ): Promise<void> {
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
         where: { id: userId },
         data: { passwordHash },
-      }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-    ]);
+      });
+      await revokeAllUserSessions(tx, userId, new Date());
+    });
   }
 
   private throwUserConflict(error: unknown): never {

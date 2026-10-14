@@ -6,6 +6,7 @@ export interface JwtPayload {
   roles: RoleName[];
   type: 'access' | 'refresh';
   jti?: string;
+  sid?: string;
   iat?: number;
   exp?: number;
 }

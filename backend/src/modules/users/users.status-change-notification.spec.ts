@@ -26,6 +26,7 @@ function fixture(previousStatus: UserStatus, options: {
   const order: string[] = [];
   const enqueues: Array<Record<string, unknown>> = [];
   let tokenRevocations = 0;
+  let sessionRevocations = 0;
   const tx = {
     $queryRaw: async () => { order.push('lock'); return [{ pg_advisory_xact_lock: '' }]; },
     user: {
@@ -42,6 +43,9 @@ function fixture(previousStatus: UserStatus, options: {
       if (options.transactionFailure === 'tokens') throw new Error('token failure');
       return { count: 1 };
     } },
+    refreshSession: { updateMany: async () => {
+      order.push('sessions'); sessionRevocations += 1; return { count: 1 };
+    } },
     auditLog: { create: async () => { order.push('audit'); return {}; } },
   };
   const prisma = {
@@ -55,7 +59,7 @@ function fixture(previousStatus: UserStatus, options: {
     if (options.enqueueFailure) throw new Error('unsafe persistence details');
     return { created: true };
   } };
-  return { prisma, notifications, order, enqueues, tokenRevocations: () => tokenRevocations };
+  return { prisma, notifications, order, enqueues, tokenRevocations: () => tokenRevocations, sessionRevocations: () => sessionRevocations };
 }
 
 describe('UsersService account-status notification integration', () => {
@@ -75,6 +79,7 @@ describe('UsersService account-status notification integration', () => {
       assert.match(String(state.enqueues[0].statusMutationEventId), /^[0-9a-f-]{36}$/i);
       assert.ok(state.order.indexOf('commit') < state.order.indexOf('enqueue'));
       assert.equal(state.tokenRevocations(), revokesTokens ? 1 : 0);
+      assert.equal(state.sessionRevocations(), revokesTokens ? 1 : 0);
     });
   }
 
@@ -85,6 +90,7 @@ describe('UsersService account-status notification integration', () => {
     assert.equal(response.status, UserStatus.INACTIVE);
     assert.ok(state.order.includes('status-update'));
     assert.equal(state.tokenRevocations(), 1);
+    assert.equal(state.sessionRevocations(), 1);
     assert.equal(state.enqueues.length, 0);
   });
 

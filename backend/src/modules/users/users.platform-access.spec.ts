@@ -73,6 +73,7 @@ function prismaForFinalAdmin(activeAdmins = 1) {
       },
     },
     refreshToken: { updateMany: () => Promise.resolve({ count: 0 }) },
+    refreshSession: { updateMany: () => Promise.resolve({ count: 0 }) },
     auditLog: {
       create: () => {
         audits += 1;

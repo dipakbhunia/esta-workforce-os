@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { revokeAllUserSessions } from '../auth/refresh-session-revocation';
 import { CompleteAccountActionDto, VerifyEmailDto } from './dto/identity-action.dto';
 
 const SALT_ROUNDS = 12;
@@ -362,7 +363,7 @@ export class IdentityActionsService {
         });
         if (!user) throw new BadRequestException('The account action link is invalid or expired');
         await tx.user.update({ where: { id: user.id }, data: { passwordHash, ...(activate ? { status: UserStatus.ACTIVE } : {}) } });
-        await tx.refreshToken.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: now } });
+        await revokeAllUserSessions(tx, user.id, now);
         await tx.accountActionToken.updateMany({
           where: { userId: user.id, purpose, id: { not: id }, consumedAt: null, invalidatedAt: null },
           data: { invalidatedAt: now },
