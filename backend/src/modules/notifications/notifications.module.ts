@@ -24,6 +24,7 @@ import { EmailTemplateRuntimeResolver } from './email-template-runtime-resolver.
     CommercialTransactionalNotificationService,
     EmailTemplateRuntimeResolver,
   ],
-  exports: [NotificationsService, CommercialBillingRecipientResolver, CommercialTransactionalNotificationService],
+  exports: [NotificationsService, CommercialBillingRecipientResolver, CommercialTransactionalNotificationService,
+    EmailNotificationChannel],
 })
 export class NotificationsModule {}

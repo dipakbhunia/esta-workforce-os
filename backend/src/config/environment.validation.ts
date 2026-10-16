@@ -48,6 +48,7 @@ export const environmentValidationSchema = Joi.object({
   SMTP_CREDENTIAL_ENCRYPTION_KEYS: Joi.string().max(16384).allow('').optional(),
   SMTP_TEST_ALLOWED_HOSTS: Joi.string().max(4096).allow('').optional(),
   SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  SMTP_EMAIL_VERIFICATION_BOOTSTRAP_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
 }).custom((value: Record<string, unknown>, helpers) => {
   const key = typeof value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY === 'string'
     ? value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY.trim() : '';

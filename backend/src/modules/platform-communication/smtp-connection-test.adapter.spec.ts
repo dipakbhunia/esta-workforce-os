@@ -2,18 +2,20 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { SmtpSecurityMode } from '@prisma/client';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-import { SmtpConnectionTestAdapter } from './smtp-connection-test.adapter';
+import { SmtpConnectionTestAdapter, SmtpDeliveryAttemptError } from './smtp-connection-test.adapter';
 
 const snapshot = { host: 'smtp.example.com', port: 587, securityMode: SmtpSecurityMode.STARTTLS, username: 'mailer' };
 
 class Adapter extends SmtpConnectionTestAdapter {
   options?: SMTPTransport.Options; closed = false; sent = false; message?: Record<string, unknown>;
-  constructor(private readonly outcome: unknown = true) { super({ approve: async () => ({ hostname: 'smtp.example.com', address: '8.8.8.8', family: 4 }) } as never); }
+  constructor(private readonly outcome: unknown = true, private readonly sendOutcome: unknown = true) { super({ approve: async () => ({ hostname: 'smtp.example.com', address: '8.8.8.8', family: 4 }) } as never); }
   protected override createTransport(options: SMTPTransport.Options) {
     this.options = options;
     return { verify: async () => { if (this.outcome instanceof Error) throw this.outcome; return true; },
       close: () => { this.closed = true; }, sendMail: async (message: Record<string, unknown>) => {
-        this.sent = true; this.message = message; return { accepted: ['admin@example.test'], rejected: [] };
+        this.sent = true; this.message = message;
+        if (this.sendOutcome instanceof Error) throw this.sendOutcome;
+        return { accepted: ['admin@example.test'], rejected: [] };
       } } as never;
   }
 }
@@ -54,5 +56,26 @@ describe('SmtpConnectionTestAdapter', () => {
     });
     assert.equal(adapter.options?.requireTLS, true); assert.equal(adapter.options?.ignoreTLS, false);
     assert.equal(adapter.options?.tls?.rejectUnauthorized, true); assert.equal(adapter.closed, true);
+  });
+
+  it('classifies only structured definitive non-acceptance as retry-safe', async () => {
+    const message = { recipient: 'admin@example.test', senderEmail: 'sender@example.test', senderDisplayName: 'Sender',
+      subject: 'Verification', text: 'Text', html: '<p>Text</p>' };
+    for (const error of [
+      Object.assign(new Error('rejected'), { responseCode: 550, command: 'DATA' }),
+      Object.assign(new Error('authentication failed'), { code: 'EAUTH' }),
+      Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' }),
+    ]) {
+      await assert.rejects(() => new Adapter(true, error).sendEmail(snapshot, 'secret', message),
+        (caught: unknown) => caught instanceof SmtpDeliveryAttemptError && caught.definitivelyNotAccepted);
+    }
+    for (const error of [
+      new Error('provider accepted but response was lost'),
+      Object.assign(new Error('reset after DATA'), { code: 'ECONNRESET', command: 'DATA' }),
+      Object.assign(new Error('generic timeout'), { code: 'ETIMEDOUT' }),
+    ]) {
+      await assert.rejects(() => new Adapter(true, error).sendEmail(snapshot, 'secret', message),
+        (caught: unknown) => caught instanceof SmtpDeliveryAttemptError && !caught.definitivelyNotAccepted);
+    }
   });
 });

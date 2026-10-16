@@ -9,7 +9,7 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { PlatformEmailDeliveryQueryDto } from './dto/platform-email-delivery-query.dto';
 import { PlatformEmailCapabilityResponseDto, PlatformEmailDeliveryListResponseDto, PlatformEmailDeliveryResponseDto } from './dto/platform-email-delivery-response.dto';
 import { PlatformCommunicationService } from './platform-communication.service';
-import { ActivateSmtpConfigurationDto, CreateSmtpConfigurationDraftDto, RollbackSmtpConfigurationDto, SendSmtpTestEmailDto, SmtpConfigurationHistoryQueryDto, TestSmtpConnectionDto, ToggleDatabaseSmtpDto, UpdateSmtpConfigurationDraftDto, ValidateSmtpConfigurationDraftDto } from './dto/smtp-configuration.dto';
+import { ActivateSmtpConfigurationDto, BootstrapEmailVerificationDto, CreateSmtpConfigurationDraftDto, RollbackSmtpConfigurationDto, SendSmtpTestEmailDto, SmtpConfigurationHistoryQueryDto, TestSmtpConnectionDto, ToggleDatabaseSmtpDto, UpdateSmtpConfigurationDraftDto, ValidateSmtpConfigurationDraftDto } from './dto/smtp-configuration.dto';
 import { SmtpConfigurationLifecycleService } from './smtp-configuration-lifecycle.service';
 import { SmtpTestEmailService } from './smtp-test-email.service';
 import { SmtpConfigurationAuthorityService } from './smtp-configuration-authority.service';
@@ -18,6 +18,7 @@ import { CreateEmailTemplateDraftDto, EmailTemplateHistoryQueryDto, PublishEmail
   ValidateEmailTemplateDraftDto } from './dto/email-template.dto';
 import { EmailTemplateManagementService } from './email-template-management.service';
 import { EmailTemplatePreviewService } from './email-template-preview.service';
+import { SmtpEmailVerificationBootstrapService } from './smtp-email-verification-bootstrap.service';
 
 @ApiTags('Platform Communication')
 @ApiBearerAuth()
@@ -27,7 +28,8 @@ import { EmailTemplatePreviewService } from './email-template-preview.service';
 export class PlatformCommunicationController {
   constructor(private readonly service: PlatformCommunicationService, private readonly smtp: SmtpConfigurationLifecycleService,
     private readonly smtpTestEmail: SmtpTestEmailService, private readonly smtpAuthority: SmtpConfigurationAuthorityService,
-    private readonly templates: EmailTemplateManagementService, private readonly templatePreview: EmailTemplatePreviewService) {}
+    private readonly templates: EmailTemplateManagementService, private readonly templatePreview: EmailTemplatePreviewService,
+    private readonly smtpVerificationBootstrap: SmtpEmailVerificationBootstrapService) {}
 
   @Get('email-capability')
   @ApiOkResponse({ type: PlatformEmailCapabilityResponseDto })
@@ -67,6 +69,10 @@ export class PlatformCommunicationController {
   @Post('email-configuration/versions/:id/test-email')
   sendEmailConfigurationTestEmail(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SendSmtpTestEmailDto,
     @CurrentUser() actor: AuthenticatedUser) { return this.smtpTestEmail.send(id, dto, actor); }
+
+  @Post('email-configuration/versions/:id/bootstrap-email-verification')
+  bootstrapEmailVerification(@Param('id', ParseUUIDPipe) id: string, @Body() dto: BootstrapEmailVerificationDto,
+    @CurrentUser() actor: AuthenticatedUser) { return this.smtpVerificationBootstrap.send(id, dto, actor); }
 
   @Post('email-configuration/versions/:id/activate')
   activateEmailConfiguration(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ActivateSmtpConfigurationDto,

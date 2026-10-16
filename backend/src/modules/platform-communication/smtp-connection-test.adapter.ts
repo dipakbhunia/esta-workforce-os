@@ -20,6 +20,13 @@ export interface SmtpTestEmailMessage {
 export interface SmtpTestEmailResult { accepted: boolean; category: SmtpTestEmailCategory }
 export interface SmtpDeliveryMessage extends SmtpTestEmailMessage { html: string }
 
+export class SmtpDeliveryAttemptError extends Error {
+  constructor(public readonly definitivelyNotAccepted: boolean, public readonly transportError: unknown) {
+    super('Email delivery failed');
+    this.name = 'SmtpDeliveryAttemptError';
+  }
+}
+
 @Injectable()
 export class SmtpConnectionTestAdapter {
   constructor(private readonly destinations: SmtpDestinationPolicyService) {}
@@ -73,7 +80,18 @@ export class SmtpConnectionTestAdapter {
       transport = this.createTransport(this.transportOptions(snapshot, password, target));
       const info = await transport.sendMail({ from: { name: message.senderDisplayName, address: message.senderEmail }, to: message.recipient, subject: message.subject, text: message.text, html: message.html });
       return { messageId: info.messageId ?? null };
+    } catch (error) {
+      throw new SmtpDeliveryAttemptError(this.isDefinitiveNonAcceptance(error), error);
     } finally { transport?.close(); }
+  }
+
+  private isDefinitiveNonAcceptance(error: unknown): boolean {
+    const value = error as { code?: string; responseCode?: number };
+    const code = String(value?.code ?? '').toUpperCase();
+    const responseCode = Number(value?.responseCode);
+    if (responseCode >= 400 && responseCode <= 599) return true;
+    if (['EAUTH', 'ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'EHOSTUNREACH', 'EENVELOPE'].includes(code)) return true;
+    return code.includes('TLS') || code.includes('CERT');
   }
 
   private transportOptions(snapshot: Readonly<SmtpConnectionSnapshot>, password: string,

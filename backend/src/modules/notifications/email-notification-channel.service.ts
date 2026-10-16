@@ -9,7 +9,7 @@ import { assertSafeEmailDetailsPath, escapeEmailHtml } from './email-content-saf
 import { emailRendererRegistry } from './email-renderer.registry';
 import { CommercialBillingRecipientResolver } from './commercial-billing-recipient-resolver.service';
 import { ResolvedSmtpSnapshot } from '../smtp-runtime/smtp-runtime.types';
-import { SmtpConnectionTestAdapter } from '../platform-communication/smtp-connection-test.adapter';
+import { SmtpConnectionTestAdapter, SmtpDeliveryAttemptError } from '../platform-communication/smtp-connection-test.adapter';
 
 export interface EmailDeliveryResult {
   skipped: boolean;
@@ -158,7 +158,8 @@ export class EmailNotificationChannel {
     const expectedStatus = expectedPurpose === AccountActionTokenPurpose.INVITATION ? UserStatus.INACTIVE : UserStatus.ACTIVE;
     const token = await this.prisma.accountActionToken.findFirst({
       where: { id: notification.accountActionTokenId, purpose: expectedPurpose, consumedAt: null, invalidatedAt: null, expiresAt: { gt: new Date() } },
-      include: { user: { select: { id: true, companyId: true, email: true, emailRevision: true, status: true, deletedAt: true, roles: { select: { role: { select: { systemName: true } } } } } } },
+      include: { user: { select: { id: true, companyId: true, email: true, emailRevision: true, status: true, deletedAt: true,
+        roles: { select: { role: { select: { systemName: true, companyId: true, deletedAt: true } } } } } } },
     });
     const persisted = await this.prisma.notification.findUnique({
       where: { id: notification.id },
@@ -170,7 +171,7 @@ export class EmailNotificationChannel {
       token.user.companyId === null &&
       token.targetEmail === normalizedRecipient &&
       token.emailRevision === token.user.emailRevision &&
-      token.user.roles.some(({ role }) => role.systemName === 'SUPER_ADMIN')
+      token.user.roles.some(({ role }) => role.systemName === 'SUPER_ADMIN' && role.companyId === null && !role.deletedAt)
     ));
     if (!token || !persisted || token.purpose !== expectedPurpose || token.userId !== token.user.id || token.consumedAt || token.invalidatedAt || token.expiresAt <= new Date() || token.user.deletedAt || token.user.status !== expectedStatus || token.userId !== persisted.userId || token.companyId !== token.user.companyId || token.companyId !== persisted.companyId || persisted.userId !== notification.userId || persisted.companyId !== notification.companyId || persisted.type !== notification.type || persisted.accountActionTokenId !== token.id || token.user.email.trim().toLowerCase() !== normalizedRecipient || !emailVerificationEligible || persisted.deliveries.length !== 1) {
       if (notification.type === NotificationType.EMAIL_VERIFICATION) {
@@ -201,7 +202,8 @@ export class EmailNotificationChannel {
   }
 
   sanitizeError(error: unknown): SafeEmailError {
-    const maybe = error as { code?: string; responseCode?: number };
+    const source = error instanceof SmtpDeliveryAttemptError ? error.transportError : error;
+    const maybe = source as { code?: string; responseCode?: number };
     const rawCode = String(maybe?.code ?? '').toUpperCase();
     const responseCode = Number(maybe?.responseCode);
     let code = 'SMTP_UNKNOWN';
@@ -213,6 +215,10 @@ export class EmailNotificationChannel {
     else if ([421, 429, 450, 451, 452].includes(responseCode)) code = 'SMTP_RATE_LIMITED';
     else if (responseCode >= 500 || rawCode === 'EENVELOPE' || rawCode === 'EMESSAGE') code = 'SMTP_REJECTED';
     return safeEmailErrorEvidence(code);
+  }
+
+  isDefinitiveNonAcceptance(error: unknown): boolean {
+    return error instanceof SmtpDeliveryAttemptError && error.definitivelyNotAccepted;
   }
 
   private hasConfig(): boolean {

@@ -4,8 +4,8 @@ import { Prisma, RoleName, SmtpConfigurationLifecycle, UserStatus } from '@prism
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { ActivateSmtpConfigurationDto, RollbackSmtpConfigurationDto, ToggleDatabaseSmtpDto } from './dto/smtp-configuration.dto';
-import { acquireExclusiveSmtpAuthorityLock } from './smtp-authority-lock';
 import { SmtpCredentialEncryptionService } from './smtp-credential-encryption.service';
+import { requireNoInFlightSmtpBootstrap } from './smtp-bootstrap-dispatch-fence';
 
 type Target = NonNullable<Awaited<ReturnType<Prisma.TransactionClient['smtpConfigurationVersion']['findUnique']>>>;
 
@@ -33,7 +33,7 @@ export class SmtpConfigurationAuthorityService {
   private async select(id: string, dto: ActivateSmtpConfigurationDto, actor: AuthenticatedUser, rollback: boolean) {
     this.requireGate();
     return this.prisma.$transaction(async (tx) => {
-      await acquireExclusiveSmtpAuthorityLock(tx);
+      await requireNoInFlightSmtpBootstrap(tx);
       const authority = await this.requireActor(tx, actor.id);
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "PlatformEmailSettings" WHERE "scope" = 'PLATFORM' FOR UPDATE`);
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SmtpConfigurationVersion" WHERE "id" = ${id}::uuid FOR UPDATE`);
@@ -69,7 +69,7 @@ export class SmtpConfigurationAuthorityService {
   private async toggle(dto: ToggleDatabaseSmtpDto, actor: AuthenticatedUser, enabled: boolean) {
     this.requireGate();
     return this.prisma.$transaction(async (tx) => {
-      await acquireExclusiveSmtpAuthorityLock(tx);
+      await requireNoInFlightSmtpBootstrap(tx);
       const authority = await this.requireActor(tx, actor.id);
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "PlatformEmailSettings" WHERE "scope" = 'PLATFORM' FOR UPDATE`);
       const settings = await tx.platformEmailSettings.findUnique({ where: { scope: 'PLATFORM' } });

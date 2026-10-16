@@ -7,6 +7,7 @@ import { CreateSmtpConfigurationDraftDto, SmtpConfigurationHistoryQueryDto, Test
 import { SmtpConnectionTestAdapter, SmtpConnectionTestResult } from './smtp-connection-test.adapter';
 import { SmtpConfigurationValidationError, validateAndNormalizeSmtpConfiguration } from './smtp-configuration.validation';
 import { SmtpCredentialEncryptionService } from './smtp-credential-encryption.service';
+import { requireNoInFlightSmtpBootstrap } from './smtp-bootstrap-dispatch-fence';
 
 const safeSelect = {
   id: true, version: true, lifecycle: true, host: true, port: true, securityMode: true,
@@ -63,6 +64,7 @@ export class SmtpConfigurationLifecycleService {
 
   async updateDraft(id: string, dto: UpdateSmtpConfigurationDraftDto, actor: AuthenticatedUser) {
     return this.prisma.$transaction(async (tx) => {
+      await requireNoInFlightSmtpBootstrap(tx, id);
       const existing = await tx.smtpConfigurationVersion.findUnique({ where: { id } });
       if (!existing) throw new NotFoundException('SMTP configuration version not found');
       if (existing.lifecycle === SmtpConfigurationLifecycle.REVOKED || existing.firstActivatedAt || existing.revokedAt) {

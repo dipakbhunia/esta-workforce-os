@@ -126,7 +126,7 @@ describe('EmailNotificationChannel identity authority', () => {
       targetEmail: 'owner@example.test',
       emailRevision: 3,
       user: { ...token.user, companyId: null, status: 'ACTIVE', emailRevision: 3,
-        roles: [{ role: { systemName: 'SUPER_ADMIN' } }] },
+        roles: [{ role: { systemName: 'SUPER_ADMIN', companyId: null, deletedAt: null } }] },
     };
     const persistedVerification = { ...verificationNotification, deliveries: [{ id: 'delivery-1' }] };
     const create = (tokenResult: unknown = verificationToken) => new EmailNotificationChannel(
@@ -144,6 +144,10 @@ describe('EmailNotificationChannel identity authority', () => {
       { ...verificationToken, emailRevision: 2 },
       { ...verificationToken, user: { ...verificationToken.user, emailRevision: 4 } },
       { ...verificationToken, user: { ...verificationToken.user, roles: [] } },
+      { ...verificationToken, user: { ...verificationToken.user,
+        roles: [{ role: { systemName: 'SUPER_ADMIN', companyId: null, deletedAt: new Date() } }] } },
+      { ...verificationToken, user: { ...verificationToken.user,
+        roles: [{ role: { systemName: 'SUPER_ADMIN', companyId: 'company-1', deletedAt: null } }] } },
       { ...verificationToken, companyId: 'company-1' },
     ]) await assert.rejects(() => invoke(create(changed)), /no longer eligible/i);
   });

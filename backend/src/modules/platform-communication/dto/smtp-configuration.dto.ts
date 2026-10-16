@@ -38,6 +38,10 @@ export class SendSmtpTestEmailDto {
   @ApiProperty() @Type(() => Number) @IsInt() @Min(1) revision!: number;
 }
 
+export class BootstrapEmailVerificationDto {
+  @ApiProperty() @Type(() => Number) @IsInt() @Min(1) revision!: number;
+}
+
 export class ActivateSmtpConfigurationDto {
   @ApiProperty() @Type(() => Number) @IsInt() @Min(0) settingsRevision!: number;
   @ApiProperty() @Type(() => Number) @IsInt() @Min(1) targetRevision!: number;

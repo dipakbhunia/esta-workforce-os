@@ -33,7 +33,7 @@ describe('SmtpConfigurationLifecycleService', () => {
   it('retains the encrypted password when omitted and invalidates all mutable evidence', async () => {
     let updateData: Record<string, unknown> | undefined;
     const existing = { ...row(), encryptedPassword: Uint8Array.from([9]), encryptionKeyId: 'old-key', connectionTestResultCode: 'SUCCESS', restrictedTestEmailAddress: 'safe@example.test' };
-    const tx = { smtpConfigurationVersion: {
+    const tx = { $executeRawUnsafe: async () => 0, $queryRaw: async () => [], smtpConfigurationVersion: {
       findUnique: async () => existing, updateMany: async ({ data }: { data: Record<string, unknown> }) => { updateData = data; return { count: 1 }; },
       findUniqueOrThrow: async () => row({ host: 'new.example.test', revision: 2 }),
     }, auditLog: { create: async () => undefined } };
@@ -52,7 +52,7 @@ describe('SmtpConfigurationLifecycleService', () => {
     const editable = { ...row({ lifecycle: SmtpConfigurationLifecycle.TESTED, structurallyValidatedAt: new Date(), connectionTestedAt: new Date(), connectionTestSucceeded: true }),
       encryptedPassword: Uint8Array.from([9]), encryptionKeyId: 'old-key', connectionTestResultCode: 'SUCCESS', restrictedTestEmailAddress: null };
     let updateData: Record<string, unknown> | undefined;
-    const tx = { smtpConfigurationVersion: { findUnique: async () => editable,
+    const tx = { $executeRawUnsafe: async () => 0, $queryRaw: async () => [], smtpConfigurationVersion: { findUnique: async () => editable,
       updateMany: async ({ data }: { data: Record<string, unknown> }) => { updateData = data; return { count: 1 }; },
       findUniqueOrThrow: async () => row({ revision: 2 }) }, auditLog: { create: async () => undefined } };
     const prisma = { $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx) };
@@ -71,7 +71,7 @@ describe('SmtpConfigurationLifecycleService', () => {
   it('replaces a password only through encryption and rejects stale revisions', async () => {
     let updateData: Record<string, unknown> | undefined;
     const existing = { ...row(), encryptedPassword: Uint8Array.from([9]), encryptionKeyId: 'old-key', connectionTestResultCode: null, restrictedTestEmailAddress: null };
-    const tx = { smtpConfigurationVersion: { findUnique: async () => existing,
+    const tx = { $executeRawUnsafe: async () => 0, $queryRaw: async () => [], smtpConfigurationVersion: { findUnique: async () => existing,
       updateMany: async ({ data }: { data: Record<string, unknown> }) => { updateData = data; return { count: 0 }; },
       findUniqueOrThrow: async () => row() }, auditLog: { create: async () => undefined } };
     const prisma = { $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx) };
