@@ -242,55 +242,63 @@ export class MonitoringAlertsService {
       const monitoringDisabledSetting = policy.settings.MONITORING_DISABLED;
       const reregistrationSetting = policy.settings.REREGISTRATION_REQUIRED;
       const suppressNonSecurity = device.status === MonitoringDeviceStatus.REVOKED;
-      if (mode === 'SECURITY' && monitoringDisabledSetting.enabled && device.status === MonitoringDeviceStatus.INACTIVE) {
-        detected += await this.detectAlert({
-          companyId: device.companyId,
-          employeeId: device.employeeId,
-          deviceId: device.id,
-          type: MonitoringAlertType.MONITORING_DISABLED,
-          severity: monitoringDisabledSetting.severity,
-          title: 'Monitoring disabled',
-          message: `${device.deviceName} has monitoring disabled.`,
-          deduplicationKey: this.deviceKey(device.companyId, MonitoringAlertType.MONITORING_DISABLED, device.id),
-          metadata: { deviceStatus: device.status },
-        });
-      } else {
-        resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.MONITORING_DISABLED, device.id), 'Monitoring is enabled again');
+      if (mode === 'SECURITY') {
+        if (monitoringDisabledSetting.enabled && device.status === MonitoringDeviceStatus.INACTIVE) {
+          detected += await this.detectAlert({
+            companyId: device.companyId,
+            employeeId: device.employeeId,
+            deviceId: device.id,
+            type: MonitoringAlertType.MONITORING_DISABLED,
+            severity: monitoringDisabledSetting.severity,
+            title: 'Monitoring disabled',
+            message: `${device.deviceName} has monitoring disabled.`,
+            deduplicationKey: this.deviceKey(device.companyId, MonitoringAlertType.MONITORING_DISABLED, device.id),
+            metadata: { deviceStatus: device.status },
+          });
+        } else {
+          resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.MONITORING_DISABLED, device.id), 'Monitoring is enabled again');
+        }
+
+        if (revokedSetting.enabled && device.status === MonitoringDeviceStatus.REVOKED) {
+          detected += await this.detectAlert({
+            companyId: device.companyId,
+            employeeId: device.employeeId,
+            deviceId: device.id,
+            type: MonitoringAlertType.DEVICE_REVOKED,
+            severity: MonitoringAlertSeverity.CRITICAL,
+            title: 'Device revoked',
+            message: `${device.deviceName} has been revoked and cannot upload monitoring data.`,
+            deduplicationKey: this.deviceKey(device.companyId, MonitoringAlertType.DEVICE_REVOKED, device.id),
+            metadata: { revokedAt: device.revokedAt?.toISOString() ?? null },
+          });
+        } else {
+          resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.DEVICE_REVOKED, device.id), 'Device is no longer revoked');
+        }
+
+        if (reregistrationSetting.enabled && device.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED) {
+          detected += await this.detectAlert({
+            companyId: device.companyId,
+            employeeId: device.employeeId,
+            deviceId: device.id,
+            type: MonitoringAlertType.REREGISTRATION_REQUIRED,
+            severity: MonitoringAlertSeverity.CRITICAL,
+            title: 'Device re-registration required',
+            message: `${device.deviceName} must be registered again before monitoring can continue.`,
+            deduplicationKey: this.deviceKey(device.companyId, MonitoringAlertType.REREGISTRATION_REQUIRED, device.id),
+            metadata: { reregistrationRequiredAt: device.reregistrationRequiredAt?.toISOString() ?? null },
+          });
+        } else {
+          resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.REREGISTRATION_REQUIRED, device.id), 'Device registration state is normal');
+        }
       }
 
-      if (mode === 'SECURITY' && revokedSetting.enabled && device.status === MonitoringDeviceStatus.REVOKED) {
-        detected += await this.detectAlert({
-          companyId: device.companyId,
-          employeeId: device.employeeId,
-          deviceId: device.id,
-          type: MonitoringAlertType.DEVICE_REVOKED,
-          severity: MonitoringAlertSeverity.CRITICAL,
-          title: 'Device revoked',
-          message: `${device.deviceName} has been revoked and cannot upload monitoring data.`,
-          deduplicationKey: this.deviceKey(device.companyId, MonitoringAlertType.DEVICE_REVOKED, device.id),
-          metadata: { revokedAt: device.revokedAt?.toISOString() ?? null },
-        });
-      } else {
-        resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.DEVICE_REVOKED, device.id), 'Device is no longer revoked');
-      }
+      // Heartbeat evaluators exclusively own DEVICE_OFFLINE and MISSING_HEARTBEAT.
+      // A security pass must not resolve alerts that a concurrent heartbeat pass
+      // has just detected, otherwise the same persistent condition is reopened on
+      // every scheduler cycle and produces duplicate user notifications.
+      if (mode !== 'HEARTBEAT') continue;
 
-      if (mode === 'SECURITY' && reregistrationSetting.enabled && device.status === MonitoringDeviceStatus.REREGISTRATION_REQUIRED) {
-        detected += await this.detectAlert({
-          companyId: device.companyId,
-          employeeId: device.employeeId,
-          deviceId: device.id,
-          type: MonitoringAlertType.REREGISTRATION_REQUIRED,
-          severity: MonitoringAlertSeverity.CRITICAL,
-          title: 'Device re-registration required',
-          message: `${device.deviceName} must be registered again before monitoring can continue.`,
-          deduplicationKey: this.deviceKey(device.companyId, MonitoringAlertType.REREGISTRATION_REQUIRED, device.id),
-          metadata: { reregistrationRequiredAt: device.reregistrationRequiredAt?.toISOString() ?? null },
-        });
-      } else {
-        resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.REREGISTRATION_REQUIRED, device.id), 'Device registration state is normal');
-      }
-
-      if (mode !== 'HEARTBEAT' || !offlineSetting.enabled || !missingSetting.enabled || suppressNonSecurity || !uploadEnabledStatuses.includes(device.status) || policy.maintenance.active) {
+      if (!offlineSetting.enabled || !missingSetting.enabled || suppressNonSecurity || !uploadEnabledStatuses.includes(device.status) || policy.maintenance.active) {
         resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.DEVICE_OFFLINE, device.id), 'Device is not expected to upload monitoring data');
         resolved += await this.autoResolve(this.deviceKey(device.companyId, MonitoringAlertType.MISSING_HEARTBEAT, device.id), 'Device is not expected to upload monitoring data');
         continue;
