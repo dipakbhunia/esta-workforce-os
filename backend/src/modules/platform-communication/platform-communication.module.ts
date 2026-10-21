@@ -10,12 +10,13 @@ import { SmtpRuntimeModule } from '../smtp-runtime/smtp-runtime.module';
 import { EmailTemplateManagementService } from './email-template-management.service';
 import { EmailTemplatePreviewService } from './email-template-preview.service';
 import { SmtpEmailVerificationBootstrapService } from './smtp-email-verification-bootstrap.service';
+import { SmtpPlatformInvitationBootstrapService } from './smtp-platform-invitation-bootstrap.service';
 
 @Module({
   imports: [DatabaseModule, NotificationsModule, SmtpRuntimeModule],
   controllers: [PlatformCommunicationController],
   providers: [PlatformCommunicationService, SmtpConfigurationLifecycleService, SmtpTestEmailService,
     SmtpConfigurationAuthorityService, EmailTemplateManagementService, EmailTemplatePreviewService,
-    SmtpEmailVerificationBootstrapService],
+    SmtpEmailVerificationBootstrapService, SmtpPlatformInvitationBootstrapService],
 })
 export class PlatformCommunicationModule {}

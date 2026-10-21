@@ -9,7 +9,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { PlatformEmailDeliveryQueryDto } from './dto/platform-email-delivery-query.dto';
 import { PlatformCommunicationController } from './platform-communication.controller';
-import { ActivateSmtpConfigurationDto, BootstrapEmailVerificationDto, CreateSmtpConfigurationDraftDto, SendSmtpTestEmailDto, TestSmtpConnectionDto, ToggleDatabaseSmtpDto, UpdateSmtpConfigurationDraftDto } from './dto/smtp-configuration.dto';
+import { ActivateSmtpConfigurationDto, BootstrapEmailVerificationDto, BootstrapPlatformInvitationDto, CreateSmtpConfigurationDraftDto, SendSmtpTestEmailDto, TestSmtpConnectionDto, ToggleDatabaseSmtpDto, UpdateSmtpConfigurationDraftDto } from './dto/smtp-configuration.dto';
 import { CreateEmailTemplateDraftDto, EmailTemplateHistoryQueryDto, PublishEmailTemplateVersionDto,
   PreviewEmailTemplateVersionDto, UpdateEmailTemplateDraftDto } from './dto/email-template.dto';
 
@@ -58,6 +58,7 @@ describe('PlatformCommunicationController', () => {
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.testEmailConfigurationConnection), 'email-configuration/versions/:id/test-connection');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.sendEmailConfigurationTestEmail), 'email-configuration/versions/:id/test-email');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.bootstrapEmailVerification), 'email-configuration/versions/:id/bootstrap-email-verification');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.bootstrapPlatformInvitation), 'email-configuration/versions/:id/bootstrap-platform-invitation');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.activateEmailConfiguration), 'email-configuration/versions/:id/activate');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.rollbackEmailConfiguration), 'email-configuration/versions/:id/rollback');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.disableDatabaseEmail), 'email-configuration/disable');
@@ -119,6 +120,18 @@ describe('PlatformCommunicationController', () => {
     for (const body of [{ revision: 0 }, { revision: 1, recipient: 'attacker@example.test' },
       { revision: 1, deliveryId: '00000000-0000-4000-8000-000000000001' }, { revision: 1, token: 'forbidden' }]) {
       await assert.rejects(() => bodyPipe.transform(body, { type: 'body', metatype: BootstrapEmailVerificationDto }), BadRequestException);
+    }
+    const invitation = { revision: 1, targetUserId: '00000000-0000-4000-8000-000000000001',
+      deliveryId: '00000000-0000-4000-8000-000000000002' };
+    await bodyPipe.transform(invitation, { type: 'body', metatype: BootstrapPlatformInvitationDto });
+    for (const body of [
+      { ...invitation, revision: 0 },
+      { ...invitation, targetUserId: 'bad' },
+      { ...invitation, deliveryId: 'bad' },
+      { ...invitation, recipient: 'attacker@example.test' },
+      { ...invitation, token: 'forbidden' },
+    ]) {
+      await assert.rejects(() => bodyPipe.transform(body, { type: 'body', metatype: BootstrapPlatformInvitationDto }), BadRequestException);
     }
     await bodyPipe.transform({ settingsRevision: 0, targetRevision: 1 }, { type: 'body', metatype: ActivateSmtpConfigurationDto });
     await assert.rejects(() => bodyPipe.transform({ settingsRevision: 0, targetRevision: 1, enabled: true },

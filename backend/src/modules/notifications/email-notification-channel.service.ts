@@ -26,6 +26,13 @@ export class StaleEmailVerificationDeliveryError extends Error {
   }
 }
 
+export class StaleAccountInvitationDeliveryError extends Error {
+  constructor() {
+    super('Account invitation is no longer eligible for delivery');
+    this.name = 'StaleAccountInvitationDeliveryError';
+  }
+}
+
 export interface PersistedEmailContent {
   type: Notification['type'];
   title: string;
@@ -176,6 +183,9 @@ export class EmailNotificationChannel {
     if (!token || !persisted || token.purpose !== expectedPurpose || token.userId !== token.user.id || token.consumedAt || token.invalidatedAt || token.expiresAt <= new Date() || token.user.deletedAt || token.user.status !== expectedStatus || token.userId !== persisted.userId || token.companyId !== token.user.companyId || token.companyId !== persisted.companyId || persisted.userId !== notification.userId || persisted.companyId !== notification.companyId || persisted.type !== notification.type || persisted.accountActionTokenId !== token.id || token.user.email.trim().toLowerCase() !== normalizedRecipient || !emailVerificationEligible || persisted.deliveries.length !== 1) {
       if (notification.type === NotificationType.EMAIL_VERIFICATION) {
         throw new StaleEmailVerificationDeliveryError();
+      }
+      if (notification.type === NotificationType.ACCOUNT_INVITATION) {
+        throw new StaleAccountInvitationDeliveryError();
       }
       throw new Error('Account action token is no longer eligible for delivery');
     }

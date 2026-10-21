@@ -72,6 +72,17 @@ describe('SMTP email verification bootstrap gate validation', () => {
   });
 });
 
+describe('SMTP platform invitation bootstrap gate validation', () => {
+  it('defaults off and accepts only boolean-compatible values', () => {
+    const absent = environmentValidationSchema.validate(base);
+    assert.equal(absent.error, undefined);
+    assert.equal(absent.value.SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED, false);
+    assert.equal(environmentValidationSchema.validate({ ...base, SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED: 'true' }).value
+      .SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED, true);
+    assert.ok(environmentValidationSchema.validate({ ...base, SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED: 'sometimes' }).error);
+  });
+});
+
 describe('public application origin validation', () => {
   it('requires an exact HTTPS origin in production', () => {
     assert.ok(validate({ NODE_ENV: 'production', PUBLIC_APP_ORIGIN: undefined }));

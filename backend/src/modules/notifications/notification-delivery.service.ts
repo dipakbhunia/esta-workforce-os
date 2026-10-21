@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Notification, NotificationChannel, NotificationDelivery, NotificationStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
-import { EmailDeliveryResult, EmailNotificationChannel, SafeEmailError, StaleEmailVerificationDeliveryError } from './email-notification-channel.service';
+import { EmailDeliveryResult, EmailNotificationChannel, SafeEmailError, StaleAccountInvitationDeliveryError, StaleEmailVerificationDeliveryError } from './email-notification-channel.service';
 import { ResolvedSmtpSnapshot } from '../smtp-runtime/smtp-runtime.types';
 import { SmtpRuntimeResolverService } from '../smtp-runtime/smtp-runtime-resolver.service';
 
@@ -114,7 +114,7 @@ export class NotificationDeliveryService {
       if (result.skipped) await this.finalizeClaimCancellation(delivery);
       else await this.finalizeClaimSuccess(delivery, result);
     } catch (error) {
-      if (error instanceof StaleEmailVerificationDeliveryError) {
+      if (error instanceof StaleEmailVerificationDeliveryError || error instanceof StaleAccountInvitationDeliveryError) {
         await this.finalizeClaimCancellation(delivery);
       } else {
         await this.finalizeClaimFailure(delivery, this.emailChannel.sanitizeError(error));

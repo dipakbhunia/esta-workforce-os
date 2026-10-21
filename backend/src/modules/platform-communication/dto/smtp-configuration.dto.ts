@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SmtpSecurityMode } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { IsEmail, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateSmtpConfigurationDraftDto {
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(253) host!: string;
@@ -40,6 +40,12 @@ export class SendSmtpTestEmailDto {
 
 export class BootstrapEmailVerificationDto {
   @ApiProperty() @Type(() => Number) @IsInt() @Min(1) revision!: number;
+}
+
+export class BootstrapPlatformInvitationDto {
+  @ApiProperty() @Type(() => Number) @IsInt() @Min(1) revision!: number;
+  @ApiProperty() @IsUUID() targetUserId!: string;
+  @ApiProperty() @IsUUID() deliveryId!: string;
 }
 
 export class ActivateSmtpConfigurationDto {
