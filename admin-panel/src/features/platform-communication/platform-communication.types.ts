@@ -9,7 +9,7 @@ export interface EmailCapability {
   fromEmailConfigured: boolean;
 }
 
-export type SmtpSecurityMode = 'PLAIN' | 'STARTTLS' | 'TLS';
+export type SmtpSecurityMode = 'IMPLICIT_TLS' | 'STARTTLS';
 export type SmtpConfigurationLifecycle = 'DRAFT' | 'VALIDATED' | 'TESTED' | 'ACTIVE' | 'REVOKED';
 
 export interface SmtpConfigurationVersion {

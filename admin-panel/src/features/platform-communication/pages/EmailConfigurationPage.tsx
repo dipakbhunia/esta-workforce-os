@@ -101,7 +101,7 @@ export default function EmailConfigurationPage() {
         <Box sx={formGrid}>
           <TextField required label="SMTP host" value={form.host} onChange={e => update('host', e.target.value)} inputProps={{ maxLength: 253 }} />
           <TextField required type="number" label="Port" value={form.port} onChange={e => update('port', e.target.value)} inputProps={{ min: 1, max: 65535 }} />
-          <TextField required select label="Security mode" value={form.securityMode} onChange={e => update('securityMode', e.target.value as SmtpSecurityMode)}><MenuItem value="PLAIN">Plain (policy restricted)</MenuItem><MenuItem value="STARTTLS">STARTTLS</MenuItem><MenuItem value="TLS">Implicit TLS</MenuItem></TextField>
+          <TextField required select label="Security mode" value={form.securityMode} onChange={e => update('securityMode', e.target.value as SmtpSecurityMode)}><MenuItem value="STARTTLS">STARTTLS</MenuItem><MenuItem value="IMPLICIT_TLS">Implicit TLS</MenuItem></TextField>
           <TextField required label="Authentication username" value={form.username} onChange={e => update('username', e.target.value)} inputProps={{ maxLength: 320 }} />
           <TextField required={!editing} type="password" label={editing ? 'New SMTP password (optional)' : 'SMTP password'} value={form.password} onChange={e => update('password', e.target.value)} autoComplete="new-password" helperText={editing ? 'Leave blank to retain the existing secret.' : 'Write-only; minimum 8 characters.'} inputProps={{ maxLength: 4096 }} />
           <TextField required type="email" label="Sender email" value={form.senderEmail} onChange={e => update('senderEmail', e.target.value)} inputProps={{ maxLength: 320 }} />

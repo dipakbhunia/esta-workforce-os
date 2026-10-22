@@ -59,12 +59,25 @@ describe('EmailConfigurationPage', () => {
     view(); await screen.findByText('Version 2');
     fireEvent.change(screen.getByLabelText(/SMTP host/), { target: { value: 'smtp.new.example' } });
     fireEvent.change(screen.getByLabelText(/Port/), { target: { value: '465' } });
+    fireEvent.mouseDown(screen.getByLabelText(/Security mode/));
+    fireEvent.click(screen.getByRole('option', { name: 'Implicit TLS' }));
     fireEvent.change(screen.getByLabelText(/Authentication username/), { target: { value: 'new-user' } });
     fireEvent.change(screen.getByLabelText(/^SMTP password/), { target: { value: 'secret-pass' } });
     fireEvent.change(screen.getByLabelText(/Sender email/), { target: { value: 'MAIL@EXAMPLE.COM' } });
     fireEvent.change(screen.getByLabelText(/Sender display name/), { target: { value: 'New Mail' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create draft' }));
-    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith({ host: 'smtp.new.example', port: 465, securityMode: 'STARTTLS', username: 'new-user', password: 'secret-pass', senderEmail: 'mail@example.com', senderDisplayName: 'New Mail' }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith({ host: 'smtp.new.example', port: 465, securityMode: 'IMPLICIT_TLS', username: 'new-user', password: 'secret-pass', senderEmail: 'mail@example.com', senderDisplayName: 'New Mail' }));
+  });
+
+  it('submits the exact STARTTLS backend enum value', async () => {
+    view(); await screen.findByText('Version 2');
+    fireEvent.change(screen.getByLabelText(/SMTP host/), { target: { value: 'smtp.starttls.example' } });
+    fireEvent.change(screen.getByLabelText(/Authentication username/), { target: { value: 'starttls-user' } });
+    fireEvent.change(screen.getByLabelText(/^SMTP password/), { target: { value: 'secret-pass' } });
+    fireEvent.change(screen.getByLabelText(/Sender email/), { target: { value: 'mail@example.com' } });
+    fireEvent.change(screen.getByLabelText(/Sender display name/), { target: { value: 'STARTTLS Mail' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ port: 587, securityMode: 'STARTTLS' })));
   });
 
   it('updates by revision without sending an empty password', async () => {
@@ -76,6 +89,20 @@ describe('EmailConfigurationPage', () => {
     await waitFor(() => expect(mocks.update).toHaveBeenCalled());
     expect(mocks.update.mock.calls[0][1]).toEqual(expect.objectContaining({ revision: 3, senderDisplayName: 'Updated Mail' }));
     expect(mocks.update.mock.calls[0][1]).not.toHaveProperty('password');
+  });
+
+  it('preserves the exact IMPLICIT_TLS enum while editing a draft', async () => {
+    const implicit = { ...version, port: 465, securityMode: 'IMPLICIT_TLS' as const };
+    mocks.get.mockResolvedValue({ data: { settings, latestVersion: implicit } });
+    mocks.list.mockResolvedValue({ data: { data: [implicit], meta: { page: 1, limit: 100, total: 1, totalPages: 1 } } });
+    mocks.update.mockResolvedValue({ data: { ...implicit, revision: 4 } });
+    view(); await screen.findByText('Version 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByLabelText(/Security mode/)).toHaveTextContent('Implicit TLS');
+    fireEvent.click(screen.getByRole('button', { name: 'Save revision' }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(implicit.id, expect.objectContaining({
+      revision: 3, port: 465, securityMode: 'IMPLICIT_TLS',
+    })));
   });
 
   it('uses lifecycle eligibility for validation, connection testing, and restricted test email', async () => {
