@@ -148,6 +148,7 @@ export class SmtpConfigurationLifecycleService {
 
     const testedAt = new Date();
     const persisted = await this.prisma.$transaction(async (tx) => {
+      await requireNoInFlightSmtpBootstrap(tx);
       const changed = await tx.smtpConfigurationVersion.updateMany({
         where: { id, revision: snapshot.revision, lifecycle: SmtpConfigurationLifecycle.VALIDATED,
           firstActivatedAt: null, revokedAt: null },

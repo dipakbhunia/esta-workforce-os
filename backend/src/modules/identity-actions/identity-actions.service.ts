@@ -11,6 +11,10 @@ import {
   verifyAccountActionTokenSignature,
   verifyEmailVerificationTokenSignature,
 } from '../../common/utils/account-action-token.util';
+import {
+  acquireInvitationAuthorityLock,
+  requireNoUnresolvedPlatformInvitationDispatch,
+} from '../../common/utils/platform-invitation-authority.util';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
@@ -47,12 +51,16 @@ export class IdentityActionsService {
     if (input.purpose === AccountActionTokenPurpose.EMAIL_VERIFICATION) {
       throw new Error('Email verification tokens require current-address binding');
     }
+    if (input.purpose === AccountActionTokenPurpose.INVITATION) {
+      await acquireInvitationAuthorityLock(tx, input.userId);
+      await requireNoUnresolvedPlatformInvitationDispatch(tx, input.userId);
+    }
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`account-action:${input.userId}:${input.purpose}`}, 0))::text`;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.ttlMilliseconds(input.purpose));
     const id = randomUUID();
     const material = { id, purpose: input.purpose, userId: input.userId, expiresAt };
     const token = buildAccountActionToken(material, this.tokenSecret());
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`account-action:${input.userId}:${input.purpose}`}, 0))::text`;
     await tx.accountActionToken.updateMany({
       where: { userId: input.userId, purpose: input.purpose, consumedAt: null, invalidatedAt: null, expiresAt: { gt: now } },
       data: { invalidatedAt: now },

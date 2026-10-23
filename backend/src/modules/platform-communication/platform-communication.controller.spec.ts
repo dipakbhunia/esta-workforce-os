@@ -59,6 +59,8 @@ describe('PlatformCommunicationController', () => {
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.sendEmailConfigurationTestEmail), 'email-configuration/versions/:id/test-email');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.bootstrapEmailVerification), 'email-configuration/versions/:id/bootstrap-email-verification');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.bootstrapPlatformInvitation), 'email-configuration/versions/:id/bootstrap-platform-invitation');
+    assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getPlatformInvitationBootstrapEligibility),
+      'platform-invitations/users/:targetUserId/bootstrap-eligibility');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.activateEmailConfiguration), 'email-configuration/versions/:id/activate');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.rollbackEmailConfiguration), 'email-configuration/versions/:id/rollback');
     assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.disableDatabaseEmail), 'email-configuration/disable');

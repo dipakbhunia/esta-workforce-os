@@ -29,11 +29,12 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
   let roleId: string;
   let createdRole = false;
   let configurationId: string;
+  const configurationIds: string[] = [];
 
   before(async () => {
     await prisma.$connect();
     const database = await prisma.$queryRaw<Array<{ name: string }>>`SELECT current_database() AS name`;
-    assert.match(database[0]?.name ?? '', /^esta_email_qa_3c4h_[a-z0-9_]+$/);
+    assert.match(database[0]?.name ?? '', /^esta_email_qa_3c4(?:h|p8)_[a-z0-9_]+$/);
     const existingRole = await prisma.role.findFirst({ where: { companyId: null, systemName: RoleName.SUPER_ADMIN, deletedAt: null } });
     if (existingRole) roleId = existingRole.id;
     else {
@@ -58,6 +59,7 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
       connectionTestResultCode: 'SUCCESS',
     } });
     configurationId = configuration.id;
+    configurationIds.push(configuration.id);
   });
 
   after(async () => {
@@ -66,10 +68,19 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
     await prisma.notification.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.accountActionToken.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
-    await prisma.smtpConfigurationVersion.delete({ where: { id: configurationId } });
+    await prisma.smtpConfigurationVersion.deleteMany({ where: { id: { in: configurationIds } } });
     if (createdRole) await prisma.role.delete({ where: { id: roleId } });
     await prisma.$disconnect();
   });
+
+  function identityService() {
+    const notifications = new NotificationsService(prisma as never,
+      new NotificationRecipientResolver(prisma as never), {} as never, {} as never);
+    return new IdentityActionsService(prisma as never, {
+      get: (key: string, fallback?: unknown) => key === 'IDENTITY_ACTION_TOKEN_SECRET' ? secret : fallback,
+      getOrThrow: () => secret,
+    } as never, notifications);
+  }
 
   async function createActorAndInvitation(label: string) {
     const actorId = randomUUID();
@@ -81,12 +92,7 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
     await prisma.user.create({ data: { id: targetUserId, email: targetEmail, passwordHash: 'integration-only',
       firstName: 'Target', lastName: label, status: UserStatus.INACTIVE, roles: { create: { roleId } } } });
     userIds.push(actorId, targetUserId);
-    const notifications = new NotificationsService(prisma as never,
-      new NotificationRecipientResolver(prisma as never), {} as never, {} as never);
-    const identity = new IdentityActionsService(prisma as never, {
-      get: (key: string, fallback?: unknown) => key === 'IDENTITY_ACTION_TOKEN_SECRET' ? secret : fallback,
-      getOrThrow: () => secret,
-    } as never, notifications);
+    const identity = identityService();
     const token = await prisma.$transaction((tx) => identity.issueTokenInTransaction(tx, {
       purpose: AccountActionTokenPurpose.INVITATION,
       userId: targetUserId,
@@ -104,6 +110,30 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
     return { actor, targetUserId, targetEmail, deliveryId: invitation.deliveries[0].id };
   }
 
+  async function createSecondEligibleInvitation(targetUserId: string, targetEmail: string, actorId: string) {
+    const token = await prisma.accountActionToken.create({ data: {
+      purpose: AccountActionTokenPurpose.INVITATION,
+      userId: targetUserId,
+      companyId: null,
+      tokenHash: randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', ''),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      createdByUserId: actorId,
+    } });
+    const notification = await prisma.notification.create({ data: {
+      userId: targetUserId,
+      companyId: null,
+      type: NotificationType.ACCOUNT_INVITATION,
+      channel: NotificationChannel.EMAIL,
+      title: 'Second current invitation',
+      message: 'Synthetic ambiguity fixture.',
+      status: NotificationStatus.PENDING,
+      idempotencyKey: `email-qa-3c4p6-invitation:${token.id}`,
+      accountActionTokenId: token.id,
+      deliveries: { create: { channel: NotificationChannel.EMAIL, recipient: targetEmail } },
+    }, include: { deliveries: true } });
+    return notification.deliveries[0].id;
+  }
+
   function service(send: (notification: { type: NotificationType }, recipient: string) => Promise<{ skipped: boolean; providerMessageId?: string }>) {
     return new SmtpPlatformInvitationBootstrapService(
       prisma as never,
@@ -112,6 +142,26 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
       { send, sanitizeError: () => ({ code: 'SMTP_UNKNOWN', message: 'Email delivery failed.' }),
         isDefinitiveNonAcceptance: () => false } as never,
     );
+  }
+
+  async function createEligibleConfiguration() {
+    const configuration = await prisma.smtpConfigurationVersion.create({ data: {
+      lifecycle: SmtpConfigurationLifecycle.TESTED,
+      host: 'smtp-secondary.example.test',
+      port: 587,
+      securityMode: SmtpSecurityMode.STARTTLS,
+      username: 'secondary-mailer',
+      encryptedPassword: Uint8Array.from([4, 5, 6]),
+      encryptionKeyId: 'test-key',
+      senderEmail: 'secondary@example.test',
+      senderDisplayName: 'Secondary Sender',
+      structurallyValidatedAt: new Date(),
+      connectionTestedAt: new Date(),
+      connectionTestSucceeded: true,
+      connectionTestResultCode: 'SUCCESS',
+    } });
+    configurationIds.push(configuration.id);
+    return configuration;
   }
 
   it('atomically sends one exact platform invitation and preserves an unrelated pending monitoring delivery', async () => {
@@ -168,5 +218,203 @@ describeDb('EMAIL-QA.3C.4H PostgreSQL restricted platform invitation bootstrap',
     const delivery = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: second.deliveryId } });
     assert.equal(delivery.status, NotificationStatus.PENDING);
     assert.equal(delivery.attemptCount, 0);
+  });
+
+  it('rejects two genuinely eligible invitations for one target before reservation or transport', async () => {
+    const fixture = await createActorAndInvitation('invitation-ambiguous-reservation');
+    const secondDeliveryId = await createSecondEligibleInvitation(
+      fixture.targetUserId,
+      fixture.targetEmail,
+      fixture.actor.id,
+    );
+    let sends = 0;
+    const revision = (await prisma.smtpConfigurationVersion.findUniqueOrThrow({ where: { id: configurationId } })).revision;
+    await assert.rejects(() => service(async () => { sends += 1; return { skipped: false }; })
+      .send(configurationId, { revision, targetUserId: fixture.targetUserId, deliveryId: fixture.deliveryId }, fixture.actor), /ambiguous/i);
+    assert.equal(sends, 0);
+    for (const id of [fixture.deliveryId, secondDeliveryId]) {
+      const delivery = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id } });
+      assert.equal(delivery.status, NotificationStatus.PENDING);
+      assert.equal(delivery.attemptCount, 0);
+      assert.equal(delivery.claimToken, null);
+    }
+  });
+
+  it('blocks transport when a second eligible invitation appears before pre-send revalidation', async () => {
+    const fixture = await createActorAndInvitation('invitation-ambiguous-presend');
+    let sends = 0;
+    const value = service(async () => { sends += 1; return { skipped: false }; });
+    const internals = value as unknown as { revalidateBeforeSend: (...args: unknown[]) => Promise<void> };
+    const original = internals.revalidateBeforeSend.bind(value);
+    internals.revalidateBeforeSend = async (...args: unknown[]) => {
+      await createSecondEligibleInvitation(fixture.targetUserId, fixture.targetEmail, fixture.actor.id);
+      await original(...args);
+    };
+    const revision = (await prisma.smtpConfigurationVersion.findUniqueOrThrow({ where: { id: configurationId } })).revision;
+    await assert.rejects(() => value.send(configurationId,
+      { revision, targetUserId: fixture.targetUserId, deliveryId: fixture.deliveryId }, fixture.actor), /authority changed before delivery/i);
+    assert.equal(sends, 0);
+    const delivery = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: fixture.deliveryId } });
+    assert.equal(delivery.status, NotificationStatus.PENDING);
+    assert.equal(delivery.attemptCount, 1);
+    assert.equal(delivery.errorCode, 'SMTP_BOOTSTRAP_AUTHORITY_CHANGED');
+  });
+
+  it('rejects ambiguous SMTP authority before reserving the selected delivery', async () => {
+    const fixture = await createActorAndInvitation('smtp-ambiguous-reservation');
+    const extra = await createEligibleConfiguration();
+    let sends = 0;
+    try {
+      const revision = (await prisma.smtpConfigurationVersion.findUniqueOrThrow({ where: { id: configurationId } })).revision;
+      await assert.rejects(() => service(async () => { sends += 1; return { skipped: false }; })
+        .send(configurationId, { revision, targetUserId: fixture.targetUserId, deliveryId: fixture.deliveryId }, fixture.actor));
+      const delivery = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: fixture.deliveryId } });
+      assert.equal(sends, 0);
+      assert.equal(delivery.status, NotificationStatus.PENDING);
+      assert.equal(delivery.attemptCount, 0);
+    } finally {
+      await prisma.smtpConfigurationVersion.delete({ where: { id: extra.id } });
+      configurationIds.splice(configurationIds.indexOf(extra.id), 1);
+    }
+  });
+
+  it('rejects authority that becomes ambiguous before transport', async () => {
+    const fixture = await createActorAndInvitation('smtp-ambiguous-presend');
+    let sends = 0;
+    const value = service(async () => { sends += 1; return { skipped: false }; });
+    const internals = value as unknown as { revalidateBeforeSend: (...args: unknown[]) => Promise<void> };
+    const original = internals.revalidateBeforeSend.bind(value);
+    let extra: Awaited<ReturnType<typeof createEligibleConfiguration>> | undefined;
+    internals.revalidateBeforeSend = async (...args: unknown[]) => {
+      extra = await createEligibleConfiguration();
+      await original(...args);
+    };
+    try {
+      const revision = (await prisma.smtpConfigurationVersion.findUniqueOrThrow({ where: { id: configurationId } })).revision;
+      await assert.rejects(() => value.send(configurationId,
+        { revision, targetUserId: fixture.targetUserId, deliveryId: fixture.deliveryId }, fixture.actor), /authority changed before delivery/i);
+      assert.equal(sends, 0);
+      const delivery = await prisma.notificationDelivery.findUniqueOrThrow({ where: { id: fixture.deliveryId } });
+      assert.equal(delivery.status, NotificationStatus.PENDING);
+      assert.equal(delivery.attemptCount, 1);
+      assert.equal(delivery.errorCode, 'SMTP_BOOTSTRAP_AUTHORITY_CHANGED');
+    } finally {
+      if (extra) {
+        await prisma.smtpConfigurationVersion.delete({ where: { id: extra.id } });
+        configurationIds.splice(configurationIds.indexOf(extra.id), 1);
+      }
+    }
+  });
+
+  it('prevents replacement issuance after reservation commits and permits it only after definitive completion', async () => {
+    const fixture = await createActorAndInvitation('issuance-fenced');
+    let validationReached!: () => void;
+    let releaseValidation!: () => void;
+    const atValidation = new Promise<void>((resolve) => { validationReached = resolve; });
+    const release = new Promise<void>((resolve) => { releaseValidation = resolve; });
+    let sends = 0;
+    const value = service(async () => { sends += 1; return { skipped: false, providerMessageId: 'fenced-provider-id' }; });
+    const internals = value as unknown as { revalidateBeforeSend: (...args: unknown[]) => Promise<void> };
+    const original = internals.revalidateBeforeSend.bind(value);
+    internals.revalidateBeforeSend = async (...args: unknown[]) => {
+      await original(...args);
+      validationReached();
+      await release;
+    };
+    const revision = (await prisma.smtpConfigurationVersion.findUniqueOrThrow({ where: { id: configurationId } })).revision;
+    const dispatch = value.send(configurationId,
+      { revision, targetUserId: fixture.targetUserId, deliveryId: fixture.deliveryId }, fixture.actor);
+    await atValidation;
+
+    const currentBefore = await prisma.accountActionToken.findFirstOrThrow({ where: {
+      userId: fixture.targetUserId,
+      purpose: AccountActionTokenPurpose.INVITATION,
+      invalidatedAt: null,
+    } });
+    await assert.rejects(() => prisma.$transaction((tx) => identityService().issueTokenInTransaction(tx, {
+      purpose: AccountActionTokenPurpose.INVITATION,
+      userId: fixture.targetUserId,
+      companyId: null,
+      createdByUserId: fixture.actor.id,
+    })), /temporarily unavailable/i);
+    const stillCurrent = await prisma.accountActionToken.findUniqueOrThrow({ where: { id: currentBefore.id } });
+    assert.equal(stillCurrent.invalidatedAt, null);
+    assert.equal(sends, 0);
+
+    releaseValidation();
+    await dispatch;
+    assert.equal(sends, 1);
+    const replacement = await prisma.$transaction((tx) => identityService().issueTokenInTransaction(tx, {
+      purpose: AccountActionTokenPurpose.INVITATION,
+      userId: fixture.targetUserId,
+      companyId: null,
+      createdByUserId: fixture.actor.id,
+    }));
+    assert.notEqual(replacement.id, currentBefore.id);
+    assert.ok((await prisma.accountActionToken.findUniqueOrThrow({ where: { id: currentBefore.id } })).invalidatedAt);
+  });
+
+  it('keeps uncertain provider acceptance fenced against reinvitation', async () => {
+    const fixture = await createActorAndInvitation('issuance-uncertain');
+    const revision = (await prisma.smtpConfigurationVersion.findUniqueOrThrow({ where: { id: configurationId } })).revision;
+    await assert.rejects(() => service(async () => { throw new Error('synthetic acceptance uncertainty'); })
+      .send(configurationId, { revision, targetUserId: fixture.targetUserId, deliveryId: fixture.deliveryId }, fixture.actor),
+    /automatic retry is unsafe/i);
+    await assert.rejects(() => prisma.$transaction((tx) => identityService().issueTokenInTransaction(tx, {
+      purpose: AccountActionTokenPurpose.INVITATION,
+      userId: fixture.targetUserId,
+      companyId: null,
+      createdByUserId: fixture.actor.id,
+    })), /temporarily unavailable/i);
+    const liveTokens = await prisma.accountActionToken.count({ where: {
+      userId: fixture.targetUserId,
+      purpose: AccountActionTokenPurpose.INVITATION,
+      invalidatedAt: null,
+      consumedAt: null,
+    } });
+    assert.equal(liveTokens, 1);
+  });
+
+  it('serializes competing invitation issuance and leaves exactly one current authority', async () => {
+    const fixture = await createActorAndInvitation('issuance-concurrent');
+    const issue = () => prisma.$transaction((tx) => identityService().issueTokenInTransaction(tx, {
+      purpose: AccountActionTokenPurpose.INVITATION,
+      userId: fixture.targetUserId,
+      companyId: null,
+      createdByUserId: fixture.actor.id,
+    }));
+    const replacements = await Promise.all([issue(), issue()]);
+    assert.notEqual(replacements[0].id, replacements[1].id);
+    const live = await prisma.accountActionToken.findMany({ where: {
+      userId: fixture.targetUserId,
+      purpose: AccountActionTokenPurpose.INVITATION,
+      invalidatedAt: null,
+      consumedAt: null,
+    } });
+    assert.equal(live.length, 1);
+    assert.ok(replacements.some(({ id }) => id === live[0].id));
+  });
+
+  it('fails closed on malformed target dispatch evidence without mutating invitation tokens', async () => {
+    const fixture = await createActorAndInvitation('issuance-malformed-fence');
+    const current = await prisma.accountActionToken.findFirstOrThrow({ where: {
+      userId: fixture.targetUserId,
+      purpose: AccountActionTokenPurpose.INVITATION,
+      invalidatedAt: null,
+    } });
+    await prisma.auditLog.create({ data: {
+      actorUserId: fixture.actor.id,
+      action: 'SMTP_PLATFORM_INVITATION_BOOTSTRAP_STARTED',
+      entityType: 'SmtpConfigurationVersion',
+      entityId: configurationId,
+      metadata: { targetUserId: fixture.targetUserId },
+    } });
+    await assert.rejects(() => prisma.$transaction((tx) => identityService().issueTokenInTransaction(tx, {
+      purpose: AccountActionTokenPurpose.INVITATION,
+      userId: fixture.targetUserId,
+      companyId: null,
+      createdByUserId: fixture.actor.id,
+    })), /temporarily unavailable/i);
+    assert.equal((await prisma.accountActionToken.findUniqueOrThrow({ where: { id: current.id } })).invalidatedAt, null);
   });
 });

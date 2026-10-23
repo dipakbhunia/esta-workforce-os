@@ -6,11 +6,14 @@ import {
   NotificationStatus,
   Prisma,
   RoleName,
-  SmtpConfigurationLifecycle,
   UserStatus,
 } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
+import {
+  acquireInvitationAuthorityLock,
+  requireNoUnresolvedPlatformInvitationDispatch,
+} from '../../common/utils/platform-invitation-authority.util';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import {
   EmailNotificationChannel,
@@ -24,6 +27,8 @@ import {
   SMTP_INVITATION_BOOTSTRAP_COMPLETED,
   SMTP_INVITATION_BOOTSTRAP_STARTED,
 } from './smtp-bootstrap-dispatch-fence';
+import { acquireExclusiveSmtpAuthorityLock } from './smtp-authority-lock';
+import { selectEligibleSmtpPlatformInvitationConfiguration } from './smtp-platform-invitation-configuration';
 
 const MAX_ATTEMPTS = 5;
 const LEASE_MILLISECONDS = 5 * 60_000;
@@ -136,9 +141,8 @@ export class SmtpPlatformInvitationBootstrapService {
   ): Promise<ReservedDelivery> {
     return this.prisma.$transaction(async (tx) => {
       await requireNoInFlightSmtpBootstrap(tx, configurationId);
-      await tx.$queryRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${`smtp-platform-invitation-bootstrap:${actorId}:${dto.targetUserId}`}, 0)) IS NULL AS "acquired"
-      `);
+      await acquireInvitationAuthorityLock(tx, dto.targetUserId);
+      await requireNoUnresolvedPlatformInvitationDispatch(tx, dto.targetUserId);
       const now = new Date();
       this.requireActor(await this.findUser(tx, actorId));
       const target = this.requireTarget(await this.findUser(tx, dto.targetUserId));
@@ -146,8 +150,12 @@ export class SmtpPlatformInvitationBootstrapService {
       if (settings?.databaseAuthorityEstablishedAt || settings?.activeConfigurationVersionId || settings?.enabled) {
         throw new ConflictException('Platform invitation bootstrap is unavailable after database SMTP authority is established');
       }
-      const configuration = await tx.smtpConfigurationVersion.findUnique({ where: { id: configurationId } });
-      this.requireConfiguration(configuration, dto.revision);
+      const configuration = await this.requireSelectedConfiguration(tx, configurationId, dto.revision);
+      const credential = await tx.smtpConfigurationVersion.findUnique({
+        where: { id: configuration.id },
+        select: { encryptedPassword: true, encryptionKeyId: true },
+      });
+      if (!credential) throw new ConflictException('SMTP configuration is not eligible for platform invitation bootstrap');
       const attempts = await tx.auditLog.count({ where: {
         actorUserId: actorId,
         action: SMTP_INVITATION_BOOTSTRAP_STARTED,
@@ -161,8 +169,7 @@ export class SmtpPlatformInvitationBootstrapService {
         FROM "NotificationDelivery" AS delivery
         JOIN "Notification" AS notification ON notification."id" = delivery."notificationId"
         JOIN "AccountActionToken" AS token ON token."id" = notification."accountActionTokenId"
-        WHERE delivery."id" = ${dto.deliveryId}::uuid
-          AND delivery."channel" = 'EMAIL'::"NotificationChannel"
+        WHERE delivery."channel" = 'EMAIL'::"NotificationChannel"
           AND delivery."status" = 'PENDING'::"NotificationStatus"
           AND delivery."attemptCount" < ${MAX_ATTEMPTS}
           AND (delivery."nextRetryAt" IS NULL OR delivery."nextRetryAt" <= ${now})
@@ -184,6 +191,9 @@ export class SmtpPlatformInvitationBootstrapService {
         throw new ConflictException(candidates.length
           ? 'Platform invitation delivery selection is ambiguous'
           : 'No eligible platform invitation delivery exists');
+      }
+      if (candidates[0].id !== dto.deliveryId) {
+        throw new ConflictException('Selected platform invitation delivery is not the current eligible delivery');
       }
 
       const claimToken = randomUUID();
@@ -231,8 +241,8 @@ export class SmtpPlatformInvitationBootstrapService {
           senderEmail: configuration.senderEmail,
           senderDisplayName: configuration.senderDisplayName,
         }),
-        encryptedPassword: configuration.encryptedPassword,
-        encryptionKeyId: configuration.encryptionKeyId,
+        encryptedPassword: credential.encryptedPassword,
+        encryptionKeyId: credential.encryptionKeyId,
         configurationVersion: configuration.version,
       };
     });
@@ -245,13 +255,14 @@ export class SmtpPlatformInvitationBootstrapService {
     claimed: ClaimedDelivery,
   ) {
     await this.prisma.$transaction(async (tx) => {
+      await acquireExclusiveSmtpAuthorityLock(tx);
       await tx.$queryRaw(Prisma.sql`
         SELECT "id" FROM "User" WHERE "id" IN (${actorId}::uuid, ${dto.targetUserId}::uuid) ORDER BY "id" FOR UPDATE
       `);
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "SmtpConfigurationVersion" WHERE "id" = ${configurationId}::uuid FOR UPDATE`);
       this.requireActor(await this.findUser(tx, actorId));
       const target = this.requireTarget(await this.findUser(tx, dto.targetUserId));
-      this.requireConfiguration(await tx.smtpConfigurationVersion.findUnique({ where: { id: configurationId } }), dto.revision);
+      await this.requireSelectedConfiguration(tx, configurationId, dto.revision);
       const settings = await tx.platformEmailSettings.findUnique({ where: { scope: 'PLATFORM' } });
       if (settings?.databaseAuthorityEstablishedAt || settings?.activeConfigurationVersionId || settings?.enabled) {
         throw new ConflictException('Database SMTP authority changed before invitation delivery');
@@ -262,12 +273,7 @@ export class SmtpPlatformInvitationBootstrapService {
         FROM "NotificationDelivery" AS delivery
         JOIN "Notification" AS notification ON notification."id" = delivery."notificationId"
         JOIN "AccountActionToken" AS token ON token."id" = notification."accountActionTokenId"
-        WHERE delivery."id" = ${claimed.id}::uuid
-          AND delivery."status" = 'FAILED'::"NotificationStatus"
-          AND delivery."errorCode" = ${ACCEPTANCE_UNCERTAIN}
-          AND delivery."claimToken" = ${claimed.claimToken}::uuid
-          AND delivery."claimExpiresAt" > NOW()
-          AND delivery."recipient" = ${recipient}
+        WHERE delivery."recipient" = ${recipient}
           AND notification."type" = 'ACCOUNT_INVITATION'::"NotificationType"
           AND notification."userId" = ${target.id}::uuid
           AND notification."companyId" IS NULL
@@ -277,9 +283,24 @@ export class SmtpPlatformInvitationBootstrapService {
           AND token."consumedAt" IS NULL
           AND token."invalidatedAt" IS NULL
           AND token."expiresAt" > NOW()
+          AND (
+            (delivery."id" = ${claimed.id}::uuid
+              AND delivery."status" = 'FAILED'::"NotificationStatus"
+              AND delivery."errorCode" = ${ACCEPTANCE_UNCERTAIN}
+              AND delivery."claimToken" = ${claimed.claimToken}::uuid
+              AND delivery."claimExpiresAt" > NOW())
+            OR
+            (delivery."status" = 'PENDING'::"NotificationStatus"
+              AND delivery."attemptCount" < ${MAX_ATTEMPTS}
+              AND (delivery."nextRetryAt" IS NULL OR delivery."nextRetryAt" <= NOW())
+              AND (delivery."claimToken" IS NULL OR delivery."claimExpiresAt" <= NOW()))
+          )
         FOR UPDATE OF delivery
+        LIMIT 2
       `);
-      if (current.length !== 1) throw new ConflictException('Platform invitation delivery claim expired or authority changed');
+      if (current.length !== 1 || current[0].id !== claimed.id) {
+        throw new ConflictException('Platform invitation delivery claim expired or authority changed');
+      }
     });
   }
 
@@ -315,16 +336,13 @@ export class SmtpPlatformInvitationBootstrapService {
     return target;
   }
 
-  private requireConfiguration(
-    configuration: Awaited<ReturnType<Prisma.TransactionClient['smtpConfigurationVersion']['findUnique']>>,
-    revision: number,
-  ): asserts configuration {
-    if (!configuration || configuration.revision !== revision || configuration.lifecycle !== SmtpConfigurationLifecycle.TESTED ||
-      configuration.revokedAt || configuration.firstActivatedAt || !configuration.structurallyValidatedAt ||
-      !configuration.connectionTestedAt || configuration.connectionTestSucceeded !== true ||
-      configuration.connectionTestResultCode !== 'SUCCESS') {
+  private async requireSelectedConfiguration(tx: Prisma.TransactionClient, configurationId: string, revision: number) {
+    const selection = await selectEligibleSmtpPlatformInvitationConfiguration(tx);
+    if (selection.kind !== 'UNIQUE' || selection.configuration.id !== configurationId ||
+      selection.configuration.revision !== revision) {
       throw new ConflictException('SMTP configuration is not eligible for platform invitation bootstrap');
     }
+    return selection.configuration;
   }
 
   private finalizeSuccess(claimed: ClaimedDelivery, providerMessageId: string | null) {

@@ -20,6 +20,8 @@ import { EmailTemplateManagementService } from './email-template-management.serv
 import { EmailTemplatePreviewService } from './email-template-preview.service';
 import { SmtpEmailVerificationBootstrapService } from './smtp-email-verification-bootstrap.service';
 import { SmtpPlatformInvitationBootstrapService } from './smtp-platform-invitation-bootstrap.service';
+import { SmtpPlatformInvitationEligibilityService } from './smtp-platform-invitation-eligibility.service';
+import { PlatformInvitationBootstrapEligibilityResponseDto } from './dto/platform-invitation-bootstrap-eligibility.dto';
 
 @ApiTags('Platform Communication')
 @ApiBearerAuth()
@@ -31,7 +33,8 @@ export class PlatformCommunicationController {
     private readonly smtpTestEmail: SmtpTestEmailService, private readonly smtpAuthority: SmtpConfigurationAuthorityService,
     private readonly templates: EmailTemplateManagementService, private readonly templatePreview: EmailTemplatePreviewService,
     private readonly smtpVerificationBootstrap: SmtpEmailVerificationBootstrapService,
-    private readonly smtpInvitationBootstrap: SmtpPlatformInvitationBootstrapService) {}
+    private readonly smtpInvitationBootstrap: SmtpPlatformInvitationBootstrapService,
+    private readonly smtpInvitationEligibility: SmtpPlatformInvitationEligibilityService) {}
 
   @Get('email-capability')
   @ApiOkResponse({ type: PlatformEmailCapabilityResponseDto })
@@ -79,6 +82,11 @@ export class PlatformCommunicationController {
   @Post('email-configuration/versions/:id/bootstrap-platform-invitation')
   bootstrapPlatformInvitation(@Param('id', ParseUUIDPipe) id: string, @Body() dto: BootstrapPlatformInvitationDto,
     @CurrentUser() actor: AuthenticatedUser) { return this.smtpInvitationBootstrap.send(id, dto, actor); }
+
+  @Get('platform-invitations/users/:targetUserId/bootstrap-eligibility')
+  @ApiOkResponse({ type: PlatformInvitationBootstrapEligibilityResponseDto })
+  getPlatformInvitationBootstrapEligibility(@Param('targetUserId', ParseUUIDPipe) targetUserId: string,
+    @CurrentUser() actor: AuthenticatedUser) { return this.smtpInvitationEligibility.get(targetUserId, actor); }
 
   @Post('email-configuration/versions/:id/activate')
   activateEmailConfiguration(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ActivateSmtpConfigurationDto,

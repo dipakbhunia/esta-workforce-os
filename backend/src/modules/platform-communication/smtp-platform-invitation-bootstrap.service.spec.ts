@@ -82,12 +82,16 @@ function harness(options: {
   actor?: ReturnType<typeof user> | null;
   target?: ReturnType<typeof user> | null;
   config?: ReturnType<typeof configuration>;
+  configurations?: Array<ReturnType<typeof configuration>>;
+  configurationSelections?: Array<Array<ReturnType<typeof configuration>>>;
   settings?: Record<string, unknown> | null;
   candidates?: Array<{ id: string }>;
+  candidateSelections?: Array<Array<{ id: string }>>;
   sendError?: unknown;
   definitiveFailure?: boolean;
   rateCount?: number;
   failCompletionAudit?: boolean;
+  unresolvedInvitationFence?: boolean;
 } = {}) {
   const audits: Array<Record<string, unknown>> = [];
   const changedDeliveryIds: string[] = [];
@@ -112,11 +116,34 @@ function harness(options: {
     updatedAt: new Date(),
     notification,
   };
+  let configurationSelection = 0;
+  let candidateSelection = 0;
+  const eligibleConfigurations = () => {
+    if (options.configurationSelections) {
+      const selected = options.configurationSelections[Math.min(configurationSelection, options.configurationSelections.length - 1)] ?? [];
+      configurationSelection += 1;
+      return selected;
+    }
+    return (options.configurations ?? [options.config ?? configuration()]).filter((candidate) =>
+      candidate.lifecycle === SmtpConfigurationLifecycle.TESTED && !candidate.revokedAt && !candidate.firstActivatedAt &&
+      candidate.structurallyValidatedAt && candidate.connectionTestedAt && candidate.connectionTestSucceeded === true &&
+      candidate.connectionTestResultCode === 'SUCCESS');
+  };
   const tx = {
     $executeRawUnsafe: async () => 0,
     $queryRaw: async (query: { strings?: readonly string[] }) => {
       const sql = query.strings?.join('') ?? '';
-      if (sql.includes('FROM "NotificationDelivery"')) return options.candidates ?? [{ id: deliveryId }];
+      if (sql.includes('FROM "AuditLog" AS started')) {
+        return options.unresolvedInvitationFence ? [{ id: 'unresolved-dispatch' }] : [];
+      }
+      if (sql.includes('FROM "NotificationDelivery"')) {
+        if (options.candidateSelections) {
+          const selected = options.candidateSelections[Math.min(candidateSelection, options.candidateSelections.length - 1)] ?? [];
+          candidateSelection += 1;
+          return selected;
+        }
+        return options.candidates ?? [{ id: deliveryId }];
+      }
       return [];
     },
     auditLog: {
@@ -133,7 +160,8 @@ function harness(options: {
       ? (options.actor === undefined ? user(actorId) : options.actor)
       : (options.target === undefined ? user(targetUserId) : options.target) },
     platformEmailSettings: { findUnique: async () => options.settings ?? null },
-    smtpConfigurationVersion: { findUnique: async () => options.config ?? configuration() },
+    smtpConfigurationVersion: { findMany: async () => eligibleConfigurations(),
+      findUnique: async () => ({ encryptedPassword: configuration().encryptedPassword, encryptionKeyId: configuration().encryptionKeyId }) },
     notificationDelivery: {
       updateMany: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         changedDeliveryIds.push(where.id);
@@ -210,6 +238,30 @@ describe('SmtpPlatformInvitationBootstrapService', () => {
     }
   });
 
+  it('requires one unique server-selected SMTP configuration before reserving delivery', async () => {
+    const second = configuration({ id: '00000000-0000-4000-8000-000000000099', version: 8 });
+    for (const value of [
+      harness({ configurations: [] }),
+      harness({ configurations: [configuration(), second] }),
+      harness({ configurations: [configuration({ id: second.id })] }),
+      harness({ configurations: [configuration({ revision: dto.revision + 1 })] }),
+    ]) {
+      await assert.rejects(() => value.service.send(configurationId, dto, authenticated), ConflictException);
+      assert.equal(value.sent(), undefined);
+      assert.equal(value.changedDeliveryIds.length, 0);
+    }
+  });
+
+  it('revalidates uniqueness immediately before transport', async () => {
+    const second = configuration({ id: '00000000-0000-4000-8000-000000000099', version: 8 });
+    const value = harness({ configurationSelections: [[configuration()], [configuration(), second]] });
+    await assert.rejects(() => value.service.send(configurationId, dto, authenticated), /authority changed before delivery/i);
+    assert.equal(value.sent(), undefined);
+    assert.equal(value.changedDeliveryIds.every((id) => id === deliveryId), true);
+    assert.equal(value.deliveryUpdates[0]?.errorCode, 'SMTP_ACCEPTANCE_UNCERTAIN');
+    assert.equal(value.deliveryUpdates.at(-1)?.errorCode, 'SMTP_BOOTSTRAP_AUTHORITY_CHANGED');
+  });
+
   it('rejects missing or ambiguous exact delivery selection and durable rate exhaustion', async () => {
     for (const candidates of [[], [{ id: deliveryId }, { id: '00000000-0000-4000-8000-000000000099' }]]) {
       const value = harness({ candidates });
@@ -218,6 +270,41 @@ describe('SmtpPlatformInvitationBootstrapService', () => {
       assert.equal(value.changedDeliveryIds.length, 0);
     }
     await assert.rejects(() => harness({ rateCount: 3 }).service.send(configurationId, dto, authenticated), ServiceUnavailableException);
+  });
+
+  it('rejects an unresolved target dispatch fence before reservation or transport', async () => {
+    const value = harness({ unresolvedInvitationFence: true });
+    await assert.rejects(
+      () => value.service.send(configurationId, dto, authenticated),
+      /unresolved|unavailable/i,
+    );
+    assert.equal(value.sent(), undefined);
+    assert.deepEqual(value.changedDeliveryIds, []);
+  });
+
+  it('rejects a wrong requested delivery and two target-eligible invitations before reservation or transport', async () => {
+    const wrong = harness({ candidates: [{ id: '00000000-0000-4000-8000-000000000099' }] });
+    await assert.rejects(() => wrong.service.send(configurationId, dto, authenticated), ConflictException);
+    assert.deepEqual(wrong.changedDeliveryIds, []);
+    assert.equal(wrong.sent(), undefined);
+
+    const ambiguous = harness({ candidates: [
+      { id: deliveryId },
+      { id: '00000000-0000-4000-8000-000000000098' },
+    ] });
+    await assert.rejects(() => ambiguous.service.send(configurationId, dto, authenticated), /ambiguous/i);
+    assert.deepEqual(ambiguous.changedDeliveryIds, []);
+    assert.equal(ambiguous.sent(), undefined);
+  });
+
+  it('rejects a second target-eligible invitation appearing before transport', async () => {
+    const value = harness({ candidateSelections: [
+      [{ id: deliveryId }],
+      [{ id: deliveryId }, { id: '00000000-0000-4000-8000-000000000098' }],
+    ] });
+    await assert.rejects(() => value.service.send(configurationId, dto, authenticated), /authority changed before delivery/i);
+    assert.equal(value.sent(), undefined);
+    assert.equal(value.deliveryUpdates.length, 2);
   });
 
   it('cancels a typed stale invitation without transport retry', async () => {

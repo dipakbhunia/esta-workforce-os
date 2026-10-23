@@ -63,6 +63,31 @@ export interface SmtpConfigurationDraftPayload {
   senderDisplayName: string;
 }
 
+export type PlatformInvitationEligibilityReason =
+  | 'ELIGIBLE' | 'GATE_DISABLED' | 'GENERAL_DELIVERY_ENABLED' | 'TARGET_INELIGIBLE'
+  | 'INVITATION_MISSING' | 'INVITATION_AMBIGUOUS' | 'INVITATION_EXPIRED'
+  | 'DELIVERY_INELIGIBLE' | 'RECIPIENT_MISMATCH' | 'SMTP_CONFIGURATION_UNAVAILABLE'
+  | 'SMTP_CONFIGURATION_AMBIGUOUS' | 'DATABASE_AUTHORITY_ESTABLISHED'
+  | 'DISPATCH_UNRESOLVED' | 'RATE_LIMITED';
+
+export interface PlatformInvitationBootstrapEligibility {
+  available: boolean;
+  reasonCode: PlatformInvitationEligibilityReason;
+  gateEnabled: boolean;
+  target: null | { userId: string; firstName: string; lastName: string; email: string; status: string };
+  delivery: null | { deliveryId: string; notificationId: string; status: string; attemptCount: number;
+    isClaimed: boolean; invitationExpiresAt: string };
+  smtp: null | { configurationId: string; version: number; revision: number; lifecycle: string };
+}
+
+export interface PlatformInvitationBootstrapResult {
+  acceptedByProvider: true;
+  inboxDeliveryConfirmed: false;
+  deliveryStatus: 'DELIVERED';
+  configurationVersion: number;
+  configurationRevision: number;
+}
+
 export interface PlatformEmailDelivery {
   deliveryId: string;
   notificationId: string;

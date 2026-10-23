@@ -106,7 +106,7 @@ describe('SmtpConfigurationLifecycleService', () => {
     let transactions = 0; let networkDuringTransaction = false; let updateData: Record<string, unknown> | undefined;
     const validated = { ...row({ lifecycle: SmtpConfigurationLifecycle.VALIDATED, structurallyValidatedAt: new Date() }),
       encryptedPassword: Uint8Array.from([1]), encryptionKeyId: 'key-1', connectionTestResultCode: null, restrictedTestEmailAddress: null };
-    const tx = { $queryRaw: async () => [{ acquired: false }], auditLog: { deleteMany: async () => ({ count: 0 }), count: async () => 0, create: async () => undefined },
+    const tx = { $executeRawUnsafe: async () => 0, $queryRaw: async () => [], auditLog: { deleteMany: async () => ({ count: 0 }), count: async () => 0, create: async () => undefined },
       smtpConfigurationVersion: { findUnique: async () => validated,
         updateMany: async ({ data }: { data: Record<string, unknown> }) => { updateData = data; return { count: 1 }; } } };
     const prisma = { $transaction: async (callback: (value: typeof tx) => unknown) => { transactions += 1; const result = await callback(tx); transactions -= 1; return result; } };
@@ -123,7 +123,7 @@ describe('SmtpConfigurationLifecycleService', () => {
     const validated = { ...row({ lifecycle: SmtpConfigurationLifecycle.VALIDATED, structurallyValidatedAt: new Date() }),
       encryptedPassword: Uint8Array.from([1]), encryptionKeyId: 'key-1', connectionTestResultCode: null, restrictedTestEmailAddress: null };
     let finalCount = 1; const audits: Array<Record<string, unknown>> = [];
-    const tx = { $queryRaw: async () => [], auditLog: { deleteMany: async () => ({ count: 0 }), count: async () => 0, create: async ({ data }: { data: Record<string, unknown> }) => { audits.push(data); } },
+    const tx = { $executeRawUnsafe: async () => 0, $queryRaw: async () => [], auditLog: { deleteMany: async () => ({ count: 0 }), count: async () => 0, create: async ({ data }: { data: Record<string, unknown> }) => { audits.push(data); } },
       smtpConfigurationVersion: { findUnique: async () => validated, updateMany: async () => ({ count: finalCount }) } };
     const prisma = { $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx) };
     const service = new SmtpConfigurationLifecycleService(prisma as never, { decrypt: () => 'password' } as never,
@@ -134,6 +134,21 @@ describe('SmtpConfigurationLifecycleService', () => {
     await assert.rejects(() => service.testConnection(validated.id, { revision: 1 }, actor), ConflictException);
     assert.ok(audits.some((entry) => entry.action === 'SMTP_CONNECTION_TEST_DISCARDED'));
     assert.equal(JSON.stringify(audits).includes('password'), false);
+  });
+
+  it('does not publish a newly TESTED authority while a bootstrap dispatch is unresolved', async () => {
+    const validated = { ...row({ lifecycle: SmtpConfigurationLifecycle.VALIDATED, structurallyValidatedAt: new Date() }),
+      encryptedPassword: Uint8Array.from([1]), encryptionKeyId: 'key-1', connectionTestResultCode: null, restrictedTestEmailAddress: null };
+    let persisted = false;
+    const tx = { $executeRawUnsafe: async () => 0,
+      $queryRaw: async (query: { strings?: readonly string[] }) => (query.strings?.join('').includes('FROM "AuditLog" AS started') ? [{ id: 'unresolved' }] : []),
+      auditLog: { deleteMany: async () => ({ count: 0 }), count: async () => 0, create: async () => undefined },
+      smtpConfigurationVersion: { findUnique: async () => validated, updateMany: async () => { persisted = true; return { count: 1 }; } } };
+    const prisma = { $transaction: async (callback: (value: typeof tx) => unknown) => callback(tx) };
+    const service = new SmtpConfigurationLifecycleService(prisma as never, { decrypt: () => 'password' } as never,
+      { verify: async () => ({ success: true, category: 'SUCCESS' }) } as never);
+    await assert.rejects(() => service.testConnection(validated.id, { revision: 1 }, actor), ConflictException);
+    assert.equal(persisted, false);
   });
 
   it('enforces the durable rate limit before decryption or network access', async () => {

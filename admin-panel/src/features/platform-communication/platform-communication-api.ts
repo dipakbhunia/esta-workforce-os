@@ -7,6 +7,7 @@ import type {
 } from './platform-communication.types';
 import type { SmtpConfigurationDraftPayload, SmtpConfigurationHistoryResponse, SmtpConfigurationResponse, SmtpConfigurationVersion } from './platform-communication.types';
 import type { EmailTemplateCatalogItem, EmailTemplateHistoryResponse, EmailTemplatePreview, EmailTemplateVersion } from './platform-communication.types';
+import type { PlatformInvitationBootstrapEligibility, PlatformInvitationBootstrapResult } from './platform-communication.types';
 
 const PARAMS = ['page', 'limit', 'status', 'companyId', 'recipient', 'eventType', 'from', 'to'] as const;
 export const platformCommunicationKeys = {
@@ -15,6 +16,7 @@ export const platformCommunicationKeys = {
   detail: (id: string) => ['platform-communication', 'email-deliveries', 'detail', id] as const,
   configuration: ['platform-communication', 'email-configuration'] as const,
   configurationVersions: ['platform-communication', 'email-configuration', 'versions'] as const,
+  invitationEligibility: (targetUserId: string) => ['platform-communication', 'platform-invitations', targetUserId, 'bootstrap-eligibility'] as const,
   templates: ['platform-communication', 'email-templates'] as const,
   templateVersions: (type: string) => ['platform-communication', 'email-templates', type, 'versions'] as const,
 };
@@ -39,6 +41,12 @@ export const selectSmtpConfiguration = (id: string, action: 'activate' | 'rollba
 
 export const toggleDatabaseSmtp = (action: 'enable' | 'disable', settingsRevision: number) =>
   http.post(`/platform-communication/email-configuration/${action}`, { settingsRevision });
+
+export const getPlatformInvitationBootstrapEligibility = (targetUserId: string) =>
+  http.get<PlatformInvitationBootstrapEligibility>(`/platform-communication/platform-invitations/users/${encodeURIComponent(targetUserId)}/bootstrap-eligibility`);
+
+export const bootstrapPlatformInvitation = (configurationId: string, payload: { revision: number; targetUserId: string; deliveryId: string }) =>
+  http.post<PlatformInvitationBootstrapResult>(`/platform-communication/email-configuration/versions/${encodeURIComponent(configurationId)}/bootstrap-platform-invitation`, payload);
 export const getEmailCapability = () =>
   http.get<EmailCapability>('/platform-communication/email-capability');
 
