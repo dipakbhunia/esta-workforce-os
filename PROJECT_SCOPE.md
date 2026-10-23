@@ -25,6 +25,42 @@ overall production readiness or completion of the full SOW.
 
 ## 2. Current checkpoint
 
+### EMAIL-QA.3C.4P checkpoint — 2026-10-23
+
+Commit `a827ee09bb6bbe607e88ef652fbd71e2b766e36c` is published on `main`
+and synchronized with `origin/main`. It contains the security-accepted
+23-path restricted Platform Super Admin invitation implementation, with no
+Prisma schema or migration change. The repository contains 60 migration
+directories; this documentation update does not independently reverify the
+live application database's applied-migration state.
+
+EMAIL-QA.3C.4P.9 recorded **PASS WITH CONDITIONS** after 104/104 focused
+backend tests, 16/16 focused Admin tests, 14/14 disposable PostgreSQL
+integration assertions, backend/Admin builds, Admin TypeScript validation,
+Prisma validation, and diff verification. Account-B performed both the P.8
+verification and P.9 full-scope review, so this is fresh review evidence but
+not a third-reviewer assessment.
+
+The checkpoint adds Platform `SUPER_ADMIN`-only, tenant-isolated,
+server-computed invitation eligibility shared consistently by GET and POST, an
+explicitly confirmed Admin User Details action, unique server-selected
+tested/inactive SMTP authority, ID/revision fencing, target-scoped invitation
+issuance locking, durable STARTED/COMPLETED dispatch fencing, pre-send
+revalidation, duplicate-send prevention, and provider-uncertainty quarantine
+without automatic mutation retry. It is not live-production acceptance
+evidence.
+
+Open LOW findings remain: malformed trusted STARTED evidence can cause broad
+fail-closed invitation-issuance blockage and requires audit-retention
+protection plus a manual reconciliation runbook; the opt-in PostgreSQL suites
+must run sequentially on one disposable database or use isolated databases
+until fixture isolation improves. Authenticated browser QA, controlled runtime
+verification, one restricted invitation dispatch, link acceptance/account
+activation, and automatic-email phases remain pending. At the last verified
+checkpoint, all four email gates were disabled.
+
+### Historical CP-R4 snapshot
+
 The following Git facts record the **CP-R4 pre-commit snapshot on
 2026-10-13**. They are historical checkpoint evidence rather than permanent
 claims about the repository after commit 4 or a later push.
@@ -113,12 +149,12 @@ only by explicit policy.
 | Dunning | IMPLEMENTED AND VERIFIED |
 | Billing Settings | IMPLEMENTED AND VERIFIED configuration authority |
 | Platform User and Access | IMPLEMENTED AND VERIFIED |
-| Platform Communication backend | PARTIALLY IMPLEMENTED; EC-B1–EC-B2D.3 verified in the worktree, provider acceptance/deployment pending |
+| Platform Communication backend | PARTIALLY IMPLEMENTED; EC-B1–EC-B2D.3 is published, while provider acceptance/deployment remains pending |
 | Email Delivery Logs | IMPLEMENTED AND VERIFIED |
-| Email Configuration backend | IMPLEMENTED AND VERIFIED in local commit `1ab1af2`; not deployed |
-| Email Configuration UI | IMPLEMENTED with focused automated verification in local commit `1ab1af2`; genuine browser QA pending |
-| Email Templates backend | IMPLEMENTED AND VERIFIED in local commit `1ab1af2`; not deployed |
-| Email Templates UI | IMPLEMENTED with focused automated verification in local commit `1ab1af2`; genuine browser QA pending |
+| Email Configuration backend | IMPLEMENTED AND VERIFIED in published commit `1ab1af2`; live deployment not reverified here |
+| Email Configuration UI | IMPLEMENTED with focused automated verification in published commit `1ab1af2`; genuine browser QA pending |
+| Email Templates backend | IMPLEMENTED AND VERIFIED in published commit `1ab1af2`; live deployment not reverified here |
+| Email Templates UI | IMPLEMENTED with focused automated verification in published commit `1ab1af2`; genuine browser QA pending |
 | Reports | PLANNED |
 | Platform Settings | PLANNED |
 | Shell/Header cleanup | NOT VERIFIED as a completed dedicated phase |
@@ -187,13 +223,15 @@ durable delivery records, bounded provider-error handling, lease/claim
 recovery, token-fenced finalization, retry limits, PostgreSQL concurrency
 protection, and Super Admin delivery diagnostics.
 
-Local commit `1ab1af2` adds the verified EC-B1 encrypted SMTP configuration,
+Published commit `1ab1af2` adds the verified EC-B1 encrypted SMTP configuration,
 EC-B2A lifecycle management, EC-B2B hardened connection tests, EC-B2C
 restricted test email, EC-B2D.2 permanent authority and activation lifecycle,
 and EC-B2D.3 claim-time worker resolution with immutable snapshots and safe
 queue pause. EC-B2D.4 passed all 16 executable isolated checks but is
 **BLOCKED** on genuine approved-provider acceptance. The management gate stays
-false by default; migrations 54–59 are not applied to `esta_workforce`.
+false by default. The historical CP-R4/DB-R3 evidence below records migrations
+54–59 as then pending; the repository now contains 60 migrations, while the
+live applied-migration state was not reverified in this update.
 
 Migration 59 implements the forward-only Subscription Renewal integrity
 convergence. DB-R3.5 passed disposable fresh migrations 1–59 and a restored
@@ -220,7 +258,7 @@ an external provider may accept a request before a network failure hides the
 result.
 
 Email Delivery Logs, Email Configuration management backend/UI, and ET-B1–ET-B5
-Email Templates backend/runtime/UI are implemented in the worktree. Focused
+Email Templates backend/runtime/UI are published in Git. Focused
 automated verification passed. ET-B6 fresh migrations and isolated PostgreSQL
 foundation/management/runtime/delivery evidence passed. ET-B6.1 added isolated
 real-HTTP proof for authentication, the 24-event catalog, draft/edit fencing,

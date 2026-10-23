@@ -10,9 +10,16 @@ At the CP-R4 pre-commit snapshot on 2026-10-13, local commits `0c119c1`,
 test scope; they had not been pushed and documentation commit 4 remained
 pending. This is historical checkpoint evidence, not a permanent current-state
 claim.
-The source's SA-H1C.1, commit `a046ec2…`, and migration 36 are historical;
-the published checkpoint migration count is 53. The local repository contains
-59 migrations, while `esta_workforce` remains at 53 applied migrations.
+The source's SA-H1C.1, commit `a046ec2…`, and migration 36 are historical. At
+the CP-R4 snapshot, the published checkpoint migration count was 53, the local
+repository contained 59 migrations, and `esta_workforce` had 53 applied
+migrations.
+
+The current Git checkpoint is `a827ee09bb6bbe607e88ef652fbd71e2b766e36c`
+on synchronized local and remote `main`. The repository contains 60 migration
+directories; live applied-migration state was not reverified by the
+documentation-only EMAIL-QA.3C.4P synchronization. The preceding 59/53 values
+remain a historical CP-R4 snapshot rather than current repository state.
 
 ## Mission and boundaries
 
@@ -60,7 +67,7 @@ phase is **NOT VERIFIED**:
 | Dunning | IMPLEMENTED AND VERIFIED | Keep derived/read-oriented semantics |
 | Billing Settings | IMPLEMENTED AND VERIFIED | Remains legal/invoice/GST authority |
 | Platform User and Access | IMPLEMENTED AND VERIFIED | Permissions remain descriptive metadata |
-| Platform Communication | PARTIALLY IMPLEMENTED | Transactional delivery, Delivery Logs, EV-D2–EV-D4, EC-B1–EC-B2D.3 SMTP backend, EC-B2D.5 Configuration UI, and ET-B1–ET-B5 Templates backend/runtime/UI are verified in local commit `1ab1af2`. ET-B6 fresh migrations and isolated PostgreSQL foundation/management/runtime/delivery evidence passed. ET-B6.1 isolated real-HTTP authentication and template-management verification passed; notification composition remains service/PostgreSQL evidence because no safe bounded application HTTP mutation exists. EC-B2D.4 passed 16 executable checks; genuine provider acceptance, deployment, and browser QA remain pending |
+| Platform Communication | PARTIALLY IMPLEMENTED | Transactional delivery, Delivery Logs, EV-D2–EV-D4, EC-B1–EC-B2D.3 SMTP backend, EC-B2D.5 Configuration UI, and ET-B1–ET-B5 Templates backend/runtime/UI are verified in published commit `1ab1af2`. ET-B6 fresh migrations and isolated PostgreSQL foundation/management/runtime/delivery evidence passed. ET-B6.1 isolated real-HTTP authentication and template-management verification passed; notification composition remains service/PostgreSQL evidence because no safe bounded application HTTP mutation exists. EC-B2D.4 passed 16 executable checks; genuine provider acceptance, deployment, and browser QA remain pending |
 | Reports | PLANNED | Define authoritative metrics first |
 | Platform Settings | PLANNED | Define ownership/persistence first |
 | Shell/Header | NOT VERIFIED | Dedicated bounded phase |
@@ -212,6 +219,32 @@ not newly approved defects:
 
 ## SMTP and email-verification status
 
+### Restricted Platform Super Admin invitation checkpoint
+
+- EMAIL-QA.3C.4P implements a Platform `SUPER_ADMIN`-only, tenant-isolated,
+  server-computed eligibility API shared consistently by GET and POST,
+  restricted bootstrap dispatch, and explicit Admin User Details confirmation.
+- Authority is server-selected and unique, restricted to a tested inactive SMTP
+  version, fenced by exact configuration ID/revision, target-scoped invitation
+  locking, durable STARTED/COMPLETED evidence, and immediate pre-send
+  revalidation. Provider uncertainty is quarantined without automatic retry.
+- P.9 recorded **PASS WITH CONDITIONS**: backend 104/104, Admin 16/16,
+  disposable PostgreSQL 14/14, both production builds, Admin TypeScript,
+  Prisma, and diff checks passed. Account-B performed both P.8 and P.9, so the
+  result is not independent third-reviewer evidence.
+- P.10 preflight, P.11A exact staging, P.11B local commit, and P.11C remote push
+  completed for 23 paths in commit `a827ee09bb6bbe607e88ef652fbd71e2b766e36c`.
+- LOW-A remains open: malformed trusted STARTED evidence can broadly block
+  invitation issuance; protect audit retention and require manual evidence
+  reconciliation. LOW-B remains open: opt-in PostgreSQL suites must run
+  sequentially on a shared disposable database or use isolated databases until
+  fixture isolation improves.
+- This is not live-production verification. Authenticated browser QA,
+  controlled runtime verification, one restricted dispatch, invitation-link
+  acceptance/account activation, and an uncertainty-reconciliation runbook are
+  pending. General automatic email delivery remains disabled and outside this
+  restricted bootstrap scope.
+
 - EC-B1: versioned SMTP foundation and encrypted credentials implemented.
 - EC-B2A: configuration lifecycle implemented.
 - EC-B2B: allowlisted DNS/IP-pinned, TLS-verified connection testing implemented.
@@ -228,16 +261,20 @@ not newly approved defects:
   implemented. EV-D4.1 isolated backend-to-SMTP evidence exists; genuine
   responsive/keyboard browser QA remains pending.
 
-The worktree contains 59 migrations while `esta_workforce` remains at 53;
-migrations 54–59 are pending. Migration 59 implements the forward-only
+The historical CP-R4 worktree contained 59 migrations while `esta_workforce`
+was at 53, with migrations 54–59 pending. The repository now contains 60
+migration directories; live applied state was not reverified here. Migration
+59 implements the forward-only
 Subscription Renewal integrity convergence. DB-R3.5 passed disposable fresh
 1–59 and historical 54–59 upgrade rehearsals while preserving migration 40's
 historical checksum. DB-R3.6B confirmed technical readiness and withdrew the
 incorrect Prisma index-mapping finding; no Prisma schema correction is required.
-No application-database deployment or stable Git checkpoint has occurred. The
-management gate remains false, SMTP has not been activated, and no application
-SMTP cutover occurred. Genuine approved-provider acceptance and genuine browser
-QA remain pending.
+The restricted invitation implementation has a stable published Git checkpoint
+at `a827ee09bb6bbe607e88ef652fbd71e2b766e36c`. At the last verified
+operational state, no application-database deployment, SMTP activation, or
+application SMTP cutover had occurred. Current live deployment and gate state
+were not reverified during documentation synchronization. Genuine
+approved-provider acceptance and genuine browser QA remain pending.
 
 ## Tenant-domain phase
 

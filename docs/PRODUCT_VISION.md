@@ -48,15 +48,17 @@ and enterprises.
    the secure delivery and identity-action foundations. Invitation links must
    remain compatible with future tenant-specific origins; current Company Code
    and `Company.slug` are not authoritative hostnames.
-   The verified worktree implements EC-B1–EC-B2D.3 encrypted SMTP configuration,
+   Published Git history implements EC-B1–EC-B2D.3 encrypted SMTP configuration,
    lifecycle, secure testing, restricted test email, permanent authority,
    activation/rollback, and safe worker pause. EC-B2D.4 passed 16 executable
    isolated checks but is blocked on genuine approved-provider acceptance; it
-   is not deployed. Migrations 54–59 remain pending, the management gate is
-   closed. The Configuration UI is implemented with focused automated verification
-   in local commit `1ab1af2`; genuine browser QA remains pending. ET-B1–ET-B5
+   was not deployed at that historical checkpoint. The repository now contains
+   60 migration directories; this documentation synchronization does not
+   independently reverify the live application's applied-migration state. The
+   management gate remains default-closed. The Configuration UI is implemented with focused automated verification
+   in published commit `1ab1af2`; genuine browser QA remains pending. ET-B1–ET-B5
    implement the versioned Templates backend, safe runtime resolution, and Admin
-   UI in local commit `1ab1af2`. ET-B6 fresh migrations and isolated PostgreSQL
+   UI in published commit `1ab1af2`. ET-B6 fresh migrations and isolated PostgreSQL
    verification passed. ET-B6.1 real-HTTP authentication and template-management
    verification also passed; notification composition remains proven at the
    service/PostgreSQL boundary because no safe bounded application HTTP mutation
@@ -72,6 +74,18 @@ and enterprises.
    `0c119c1`, `1ab1af2`, and `75ce727`; they had not been pushed and documentation
    commit 4 remained pending. At the last verified operational state, no
    application-database deployment or SMTP activation had occurred.
+   EMAIL-QA.3C.4P is published in commit `a827ee09bb6bbe607e88ef652fbd71e2b766e36c`
+   with 23 implementation paths and no schema or migration change. Its
+   restricted platform-invitation eligibility, explicit Admin confirmation,
+   unique tested/inactive SMTP authority, target-scoped issuance fence,
+   durable dispatch evidence, pre-send revalidation, and uncertainty quarantine
+   passed P.9 security review with conditions. Account-B performed both P.8 and
+   P.9, so the review is not third-reviewer evidence. Authenticated browser and
+   runtime QA, one restricted dispatch, link acceptance/account activation,
+   operational reconciliation, general worker hardening, template/delivery
+   operational follow-through, automatic eligible-user invitations, automated
+   password-reset/email-verification delivery, and tenant domains remain future
+   controlled work. General automatic email delivery remains disabled.
 10. **AI — PLANNED.** Productivity/HR/sales predictions, forecasting,
     assistant, report generation, and summaries.
 11. **Reporting & BI — FOUNDATION ONLY / PARTIAL.** Platform and workforce

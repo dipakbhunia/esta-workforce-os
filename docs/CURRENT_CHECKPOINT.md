@@ -1,5 +1,55 @@
 # Esta Workforce OS — Current Checkpoint
 
+## EMAIL-QA.3C.4P published checkpoint — 2026-10-23
+
+- Branch: `main`
+- Local `HEAD` and `origin/main`:
+  `a827ee09bb6bbe607e88ef652fbd71e2b766e36c`
+- Commit: `feat: add secure restricted platform invitation delivery`
+- Accepted and committed scope: 23 implementation paths, with no schema or
+  migration change.
+- Repository migration directories: 60.
+- Live application-database applied-migration state was not reverified during
+  this documentation-only synchronization.
+
+EMAIL-QA.3C.4P.9 recorded **PASS WITH CONDITIONS**. Its historical evidence is
+104/104 focused backend tests, 16/16 focused Admin tests, 14/14 disposable
+PostgreSQL integration assertions, backend/Admin production builds, Admin
+TypeScript validation, Prisma validation, and Git diff verification. Account-B
+performed both P.8 verification and the P.9 full-scope review, so P.9 is fresh
+review evidence but not a fully independent third-reviewer assessment. P.10
+reported READY FOR CHECKPOINT; P.11A verified staging; P.11B created the local
+commit; and P.11C verified the remote push and clean 0/0 synchronization.
+
+Implemented scope includes Platform `SUPER_ADMIN`-only, tenant-isolated,
+server-computed restricted invitation eligibility shared consistently by GET
+and POST, restricted dispatch, explicit Admin User Details confirmation,
+unique server-selected tested/inactive SMTP authority, configuration
+ID/revision fencing, target-scoped invitation issuance protection, durable
+STARTED/COMPLETED audit fencing, pre-send revalidation, duplicate-send
+prevention, and provider-uncertainty quarantine without automatic retry.
+
+Open findings:
+
+- **LOW-A:** malformed trusted STARTED evidence can broadly block invitation
+  issuance, including unrelated tenant invitations. Preserve audit evidence,
+  create a manual reconciliation runbook, and consider future blast-radius
+  hardening without weakening fail-closed behavior.
+- **LOW-B:** opt-in PostgreSQL suites can collide if run concurrently against
+  one disposable database. Run them sequentially or use isolated databases
+  until fixture isolation improves.
+
+Pending work includes authenticated browser QA, controlled runtime
+verification, one restricted Platform Super Admin invitation dispatch,
+invitation-link acceptance/account activation, uncertain-provider operational
+reconciliation, general Email Notification Worker production hardening,
+Email Templates/delivery-tracking operational follow-through, automatic
+eligible-user invitations, automated password-reset/email-verification
+delivery, and tenant-domain support. General automatic delivery remains
+disabled and outside the restricted-bootstrap checkpoint. At the last verified
+checkpoint, all four email gates were disabled; this documentation task did not
+reverify runtime values.
+
 ## CP-R4 pre-commit Git snapshot — 2026-10-13
 
 This section records historical pre-commit state. It is intended to remain
@@ -56,17 +106,17 @@ They were supplied after PC-M2 and must remain unchanged.
 - Company Onboarding manual QA and checkpoint.
 - User-based billable-seat authority.
 - EC-B1–EC-B2D.3 SMTP configuration, authority, and worker backend is verified
-  in local commit `1ab1af2`. EC-B2D.4 passed 16/16 executable checks but is
+  in published commit `1ab1af2`. EC-B2D.4 passed 16/16 executable checks but is
   blocked on genuine approved-provider connection and restricted test-email
   acceptance; simulated evidence is not provider acceptance or inbox delivery.
 - Replica key-ring parity, exact-host allowlist and DNS/TLS readiness,
   deployment approval, and migrations 54–59 rollout remain pending. The
   management gate is false by default and no application cutover occurred.
 - EC-B2D.5 Email Configuration UI is implemented with focused automated
-  verification in local commit `1ab1af2`; genuine browser QA remains pending.
+  verification in published commit `1ab1af2`; genuine browser QA remains pending.
   ET-B1–ET-B5 Email Templates database, management API, validation/preview,
   runtime integration, and Admin UI are implemented and automatically verified
-  in local commit `1ab1af2`. ET-B6 fresh migrations and isolated PostgreSQL
+  in published commit `1ab1af2`. ET-B6 fresh migrations and isolated PostgreSQL
   foundation/management/runtime/delivery verification passed. ET-B6.1 isolated
   real-HTTP verification passed for JWT authentication, the 24-event catalog,
   draft/edit fencing, validation, preview, publication, history, rollback, and
@@ -83,8 +133,9 @@ They were supplied after PC-M2 and must remain unchanged.
   historical checksum. DB-R3.6B confirmed technical readiness and withdrew the
   incorrect Prisma index-mapping finding: the historical id-based index is
   distinct from the retained Prisma paymentId-based index, so no Prisma schema
-  correction is required. No application-database deployment has occurred.
-  At the CP-R4 pre-commit snapshot, migration 59 was in local commit `75ce727`,
+  correction is required. At the last verified operational state, no
+  application-database deployment had occurred. At the CP-R4 pre-commit
+  snapshot, migration 59 was in local commit `75ce727`,
   while documentation commit 4 and push remained pending.
 - Platform Reports and Platform Settings.
 - Shell/header and tenant-domain phases. Tenant domains remain a later
@@ -98,8 +149,9 @@ do not bypass invoice integrity.
 
 ## Safety
 
-Preserve the onboarding files, historical migrations 1–58, migration 59, and
-both DOCX sources. Do not apply migrations 54–59 to `esta_workforce` or enable
-the SMTP management gate without a separately approved deployment. Do not stage,
+Preserve the onboarding files, historical migrations 1–59, migration 60, and
+both DOCX sources. Do not infer or change live database state from repository
+migration count, and do not enable SMTP management or general delivery without
+a separately approved deployment. Do not stage,
 commit, or push this documentation before strict read-only review and explicit
 checkpoint authorization. Do not claim production readiness.
