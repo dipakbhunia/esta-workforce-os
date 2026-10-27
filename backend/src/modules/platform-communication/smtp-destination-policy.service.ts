@@ -1,9 +1,15 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SmtpSecurityMode } from '@prisma/client';
 import { Resolver } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 
-export interface ApprovedSmtpDestination { hostname: string; address: string; family: 4 | 6 }
+export interface ApprovedSmtpDestination {
+  hostname: string;
+  address: string;
+  family: 4 | 6;
+  trustedCa?: Buffer;
+}
 
 const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const blocked = new BlockList();
@@ -18,7 +24,7 @@ for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe8
 export class SmtpDestinationPolicyService {
   constructor(private readonly config: ConfigService) {}
 
-  async approve(host: string): Promise<ApprovedSmtpDestination> {
+  async approve(host: string, _port?: number, _securityMode?: SmtpSecurityMode): Promise<ApprovedSmtpDestination> {
     const hostname = this.canonical(host);
     if (!this.allowlist().has(hostname)) throw new ServiceUnavailableException('SMTP destination is not approved');
     const resolver = this.createResolver();

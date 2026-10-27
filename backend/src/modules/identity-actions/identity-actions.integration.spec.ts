@@ -117,6 +117,13 @@ describeDb('PC-L PostgreSQL identity lifecycle', () => {
       await prisma.auditLog.deleteMany({ where: { OR: [{ actorUserId: actorId }, { createdAt: { gte: now } }] } });
       await prisma.notification.deleteMany({ where: { createdAt: { gte: now } } });
       await prisma.accountActionToken.deleteMany({ where: { createdAt: { gte: now } } });
+      const cleanupUsers = await prisma.user.findMany({
+        where: { OR: [{ email: { contains: suffix } }, { company: { is: { slug: { startsWith: 'pc-l-' } } } }] },
+        select: { id: true },
+      });
+      const cleanupUserIds = cleanupUsers.map(({ id }) => id);
+      await prisma.refreshToken.deleteMany({ where: { userId: { in: cleanupUserIds } } });
+      await prisma.refreshSession.deleteMany({ where: { userId: { in: cleanupUserIds } } });
       await prisma.user.deleteMany({ where: { OR: [{ email: { contains: suffix } }, { company: { is: { slug: { startsWith: 'pc-l-' } } } }] } });
       await prisma.company.deleteMany({ where: { slug: { startsWith: 'pc-l-' } } });
       if (createdPlatformRole) await prisma.role.deleteMany({ where: { id: platformRoleId } });

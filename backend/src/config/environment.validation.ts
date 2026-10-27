@@ -1,6 +1,7 @@
 ﻿import Joi = require('joi');
 
 import { isIP } from 'node:net';
+import { qaSmtpCaptureConfigurationError } from './smtp-qa-capture-runtime';
 
 const paymentCredentialKey = Joi.string().allow('').custom((value: string, helpers) => {
   if (!value) return value;
@@ -50,6 +51,12 @@ export const environmentValidationSchema = Joi.object({
   SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   SMTP_EMAIL_VERIFICATION_BOOTSTRAP_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  SMTP_QA_CAPTURE_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  SMTP_QA_CAPTURE_TRUSTED_CA_PATH: Joi.string().max(4096).allow('').optional(),
+  SMTP_QA_CAPTURE_HOSTNAME: Joi.string().max(253).allow('').optional(),
+  SMTP_QA_CAPTURE_ADDRESS: Joi.string().max(45).allow('').optional(),
+  SMTP_QA_CAPTURE_PORT: Joi.number().port().optional(),
+  NODE_EXTRA_CA_CERTS: Joi.string().max(4096).allow('').optional(),
 }).custom((value: Record<string, unknown>, helpers) => {
   const key = typeof value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY === 'string'
     ? value.PAYMENT_CREDENTIAL_ENCRYPTION_KEY.trim() : '';
@@ -82,6 +89,8 @@ export const environmentValidationSchema = Joi.object({
     return !host || host.includes('*') || host.includes('://') || host.includes('@') || /[/:?#\[\]\\]/.test(host) || isIP(host) !== 0
       || host.length > 253 || host.split('.').some((label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
   })) return helpers.error('object.invalidSmtpTestAllowlist');
+  const qaCaptureError = qaSmtpCaptureConfigurationError(value);
+  if (qaCaptureError) return helpers.error(`object.${qaCaptureError}`);
   const production = value.NODE_ENV === 'production';
   const configuredOrigin = typeof value.PUBLIC_APP_ORIGIN === 'string' ? value.PUBLIC_APP_ORIGIN : '';
   if (!configuredOrigin) {
@@ -108,6 +117,14 @@ export const environmentValidationSchema = Joi.object({
   'object.smtpCredentialKeyRingPair': 'SMTP credential encryption key ring and current key ID must be configured together',
   'object.invalidSmtpCredentialKeyRing': 'SMTP credential encryption key ring is invalid',
   'object.invalidSmtpTestAllowlist': 'SMTP test allowlist must contain exact canonical hostnames only',
+  'object.QA_CAPTURE_FORBIDDEN_IN_PRODUCTION': 'QA SMTP capture cannot be enabled in production',
+  'object.QA_CAPTURE_DATABASE_MISMATCH': 'QA SMTP capture requires the exact approved disposable database',
+  'object.QA_CAPTURE_GATE_CONFLICT': 'QA SMTP capture conflicts with an enabled email authority gate',
+  'object.QA_CAPTURE_DESTINATION_MISMATCH': 'QA SMTP capture requires its fixed destination hostname',
+  'object.QA_CAPTURE_LEGACY_SMTP_CONFLICT': 'QA SMTP capture forbids inherited legacy SMTP configuration',
+  'object.QA_CAPTURE_CA_MISSING': 'QA SMTP capture requires a process-trusted CA certificate',
+  'object.QA_CAPTURE_CA_INVALID': 'QA SMTP capture CA certificate is invalid',
+  'object.QA_CAPTURE_SETTINGS_WITHOUT_ENABLEMENT': 'QA SMTP capture settings require explicit enablement',
   'any.invalid': 'Payment credential encryption key must be canonical base64 encoding of exactly 32 bytes',
   'object.productionAppOriginRequired': 'PUBLIC_APP_ORIGIN is required in production',
   'object.productionAppOriginHttps': 'PUBLIC_APP_ORIGIN must use HTTPS in production',

@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rootCertificates } from 'node:tls';
 import { describe, it } from 'node:test';
 import { environmentValidationSchema } from './environment.validation';
 
@@ -81,6 +85,75 @@ describe('SMTP platform invitation bootstrap gate validation', () => {
       .SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED, true);
     assert.ok(environmentValidationSchema.validate({ ...base, SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED: 'sometimes' }).error);
   });
+});
+
+describe('QA SMTP capture environment fencing', () => {
+  const withCa = (run: (path: string) => void) => {
+    const directory = mkdtempSync(join(tmpdir(), 'esta-qa-smtp-ca-'));
+    const path = join(directory, 'qa-ca.pem');
+    writeFileSync(path, rootCertificates[0], { encoding: 'utf8', mode: 0o600 });
+    try { run(path); } finally { rmSync(directory, { recursive: true, force: true }); }
+  };
+  const qa = (path: string) => ({
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://qa:secret@127.0.0.1:55432/esta_qa_p13b2a_20261023_131805',
+    SMTP_QA_CAPTURE_ENABLED: true,
+    SMTP_QA_CAPTURE_TRUSTED_CA_PATH: path,
+    NODE_EXTRA_CA_CERTS: path,
+    SMTP_QA_CAPTURE_HOSTNAME: 'smtp-capture.qa.invalid',
+    SMTP_QA_CAPTURE_ADDRESS: '127.0.0.1',
+    SMTP_QA_CAPTURE_PORT: 587,
+    SMTP_TEST_ALLOWED_HOSTS: 'smtp-capture.qa.invalid',
+    EMAIL_NOTIFICATIONS_ENABLED: false,
+    SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: false,
+    SMTP_EMAIL_VERIFICATION_BOOTSTRAP_ENABLED: false,
+  });
+
+  it('is disabled by default and accepts only the exact fenced QA runtime', () => {
+    assert.equal(environmentValidationSchema.validate(base).value.SMTP_QA_CAPTURE_ENABLED, false);
+    withCa((path) => assert.equal(validate(qa(path)), undefined));
+  });
+
+  it('rejects production, protected or mismatched databases, gate conflicts, and inherited SMTP', () => withCa((path) => {
+    const valid = qa(path);
+    for (const change of [
+      { NODE_ENV: 'production', PUBLIC_APP_ORIGIN: 'https://app.example.test' },
+      { DATABASE_URL: 'postgresql://qa:secret@127.0.0.1:5432/esta_workforce' },
+      { DATABASE_URL: 'postgresql://qa:secret@localhost:55432/esta_qa_p13b2a_20261023_131805' },
+      { DATABASE_URL: 'postgresql://qa:secret@127.0.0.1:55433/esta_qa_p13b2a_20261023_131805' },
+      { DATABASE_URL: 'postgresql://qa:secret@127.0.0.1:55432/other_qa' },
+      { EMAIL_NOTIFICATIONS_ENABLED: true },
+      { SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: true },
+      { SMTP_EMAIL_VERIFICATION_BOOTSTRAP_ENABLED: true },
+      { SMTP_TEST_ALLOWED_HOSTS: 'mail.estaproject.com' },
+      { SMTP_QA_CAPTURE_HOSTNAME: 'mail.estaproject.com' },
+      { SMTP_QA_CAPTURE_ADDRESS: '10.0.0.10' },
+      { SMTP_QA_CAPTURE_PORT: 465 },
+      { SMTP_HOST: 'mail.estaproject.com' },
+      { SMTP_USER: 'inherited-user' },
+      { SMTP_PASSWORD: 'inherited-secret' },
+      { SMTP_FROM_EMAIL: 'sender@example.test' },
+    ]) assert.ok(validate({ ...valid, ...change }));
+  }));
+
+  it('rejects inherited QA-only settings while the explicit QA mode is disabled', () => {
+    for (const setting of [
+      { SMTP_QA_CAPTURE_HOSTNAME: 'smtp-capture.qa.invalid' },
+      { SMTP_QA_CAPTURE_ADDRESS: '127.0.0.1' },
+      { SMTP_QA_CAPTURE_PORT: 587 },
+    ]) assert.ok(validate(setting));
+  });
+
+  it('requires the same absolute valid CA for both the boundary and Node trust store', () => withCa((path) => {
+    const valid = qa(path);
+    for (const change of [
+      { SMTP_QA_CAPTURE_TRUSTED_CA_PATH: '' },
+      { NODE_EXTRA_CA_CERTS: '' },
+      { NODE_EXTRA_CA_CERTS: join(tmpdir(), 'different.pem') },
+      { SMTP_QA_CAPTURE_TRUSTED_CA_PATH: 'relative.pem', NODE_EXTRA_CA_CERTS: 'relative.pem' },
+    ]) assert.ok(validate({ ...valid, ...change }));
+    assert.ok(validate({ SMTP_QA_CAPTURE_TRUSTED_CA_PATH: path }));
+  }));
 });
 
 describe('public application origin validation', () => {

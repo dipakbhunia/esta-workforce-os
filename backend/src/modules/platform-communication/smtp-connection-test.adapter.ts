@@ -34,7 +34,7 @@ export class SmtpConnectionTestAdapter {
   async verify(snapshot: Readonly<SmtpConnectionSnapshot>, password: string): Promise<SmtpConnectionTestResult> {
     let transport: ReturnType<typeof nodemailer.createTransport> | undefined;
     try {
-      const target = await this.destinations.approve(snapshot.host);
+      const target = await this.destinations.approve(snapshot.host, snapshot.port, snapshot.securityMode);
       const options = this.transportOptions(snapshot, password, target);
       transport = this.createTransport(options);
       let timer: NodeJS.Timeout | undefined;
@@ -52,7 +52,7 @@ export class SmtpConnectionTestAdapter {
     message: Readonly<SmtpTestEmailMessage>): Promise<SmtpTestEmailResult> {
     let transport: ReturnType<typeof nodemailer.createTransport> | undefined;
     try {
-      const target = await this.destinations.approve(snapshot.host);
+      const target = await this.destinations.approve(snapshot.host, snapshot.port, snapshot.securityMode);
       transport = this.createTransport(this.transportOptions(snapshot, password, target));
       let timer: NodeJS.Timeout | undefined;
       try {
@@ -76,7 +76,7 @@ export class SmtpConnectionTestAdapter {
   async sendEmail(snapshot: Readonly<SmtpConnectionSnapshot>, password: string, message: Readonly<SmtpDeliveryMessage>) {
     let transport: ReturnType<typeof nodemailer.createTransport> | undefined;
     try {
-      const target = await this.destinations.approve(snapshot.host);
+      const target = await this.destinations.approve(snapshot.host, snapshot.port, snapshot.securityMode);
       transport = this.createTransport(this.transportOptions(snapshot, password, target));
       const info = await transport.sendMail({ from: { name: message.senderDisplayName, address: message.senderEmail }, to: message.recipient, subject: message.subject, text: message.text, html: message.html });
       return { messageId: info.messageId ?? null };
@@ -101,7 +101,8 @@ export class SmtpConnectionTestAdapter {
       host: target.hostname, port: snapshot.port, secure: implicit, requireTLS: !implicit,
       ignoreTLS: false, opportunisticTLS: false, auth: { user: snapshot.username, pass: password },
       connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 15_000,
-      tls: { servername: target.hostname, rejectUnauthorized: true, minVersion: 'TLSv1.2' },
+      tls: { servername: target.hostname, rejectUnauthorized: true, minVersion: 'TLSv1.2',
+        ...(target.trustedCa ? { ca: target.trustedCa } : {}) },
       getSocket: (_options, callback) => this.openSocket(target, snapshot.port, implicit, callback),
     };
   }
