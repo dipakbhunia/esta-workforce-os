@@ -51,6 +51,7 @@ function serviceWith(prisma: Record<string, unknown>) {
 function updateHarness() {
   let updateData: Record<string, unknown> | undefined;
   const tx = {
+    $queryRaw: async () => [{ id: company.id, status: company.status }],
     company: {
       update: async (args: { data: Record<string, unknown> }) => {
         updateData = args.data;
@@ -273,22 +274,78 @@ describe('CompaniesService', () => {
     assert.equal(result.timezone, 'Asia/Kolkata');
   });
 
-  it('writes update and status-change audit entries without storing field values', async () => {
+  it('preserves atomic initial Company Admin provisioning and post-commit invitation enqueueing', async () => {
+    const events: string[] = [];
+    const tx = {
+      company: { create: async () => { events.push('create-company'); return company; } },
+      auditLog: {
+        create: async () => { events.push('audit-company'); return { id: 'audit-company' }; },
+        createMany: async () => { events.push('audit-onboarding'); return { count: 2 }; },
+      },
+      role: { create: async () => { events.push('create-role'); return { id: 'role-1' }; } },
+      user: { create: async () => { events.push('create-user'); return { id: 'admin-1', email: 'admin@acme.example' }; } },
+    };
+    const identityActions = {
+      unusablePasswordHash: async () => 'unusable-hash',
+      issueTokenInTransaction: async () => { events.push('issue-token'); return { id: 'token-1' }; },
+      enqueueInvitation: async () => { events.push('enqueue-invitation'); return true; },
+    };
+    const service = new CompaniesService({
+      $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
+    } as never, identityActions as never);
+
+    const result = await service.create({
+      name: 'Acme Corporation',
+      slug: 'acme',
+      initialAdmin: { email: 'Admin@Acme.Example', firstName: 'Asha', lastName: 'Sharma' },
+    }, superAdmin);
+
+    assert.deepEqual(events, [
+      'create-company', 'audit-company', 'create-role', 'create-user',
+      'issue-token', 'audit-onboarding', 'enqueue-invitation',
+    ]);
+    assert.deepEqual(result.initialAdminInvitation, {
+      userId: 'admin-1', email: 'admin@acme.example', queued: true,
+    });
+  });
+
+  it('writes update and status-change audit entries from the locked status without storing field values', async () => {
     const audits: Array<{ data: Record<string, unknown> }> = [];
     const tx = {
+      $queryRaw: async () => [{ id: company.id, status: CompanyStatus.TRIAL }],
       company: { update: async () => ({ ...company, status: CompanyStatus.SUSPENDED }) },
       auditLog: { create: async (args: { data: Record<string, unknown> }) => { audits.push(args); return { id: String(audits.length) }; } },
     };
     const service = serviceWith({
-      company: { findFirst: async () => company },
       $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
     });
 
-    await service.update('company-1', { status: CompanyStatus.SUSPENDED, address: ' New address ' }, companyAdmin);
+    await service.update('company-1', { status: CompanyStatus.SUSPENDED, address: ' New address ' }, superAdmin);
 
     assert.deepEqual(audits.map((entry) => entry.data.action), ['COMPANY_UPDATED', 'COMPANY_STATUS_CHANGED']);
     assert.deepEqual((audits[0].data.metadata as { changedFields: string[] }).changedFields.sort(), ['address', 'status']);
     assert.equal(JSON.stringify(audits[0]).includes('New address'), false);
+    assert.deepEqual(audits[1].data.metadata, { from: CompanyStatus.TRIAL, to: CompanyStatus.SUSPENDED });
+  });
+
+  it('rejects Company Admin lifecycle changes before database access while preserving profile edits', async () => {
+    const service = serviceWith({});
+    await assert.rejects(
+      () => service.update('company-1', { status: CompanyStatus.ACTIVE }, companyAdmin),
+      (error: unknown) => error instanceof ForbiddenException && error.message.includes('Platform Super Admin'),
+    );
+
+    const harness = updateHarness();
+    await harness.service.update('company-1', { address: 'Pune' }, companyAdmin);
+    assert.equal(harness.updateData()?.address, 'Pune');
+  });
+
+  it('rejects cross-tenant lifecycle manipulation before database access', async () => {
+    const service = serviceWith({});
+    await assert.rejects(
+      () => service.update('company-other', { status: CompanyStatus.ACTIVE }, companyAdmin),
+      ForbiddenException,
+    );
   });
 
   it('leaves name unchanged when it is omitted from an update', async () => {
@@ -364,7 +421,7 @@ describe('CompaniesService', () => {
     await harness.service.update(
       'company-1',
       { status: CompanyStatus.SUSPENDED },
-      companyAdmin,
+      superAdmin,
     );
 
     assert.equal(harness.updateData()?.status, CompanyStatus.SUSPENDED);
@@ -377,7 +434,7 @@ describe('CompaniesService', () => {
         () => harness.service.update(
           'company-1',
           { status } as unknown as UpdateCompanyDto,
-          companyAdmin,
+          superAdmin,
         ),
         BadRequestException,
       );
@@ -387,11 +444,11 @@ describe('CompaniesService', () => {
   it('leaves timezone unchanged when it is omitted from an update', async () => {
     let updateData: Record<string, unknown> | undefined;
     const tx = {
+      $queryRaw: async () => [{ id: company.id, status: company.status }],
       company: { update: async (args: { data: Record<string, unknown> }) => { updateData = args.data; return company; } },
       auditLog: { create: async () => ({ id: 'audit-1' }) },
     };
     const service = serviceWith({
-      company: { findFirst: async () => company },
       $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
     });
 
@@ -403,11 +460,11 @@ describe('CompaniesService', () => {
   it('trims and persists a valid timezone update', async () => {
     let updateData: Record<string, unknown> | undefined;
     const tx = {
+      $queryRaw: async () => [{ id: company.id, status: company.status }],
       company: { update: async (args: { data: Record<string, unknown> }) => { updateData = args.data; return { ...company, timezone: String(args.data.timezone) }; } },
       auditLog: { create: async () => ({ id: 'audit-1' }) },
     };
     const service = serviceWith({
-      company: { findFirst: async () => company },
       $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
     });
 
@@ -419,11 +476,11 @@ describe('CompaniesService', () => {
   it('preserves intentional null clearing for nullable profile fields', async () => {
     let updateData: Record<string, unknown> | undefined;
     const tx = {
+      $queryRaw: async () => [{ id: company.id, status: company.status }],
       company: { update: async (args: { data: Record<string, unknown> }) => { updateData = args.data; return { ...company, address: null }; } },
       auditLog: { create: async () => ({ id: 'audit-1' }) },
     };
     const service = serviceWith({
-      company: { findFirst: async () => company },
       $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
     });
 
@@ -434,13 +491,13 @@ describe('CompaniesService', () => {
 
   it('archives only the company, preserves tenant records, and writes audit history', async () => {
     let updateData: unknown;
-    let auditAction: unknown;
+    let auditData: { action: string; metadata: { previousStatus: CompanyStatus } } | undefined;
     const tx = {
+      $queryRaw: async () => [{ id: company.id, status: CompanyStatus.TRIAL }],
       company: { update: async (args: { data: unknown }) => { updateData = args.data; return { ...company, status: CompanyStatus.SUSPENDED }; } },
-      auditLog: { create: async (args: { data: { action: string } }) => { auditAction = args.data.action; return { id: 'audit-1' }; } },
+      auditLog: { create: async (args: { data: { action: string; metadata: { previousStatus: CompanyStatus } } }) => { auditData = args.data; return { id: 'audit-1' }; } },
     };
     const service = serviceWith({
-      company: { findFirst: async () => company },
       $transaction: async (callback: (client: typeof tx) => unknown) => callback(tx),
     });
 
@@ -448,7 +505,8 @@ describe('CompaniesService', () => {
 
     assert.equal((updateData as { status: CompanyStatus }).status, CompanyStatus.SUSPENDED);
     assert.ok((updateData as { deletedAt: Date }).deletedAt instanceof Date);
-    assert.equal(auditAction, 'COMPANY_ARCHIVED');
+    assert.equal(auditData?.action, 'COMPANY_ARCHIVED');
+    assert.equal(auditData?.metadata.previousStatus, CompanyStatus.TRIAL);
   });
 
   it('rejects invalid timezone and invalid status query values through DTO validation', async () => {
@@ -496,5 +554,18 @@ describe('CompaniesService', () => {
       errors.map((error) => error.property).sort(),
       ['name', 'slug', 'status'],
     );
+  });
+
+  it('excludes the onboarding-only initialAdmin field from company updates', async () => {
+    const dto = plainToInstance(UpdateCompanyDto, {
+      name: 'Acme Global',
+      initialAdmin: {
+        email: 'replacement@example.invalid',
+        firstName: 'Replacement',
+        lastName: 'Admin',
+      },
+    });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    assert.deepEqual(errors.map((error) => error.property), ['initialAdmin']);
   });
 });

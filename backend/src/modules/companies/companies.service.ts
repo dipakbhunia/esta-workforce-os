@@ -369,13 +369,13 @@ export class CompaniesService {
     user: AuthenticatedUser,
   ): Promise<CompanyResponseDto> {
     this.assertTenantAccess(id, user);
-    const current = await this.prisma.company.findFirst({
-      where: { id, deletedAt: null },
-    });
-    if (!current) throw new NotFoundException('Company not found');
+    if (dto.status !== undefined && !isSuperAdmin(user)) {
+      throw new ForbiddenException('Only a Platform Super Admin can change company lifecycle status');
+    }
 
     try {
       const company = await this.prisma.$transaction(async (tx) => {
+        const current = await this.lockActiveCompany(tx, id);
         const updated = await tx.company.update({
           where: { id },
           data: this.updateData(dto),
@@ -415,15 +415,8 @@ export class CompaniesService {
   }
 
   async remove(id: string, actor: AuthenticatedUser): Promise<CompanyResponseDto> {
-    const company = await this.prisma.company.findFirst({
-      where: { id, deletedAt: null },
-    });
-
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
-
     const archived = await this.prisma.$transaction(async (tx) => {
+      const company = await this.lockActiveCompany(tx, id);
       const deletedAt = new Date();
       const updated = await tx.company.update({
         where: { id },
@@ -443,6 +436,20 @@ export class CompaniesService {
       return updated;
     });
     return this.toResponse(archived);
+  }
+
+  private async lockActiveCompany(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<{ id: string; status: CompanyStatus }> {
+    const rows = await tx.$queryRaw<Array<{ id: string; status: CompanyStatus }>>(Prisma.sql`
+      SELECT "id", "status"
+      FROM "Company"
+      WHERE "id" = ${id}::uuid AND "deletedAt" IS NULL
+      FOR UPDATE
+    `);
+    if (rows.length !== 1) throw new NotFoundException('Company not found');
+    return rows[0];
   }
 
   private assertTenantAccess(id: string, user: AuthenticatedUser): void {

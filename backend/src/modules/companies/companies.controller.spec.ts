@@ -137,3 +137,12 @@ describe('CompaniesController Billing Contact settings', () => {
     assert.deepEqual(errors.map((error) => error.property), ['companyId']);
   });
 });
+
+describe('CompaniesController company profile authority', () => {
+  it('keeps the update route available to platform and tenant administrators', () => {
+    assert.deepEqual(
+      Reflect.getMetadata(ROLES_KEY, CompaniesController.prototype.update),
+      [RoleName.SUPER_ADMIN, RoleName.COMPANY_ADMIN],
+    );
+  });
+});
