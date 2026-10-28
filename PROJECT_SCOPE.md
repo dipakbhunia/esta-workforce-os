@@ -25,6 +25,39 @@ overall production readiness or completion of the full SOW.
 
 ## 2. Current checkpoint
 
+### SA-C2.2 Company Lifecycle Security Correction — published 2026-10-28
+
+Commit `11c8b7d5d54088ea83202199f036cf83ae77f90c`,
+`fix(companies): secure lifecycle transitions and concurrency`, is published
+on synchronized local and remote `main`. The exact five-file checkpoint added
+no Prisma schema or migration change; the repository remains at 60 migration
+directories.
+
+Platform `SUPER_ADMIN` now exclusively controls Company lifecycle status
+changes. Tenant `COMPANY_ADMIN` retains permitted company-profile editing but
+cannot reactivate a suspended Company or perform another lifecycle mutation,
+and cross-tenant mutation remains denied. `initialAdmin` is excluded from the
+Company update DTO, while Company creation and transactional initial-administrator
+provisioning remain supported.
+
+Update and archive operations lock the active Company row inside their
+PostgreSQL transaction. Lifecycle audits use the locked prior status; archive
+contention cannot resurrect an archived Company; and lifecycle mutation plus
+audit creation remains atomic. Independent database-free review recorded 46
+passed tests with the database suite skipped. Final disposable PostgreSQL
+verification recorded 6 passed, 0 failed, and 0 skipped after applying all 60
+migrations. Backend build and Prisma validation passed. The disposable
+container and volume were removed, and protected PostgreSQL resources were
+preserved.
+
+Open SA-C2.2 LOW findings remain: the test fence rejects Docker IPv4 addresses
+ending in `.0` or `.255` without subnet-aware evaluation, and its pending-lock
+observation uses a 150 ms timing window. Authenticated Company Management
+browser acceptance, the unified onboarding-readiness contract, billing-profile
+onboarding, dirty-form navigation protection, and broader Company Management UI
+acceptance remain pending. SA-C2 is not fully accepted; SA-C2.3 Unified Company
+Onboarding Readiness Contract is the next planned checkpoint.
+
 ### SA-C1 User-Based Billable Seat Authority checkpoint — 2026-10-28
 
 Commit `d7477eb22765f10887eaf165643616710afdda8c` is published on synchronized
@@ -46,8 +79,7 @@ Open SA-C1 LOW follow-ups are populated financial-history regression coverage,
 the disposable test fence's reliance on positive identity and external
 ownership, and possible test-owned fixture residue before disposable database
 destruction. SA-C0 LOW-1 through LOW-3 and historical backend TypeScript
-test-fixture typing debt also remain open. SA-C2 is the next planning/audit
-checkpoint and has not started.
+test-fixture typing debt also remain open.
 
 ### EMAIL-QA.3C.4P checkpoint — 2026-10-23
 
@@ -355,11 +387,12 @@ do not prove financial, security, or concurrency correctness.
 
 ## 14. Active priorities and unresolved decisions
 
-1. Complete Company Onboarding manual browser verification and checkpoint its
-   six reviewed files.
+1. Complete authenticated Company Management browser acceptance and the
+   remaining broader UI acceptance work.
 2. Resolve three local `BILLING_PROFILE_INCOMPLETE` invoice-recovery data
    prerequisites without weakening financial rules.
-3. Plan and audit SA-C2; implementation has not started.
+3. Design and implement SA-C2.3 Unified Company Onboarding Readiness Contract
+   as a separately authorized checkpoint.
 4. Complete provider acceptance, key-ring/allowlist/TLS readiness, migration
    rollout approval, and genuine browser QA for the EC-B2D.5 Email Configuration UI.
 5. Complete genuine browser QA for the implemented Email Templates backend/UI;

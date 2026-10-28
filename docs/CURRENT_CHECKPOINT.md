@@ -1,5 +1,47 @@
 # Esta Workforce OS — Current Checkpoint
 
+## SA-C2.2 Company Lifecycle Security Correction — published 2026-10-28
+
+- Branch: `main`
+- Local `HEAD` and `origin/main`:
+  `11c8b7d5d54088ea83202199f036cf83ae77f90c`
+- Commit: `fix(companies): secure lifecycle transitions and concurrency`
+- Scope: five paths (four modified, one added), with no schema or migration
+  change.
+- Repository migration directories: 60.
+
+Platform `SUPER_ADMIN` exclusively controls Company lifecycle status changes.
+Tenant `COMPANY_ADMIN` retains permitted profile editing but cannot reactivate
+a suspended Company or make another lifecycle mutation; cross-tenant mutation
+remains denied. `initialAdmin` is excluded from Company updates, while Company
+creation and initial-administrator provisioning remain supported.
+
+Company update and archive now acquire a transaction-local PostgreSQL row lock.
+Lifecycle audits use the locked prior status, archive/status contention cannot
+resurrect an archived Company, and lifecycle mutation plus audit creation is
+atomic. Independent database-free review recorded 46 passed tests with one
+integration suite skipped. Final disposable PostgreSQL verification recorded
+6 passed, 0 failed, and 0 skipped after all 60 migrations were applied. Backend
+build and Prisma validation passed. The disposable container and volume were
+removed, and protected PostgreSQL resources were preserved.
+
+Open SA-C2.2 findings:
+
+- **LOW-1:** the test harness rejects Docker IPv4 addresses ending in `.0` or
+  `.255` without subnet-aware evaluation.
+- **LOW-2:** the integration test uses a 150 ms timing-based pending-lock
+  observation.
+
+Completed scope includes implementation, authorization regression coverage,
+real PostgreSQL concurrency and audit-atomicity verification, independent
+security review, and exact-scope Git publication. Authenticated Company
+Management browser acceptance, the unified onboarding-readiness contract,
+billing-profile onboarding, dirty-form navigation protection, broader Company
+Management UI acceptance, and later roadmap phases remain pending. Company
+Admin login development is not claimed complete. SA-C2 overall is not fully
+accepted; SA-C2.3 Unified Company Onboarding Readiness Contract is the next
+planned separately authorized checkpoint.
+
 ## SA-C1 User-Based Billable Seat Authority — published 2026-10-28
 
 - Branch: `main`
@@ -42,9 +84,8 @@ Open findings remain:
 - Historical backend TypeScript test-fixture typing debt.
 
 SA-C0 and SA-C1 implementation, verification, and Git publication are complete.
-This documentation synchronization closes SA-C1 documentation only. SA-C2 is
-the next separately authorized planning/audit checkpoint and has not started;
-Company Admin, HR, Manager, and Employee development has not begun under it.
+SA-C2.2 is now published as described above; its completion does not complete
+SA-C2 overall or tenant-role development.
 
 ## EMAIL-QA.3C.4P published checkpoint — 2026-10-23
 
@@ -149,7 +190,11 @@ They were supplied after PC-M2 and must remain unchanged.
 
 ## Pending work
 
-- Company Onboarding manual QA and checkpoint.
+- Preserve the published SA-C2.2 lifecycle correction and complete authenticated
+  Company Management browser acceptance, onboarding-readiness, billing-profile
+  onboarding, dirty-form navigation, and broader UI acceptance work.
+- Plan SA-C2.3 Unified Company Onboarding Readiness Contract as a separate
+  authorized checkpoint; do not treat it as implemented.
 - Preserve the published user-based billable-seat authority and complete its
   remaining LOW regression/fencing follow-ups.
 - EC-B1–EC-B2D.3 SMTP configuration, authority, and worker backend is verified

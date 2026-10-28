@@ -302,11 +302,37 @@ company-subdomain support until implementation and end-to-end security
 verification are complete, and do not mix domain routing into the preceding
 email modules.
 
+## SA-C2 Company Management continuation
+
+SA-C2.2 Company Lifecycle Security Correction is implemented and published in
+commit `11c8b7d5d54088ea83202199f036cf83ae77f90c`. Platform `SUPER_ADMIN`
+exclusively controls lifecycle status, while tenant `COMPANY_ADMIN` retains
+permitted Company-profile editing and cannot reactivate a suspended Company.
+Cross-tenant mutation remains denied. Company creation and initial-administrator
+provisioning remain supported, but `initialAdmin` is excluded from updates.
+
+Update and archive use transaction-local PostgreSQL Company-row locking. Audit
+transitions use the locked prior status, archive/status contention cannot
+resurrect an archived Company, and lifecycle mutation plus audit creation is
+atomic. Independent review recorded 46 database-free passes with the integration
+suite skipped; final disposable PostgreSQL verification recorded 6 passed, 0
+failed, and 0 skipped against all 60 migrations. No schema or migration change
+was required, and disposable infrastructure was removed after verification.
+
+SA-C2.2 LOW findings remain open: subnet-unaware rejection of expected Docker
+IPv4 addresses ending in `.0` or `.255`, and the 150 ms timing-based pending-lock
+observation. Authenticated Company Management browser acceptance, unified
+onboarding readiness, billing-profile onboarding, dirty-form navigation
+protection, and broader UI acceptance remain pending. SA-C2 is not fully
+accepted. SA-C2.3 **Unified Company Onboarding Readiness Contract** is the next
+planned, separately authorized work item.
+
 ## Recommended remaining sequence
 
-1. Close Company Onboarding correction and manual QA.
-2. Begin SA-C2 planning/audit only after separate authorization; SA-C2 has not
-   started.
+1. Complete authenticated Company Management browser acceptance and remaining
+   broader UI acceptance work.
+2. Design and implement SA-C2.3 Unified Company Onboarding Readiness Contract
+   only after separate authorization.
 3. Complete genuine provider verification, operational readiness, and genuine
    browser QA for the implemented EC-B2D.5 Email Configuration Admin UI.
 4. Complete genuine browser QA for the implemented ET-B1–ET-B5 Email Templates
