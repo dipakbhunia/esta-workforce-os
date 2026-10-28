@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   CompanyStatus,
-  EmployeeStatus,
   Prisma,
   SubscriptionStatus,
   TrialStatus,
@@ -14,6 +13,10 @@ import {
   UsageSeatsQueryDto,
 } from './dto/usage-seats-query.dto';
 import { SeatUsageService } from './seat-usage.service';
+import {
+  billableTenantUserSql,
+  billableTenantUserWhere,
+} from './billable-seat-authority';
 import {
   CommercialSeatSource,
   CompanySeatSummary,
@@ -139,36 +142,38 @@ export class UsageSeatsQueryService {
       const commercial = await this.commercialAccess.resolve(companyId, tx, now);
       const used = await this.seatUsage.countUsedSeats(companyId, tx);
       const search = query.search?.trim();
-      const where: Prisma.EmployeeWhereInput = {
-        companyId,
-        status: EmployeeStatus.ACTIVE,
-        deletedAt: null,
+      const where: Prisma.UserWhereInput = {
+        ...billableTenantUserWhere(companyId),
         ...(search
           ? {
               OR: [
-                { employeeCode: { contains: search, mode: 'insensitive' } },
-                { user: { firstName: { contains: search, mode: 'insensitive' } } },
-                { user: { lastName: { contains: search, mode: 'insensitive' } } },
+                { email: { contains: search, mode: 'insensitive' } },
+                { firstName: { contains: search, mode: 'insensitive' } },
+                { lastName: { contains: search, mode: 'insensitive' } },
               ],
             }
           : {}),
       };
-      const [employees, total] = await Promise.all([
-        tx.employee.findMany({
+      const [users, total] = await Promise.all([
+        tx.user.findMany({
           where,
           skip: (query.page - 1) * query.limit,
           take: query.limit,
-          orderBy: [{ user: { firstName: 'asc' } }, { employeeCode: 'asc' }],
+          orderBy: [{ firstName: 'asc' }, { email: 'asc' }],
           select: {
             id: true,
-            employeeCode: true,
+            email: true,
             status: true,
-            user: { select: { firstName: true, lastName: true } },
+            firstName: true,
+            lastName: true,
             department: { select: { id: true, name: true } },
             designation: { select: { id: true, name: true } },
+            roles: {
+              select: { role: { select: { name: true } } },
+            },
           },
         }),
-        tx.employee.count({ where }),
+        tx.user.count({ where }),
       ]);
 
       const summary: CompanySeatSummary = {
@@ -181,16 +186,17 @@ export class UsageSeatsQueryService {
       return {
         ...summary,
         consumers: paginatedResult(
-          employees.map((employee) => ({
-            id: employee.id,
-            employeeCode: employee.employeeCode,
-            status: employee.status,
+          users.map((user) => ({
+            id: user.id,
+            email: user.email,
+            status: user.status,
             name:
-              [employee.user.firstName, employee.user.lastName]
+              [user.firstName, user.lastName]
                 .filter(Boolean)
-                .join(' ') || employee.employeeCode,
-            department: employee.department,
-            designation: employee.designation,
+                .join(' ') || user.email,
+            roles: user.roles.map(({ role }) => role.name),
+            department: user.department,
+            designation: user.designation,
           })),
           total,
           query,
@@ -203,8 +209,8 @@ export class UsageSeatsQueryService {
     return Prisma.sql`
       WITH "active_usage" AS (
         SELECT "companyId", COUNT(*)::INTEGER AS "used"
-        FROM "Employee"
-        WHERE "status" = 'ACTIVE' AND "deletedAt" IS NULL
+        FROM "User"
+        WHERE ${billableTenantUserSql}
         GROUP BY "companyId"
       ),
       "effective_trial" AS (

@@ -18,8 +18,6 @@ import {
 import { isSuperAdmin } from '../../common/utils/tenant.util';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
-import { CommercialAccessService } from '../usage-seats/commercial-access.service';
-import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -109,8 +107,6 @@ interface OrganizationReferences {
 export class EmployeesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly commercialAccess: CommercialAccessService,
-    private readonly seatUsage: SeatUsageService,
   ) {}
 
   async create(dto: CreateEmployeeDto, actor: AuthenticatedUser) {
@@ -137,25 +133,6 @@ export class EmployeesService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const createsSeat = (dto.status ?? EmployeeStatus.ACTIVE) === EmployeeStatus.ACTIVE;
-        if (createsSeat) {
-          await this.seatUsage.lockCompany(tx, companyId);
-          const lockedUser = await tx.user.findFirst({
-            where: {
-              id: dto.userId,
-              companyId,
-              deletedAt: null,
-              status: { not: UserStatus.SUSPENDED },
-            },
-            select: { id: true },
-          });
-          if (!lockedUser) {
-            throw new NotFoundException('User not found in this tenant');
-          }
-          const access = await this.commercialAccess.resolve(companyId, tx);
-          const used = await this.seatUsage.countUsedSeats(companyId, tx);
-          this.seatUsage.assertPositiveAllocation(access, used);
-        }
         const employee = await tx.employee.create({
           data: {
             userId: dto.userId,
@@ -285,20 +262,10 @@ export class EmployeesService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await this.seatUsage.lockCompany(tx, companyId);
         const lockedEmployee = await tx.employee.findFirst({
           where: { id, companyId, deletedAt: null },
         });
         if (!lockedEmployee) throw new NotFoundException('Employee not found');
-        const nextStatus = dto.status ?? lockedEmployee.status;
-        if (
-          lockedEmployee.status !== EmployeeStatus.ACTIVE &&
-          nextStatus === EmployeeStatus.ACTIVE
-        ) {
-          const access = await this.commercialAccess.resolve(companyId, tx);
-          const used = await this.seatUsage.countUsedSeats(companyId, tx);
-          this.seatUsage.assertPositiveAllocation(access, used);
-        }
         const updated = await tx.employee.update({
           where: { id },
           data: {
@@ -351,7 +318,6 @@ export class EmployeesService {
     const companyId = this.requireManageableTenant(actor);
     await this.findTenantEmployee(id, companyId);
     return this.prisma.$transaction(async (tx) => {
-      await this.seatUsage.lockCompany(tx, companyId);
       const employee = await tx.employee.findFirst({
         where: { id, companyId, deletedAt: null },
         select: { id: true },

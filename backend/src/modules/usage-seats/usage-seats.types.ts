@@ -1,6 +1,6 @@
 import {
   CompanyStatus,
-  EmployeeStatus,
+  UserStatus,
   SubscriptionStatus,
   TrialStatus,
 } from '@prisma/client';
@@ -50,9 +50,10 @@ export interface CompanySeatSummary {
 
 export interface SeatConsumer {
   id: string;
-  employeeCode: string;
-  status: EmployeeStatus;
+  email: string;
+  status: UserStatus;
   name: string;
+  roles: string[];
   department: { id: string; name: string } | null;
   designation: { id: string; name: string } | null;
 }

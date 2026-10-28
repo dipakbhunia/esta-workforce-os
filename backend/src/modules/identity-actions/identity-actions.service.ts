@@ -17,6 +17,8 @@ import {
 } from '../../common/utils/platform-invitation-authority.util';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CommercialAccessService } from '../usage-seats/commercial-access.service';
+import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { revokeAllUserSessions } from '../auth/refresh-session-revocation';
 import { CompleteAccountActionDto, VerifyEmailDto } from './dto/identity-action.dto';
@@ -38,6 +40,8 @@ export class IdentityActionsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly notifications: NotificationsService,
+    private readonly commercialAccess: CommercialAccessService = undefined as never,
+    private readonly seatUsage: SeatUsageService = undefined as never,
   ) {}
 
   async unusablePasswordHash(): Promise<string> {
@@ -360,6 +364,9 @@ export class IdentityActionsService {
     const now = new Date();
     try {
       await this.prisma.$transaction(async (tx) => {
+        if (activate && candidate.companyId !== null) {
+          await this.seatUsage.lockCompany(tx, candidate.companyId);
+        }
         const claimed = await tx.accountActionToken.updateMany({
           where: { id, purpose, consumedAt: null, invalidatedAt: null, expiresAt: { gt: now } },
           data: { consumedAt: now },
@@ -370,6 +377,11 @@ export class IdentityActionsService {
           select: { id: true, companyId: true },
         });
         if (!user) throw new BadRequestException('The account action link is invalid or expired');
+        if (activate && user.companyId !== null) {
+          const access = await this.commercialAccess.resolve(user.companyId, tx);
+          const used = await this.seatUsage.countUsedSeats(user.companyId, tx);
+          this.seatUsage.assertPositiveAllocation(access, used);
+        }
         await tx.user.update({ where: { id: user.id }, data: { passwordHash, ...(activate ? { status: UserStatus.ACTIVE } : {}) } });
         await revokeAllUserSessions(tx, user.id, now);
         await tx.accountActionToken.updateMany({

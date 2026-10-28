@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
-  EmployeeStatus,
   RoleName,
   SubscriptionStatus,
   TrialStatus,
@@ -115,10 +114,10 @@ describe('Usage & Seats domain services', () => {
     });
   });
 
-  it('uses the exact ACTIVE non-deleted Employee count predicate without a User join', async () => {
+  it('counts each ACTIVE non-deleted tenant User once without role or Employee-profile conditions', async () => {
     let where: unknown;
     const service = new SeatUsageService({
-      employee: {
+      user: {
         count: async (args: { where: unknown }) => {
           where = args.where;
           return 4;
@@ -128,7 +127,7 @@ describe('Usage & Seats domain services', () => {
     assert.equal(await service.countUsedSeats('company-1'), 4);
     assert.deepEqual(where, {
       companyId: 'company-1',
-      status: EmployeeStatus.ACTIVE,
+      status: UserStatus.ACTIVE,
       deletedAt: null,
     });
   });

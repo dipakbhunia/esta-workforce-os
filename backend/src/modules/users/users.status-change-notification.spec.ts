@@ -30,7 +30,7 @@ function fixture(previousStatus: UserStatus, options: {
   const tx = {
     $queryRaw: async () => { order.push('lock'); return [{ pg_advisory_xact_lock: '' }]; },
     user: {
-      findUniqueOrThrow: async () => { order.push('status-read'); return { status: previousStatus }; },
+      findUniqueOrThrow: async () => { order.push('status-read'); return { status: previousStatus, companyId, deletedAt: null }; },
       findUnique: async () => ({ companyId, status: previousStatus, deletedAt: null, roles: [] }),
       update: async ({ data }: { data: { status: UserStatus } }) => {
         order.push('status-update');
@@ -59,7 +59,19 @@ function fixture(previousStatus: UserStatus, options: {
     if (options.enqueueFailure) throw new Error('unsafe persistence details');
     return { created: true };
   } };
-  return { prisma, notifications, order, enqueues, tokenRevocations: () => tokenRevocations, sessionRevocations: () => sessionRevocations };
+  const commercial = { resolve: async () => { order.push('commercial'); return { source: 'SUBSCRIPTION', capacity: 2, commercialStatus: 'ACTIVE', allocationAllowed: true }; } };
+  const seats = { countUsedSeats: async () => { order.push('seat-count'); return 1; }, assertPositiveAllocation: () => { order.push('seat-assert'); } };
+  return { prisma, notifications, commercial, seats, order, enqueues, tokenRevocations: () => tokenRevocations, sessionRevocations: () => sessionRevocations };
+}
+
+function serviceFor(state: ReturnType<typeof fixture>) {
+  return new UsersService(
+    state.prisma as never,
+    state.notifications as never,
+    undefined as never,
+    state.commercial as never,
+    state.seats as never,
+  );
 }
 
 describe('UsersService account-status notification integration', () => {
@@ -70,7 +82,7 @@ describe('UsersService account-status notification integration', () => {
   ] as const) {
     it(`${previousStatus} -> ${status} commits before one target event`, async () => {
       const state = fixture(previousStatus);
-      const service = new UsersService(state.prisma as never, state.notifications as never);
+      const service = serviceFor(state);
       const response = await service.setStatus(targetId, { status }, actor);
       assert.equal(response.status, status);
       assert.equal(state.enqueues.length, 1);
@@ -80,12 +92,13 @@ describe('UsersService account-status notification integration', () => {
       assert.ok(state.order.indexOf('commit') < state.order.indexOf('enqueue'));
       assert.equal(state.tokenRevocations(), revokesTokens ? 1 : 0);
       assert.equal(state.sessionRevocations(), revokesTokens ? 1 : 0);
+      assert.equal(state.order.includes('seat-count'), status === UserStatus.ACTIVE);
     });
   }
 
   it('preserves non-active no-op writes and token revocation without creating an event', async () => {
     const state = fixture(UserStatus.INACTIVE);
-    const service = new UsersService(state.prisma as never, state.notifications as never);
+    const service = serviceFor(state);
     const response = await service.setStatus(targetId, { status: UserStatus.INACTIVE }, actor);
     assert.equal(response.status, UserStatus.INACTIVE);
     assert.ok(state.order.includes('status-update'));
@@ -96,14 +109,14 @@ describe('UsersService account-status notification integration', () => {
 
   it('creates no event when authorization or the transaction fails', async () => {
     const unauthorized = fixture(UserStatus.ACTIVE);
-    const unauthorizedService = new UsersService(unauthorized.prisma as never, unauthorized.notifications as never);
+    const unauthorizedService = serviceFor(unauthorized);
     await assert.rejects(() => unauthorizedService.setStatus(targetId, { status: UserStatus.INACTIVE }, {
       ...actor, companyId: '44444444-4444-4444-8444-444444444444',
     }), ForbiddenException);
     assert.equal(unauthorized.enqueues.length, 0);
     for (const transactionFailure of ['update', 'tokens'] as const) {
       const state = fixture(UserStatus.ACTIVE, { transactionFailure });
-      const service = new UsersService(state.prisma as never, state.notifications as never);
+      const service = serviceFor(state);
       await assert.rejects(() => service.setStatus(targetId, { status: UserStatus.INACTIVE }, actor));
       assert.equal(state.enqueues.length, 0);
       assert.ok(!state.order.includes('commit'));
@@ -112,7 +125,7 @@ describe('UsersService account-status notification integration', () => {
 
   it('preserves the committed public response and logs bounded evidence when enqueue fails', async () => {
     const state = fixture(UserStatus.ACTIVE, { enqueueFailure: true });
-    const service = new UsersService(state.prisma as never, state.notifications as never);
+    const service = serviceFor(state);
     const warnings: unknown[] = [];
     (service as unknown as { logger: { warn(value: unknown): void } }).logger = { warn: (value) => warnings.push(value) };
     const response = await service.setStatus(targetId, { status: UserStatus.INACTIVE }, actor);

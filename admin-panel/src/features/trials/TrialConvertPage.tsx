@@ -91,7 +91,7 @@ export default function TrialConvertPage() {
       return;
     }
     if (usageQuery.isLoading || usageQuery.isError || usedSeats === undefined) {
-      setError('Current Employee seat usage must be loaded before conversion.');
+      setError('Current billable tenant User usage must be loaded before conversion.');
       return;
     }
     if (seatQuantity < usedSeats && (!allowOverLimit || !overrideReason.trim())) {
@@ -116,7 +116,7 @@ export default function TrialConvertPage() {
   return <PageLayout>
     <PageHeader title="Convert Trial to Subscription" description="Create an ACTIVE Subscription from current Plan terms and permitted negotiated overrides." breadcrumbs={['Admin', 'SaaS Management', 'Trial Management', trial?.company.name ?? 'Trial', 'Convert']} />
     {loading ? <LoadingSkeleton rows={8} /> : trialQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void trialQuery.refetch()}>Retry</Button>}>Trial could not be loaded.</Alert> : plansQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void plansQuery.refetch()}>Retry</Button>}>Active Plans could not be loaded.</Alert> : !trial ? <Alert severity="warning">Trial not found.</Alert> : !effective ? <Alert severity="warning" action={<Button component={Link} color="inherit" to={`/saas/trials/${trial.id}`}>View Trial</Button>}>Only an effective ACTIVE Trial can be converted.</Alert> : <Stack gap={2}>
-      {error ? <Alert severity="error" onClose={() => setError('')}>{error}</Alert> : null}{usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current Employee seat usage could not be loaded.</Alert> : null}
+      {error ? <Alert severity="error" onClose={() => setError('')}>{error}</Alert> : null}{usageQuery.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usageQuery.refetch()}>Retry</Button>}>Current billable tenant User usage could not be loaded.</Alert> : null}
       <SectionCard title="Trial Being Converted" description="Trial access is not copied into Subscription commercial terms."><Box sx={detailGrid}><Fact label="Company" value={trial.company.name} /><Fact label="Trial ends" value={trialDate(trial.endsAt)} /><Fact label="Remaining" value={trialRemaining(trial.endsAt)} /><Fact label="Trial seat allowance" value={String(trial.seatLimit)} /><Fact label="Trial entitlements" value={String(trial.entitlementsSnapshot.length)} /></Box></SectionCard>
       <Card><CardContent><Stack component="form" gap={3} onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <Box sx={formGrid}>

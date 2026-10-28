@@ -4,11 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  EmployeeStatus,
-  Prisma,
-  SubscriptionStatus,
-} from '@prisma/client';
+import { Prisma, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import {
   CommercialSeatAccess,
@@ -16,6 +12,7 @@ import {
   SeatCalculation,
   SeatCapacityState,
 } from './usage-seats.types';
+import { billableTenantUserWhere } from './billable-seat-authority';
 
 export interface OverLimitOverride {
   allowOverLimit?: boolean;
@@ -48,12 +45,8 @@ export class SeatUsageService {
     companyId: string,
     client: Prisma.TransactionClient = this.prisma,
   ): Promise<number> {
-    return client.employee.count({
-      where: {
-        companyId,
-        status: EmployeeStatus.ACTIVE,
-        deletedAt: null,
-      },
+    return client.user.count({
+      where: billableTenantUserWhere(companyId),
     });
   }
 

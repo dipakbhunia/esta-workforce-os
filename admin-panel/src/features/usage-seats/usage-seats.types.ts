@@ -57,9 +57,10 @@ export interface UsageSeatsResponse {
 
 export interface SeatConsumer {
   id: string;
-  employeeCode: string;
+  email: string;
   status: 'ACTIVE';
   name: string;
+  roles: string[];
   department: { id: string; name: string } | null;
   designation: { id: string; name: string } | null;
 }

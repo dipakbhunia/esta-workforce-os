@@ -61,7 +61,7 @@ export default function TrialCreatePage() {
       return;
     }
     if (usage.isLoading || usage.isError || usedSeats === undefined) {
-      setError('Current Employee seat usage must be loaded before starting a Trial.');
+      setError('Current billable tenant User usage must be loaded before starting a Trial.');
       return;
     }
     if (seats < usedSeats && (!allowOverLimit || !reason.trim())) {
@@ -80,7 +80,7 @@ export default function TrialCreatePage() {
 
   return <PageLayout>
     <PageHeader title="Start Trial" description="Grant temporary, backend-controlled Trial access to an eligible company." breadcrumbs={['Admin', 'SaaS Management', 'Trial Management', 'Start Trial']} />
-    {error ? <Alert severity="error" onClose={() => setError('')}>{error}</Alert> : null}{usage.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usage.refetch()}>Retry</Button>}>Current Employee seat usage could not be loaded.</Alert> : null}
+    {error ? <Alert severity="error" onClose={() => setError('')}>{error}</Alert> : null}{usage.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void usage.refetch()}>Retry</Button>}>Current billable tenant User usage could not be loaded.</Alert> : null}
     {companies.isLoading ? <LoadingSkeleton rows={3} /> : companies.isError ? <Alert severity="error" action={<Button color="inherit" onClick={() => void companies.refetch()}>Retry</Button>}>Companies could not be loaded. Trial creation is unavailable.</Alert> : <Card><CardContent><Stack component="form" gap={3} onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <Box sx={formGrid}>
         <TextField select required label="Company" value={companyId} onChange={(event) => { setCompanyId(event.target.value); setReason(''); setAllowOverLimit(false); setError(''); }} helperText={selectedCompany ? `Operational status: ${selectedCompany.status}` : 'Only operationally eligible companies can start a Trial.'}>

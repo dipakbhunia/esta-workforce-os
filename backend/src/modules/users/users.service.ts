@@ -20,6 +20,8 @@ import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interfa
 import { revokeAllUserSessions } from '../auth/refresh-session-revocation';
 import { NotificationsService } from '../notifications/notifications.service';
 import { IdentityActionsService } from '../identity-actions/identity-actions.service';
+import { CommercialAccessService } from '../usage-seats/commercial-access.service';
+import { SeatUsageService } from '../usage-seats/seat-usage.service';
 import { AssignRoleDto } from './dto/assign-role.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -85,6 +87,8 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly identityActions: IdentityActionsService = undefined as never,
+    private readonly commercialAccess: CommercialAccessService = undefined as never,
+    private readonly seatUsage: SeatUsageService = undefined as never,
   ) {}
 
   async create(dto: CreateUserDto, actor: AuthenticatedUser) {
@@ -319,8 +323,24 @@ export class UsersService {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(${PLATFORM_ADMIN_LOCK_KEY})::text`;
       const transactionTarget = await tx.user.findUniqueOrThrow({
         where: { id },
-        select: { status: true },
+        select: { status: true, companyId: true, deletedAt: true },
       });
+      if (
+        dto.status === UserStatus.ACTIVE &&
+        transactionTarget.status !== UserStatus.ACTIVE &&
+        transactionTarget.companyId !== null &&
+        transactionTarget.deletedAt === null
+      ) {
+        const access = await this.commercialAccess.resolve(
+          transactionTarget.companyId,
+          tx,
+        );
+        const used = await this.seatUsage.countUsedSeats(
+          transactionTarget.companyId,
+          tx,
+        );
+        this.seatUsage.assertPositiveAllocation(access, used);
+      }
       if (dto.status !== UserStatus.ACTIVE) {
         await this.assertPlatformAdminSurvives(tx, id, 'STATUS');
       }

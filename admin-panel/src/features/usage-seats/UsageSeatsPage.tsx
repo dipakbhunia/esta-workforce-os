@@ -75,7 +75,7 @@ export default function UsageSeatsPage() {
         <StatCard label="Over Limit" value={String(summary.overLimitCompanies)} helper="Positive deltas blocked" icon={ShieldAlert} tone="#DC2626" />
         <StatCard label="Trial Allowance" value={String(summary.totalTrialAllowance)} helper="Effective Trials only" icon={Users} tone="#7C3AED" />
         <StatCard label="Subscription Capacity" value={String(summary.totalSubscriptionCapacity)} helper="Active + suspended" icon={Users} tone="#0891B2" />
-        <StatCard label="Used Workforce Seats" value={String(summary.currentUsedWorkforceSeats)} helper="ACTIVE Employees" icon={Users} tone="#0F766E" />
+        <StatCard label="Billable Tenant Users" value={String(summary.currentUsedWorkforceSeats)} helper="ACTIVE, non-deleted tenant Users" icon={Users} tone="#0F766E" />
       </SummaryCardsContainer>
       <Typography variant="caption" color="text.secondary">Scope: {summary.scope === 'FILTERED' ? 'current filters' : 'all non-archived companies'} · As of {response ? new Date(response.asOf).toLocaleString() : '—'}</Typography>
     </Stack> : query.isLoading ? <LoadingSkeleton rows={3} /> : null}

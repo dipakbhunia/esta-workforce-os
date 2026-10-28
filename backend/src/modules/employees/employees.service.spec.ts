@@ -95,31 +95,25 @@ function harness(options: { currentStatus?: EmployeeStatus; used?: number; capac
     assertPositiveAllocation: policy.assertPositiveAllocation.bind(policy),
   };
   const commercial = { resolve: async () => { events.push('resolve'); return access; } };
-  return { service: new EmployeesService(prisma as never, commercial as never, seatUsage as never), events, employee: () => current };
+  return { service: new EmployeesService(prisma as never), events, employee: () => current };
 }
 
-describe('EmployeesService seat enforcement', () => {
-  it('locks, counts, and validates before creating an ACTIVE future-dated Employee', async () => {
-    const h = harness({ used: 9, capacity: 10 });
-    await h.service.create(dto, actor);
-    assert.deepEqual(h.events.slice(0, 5), ['lock', 'resolve', 'count', 'create']);
-  });
-
-  it('rejects ACTIVE creation at capacity and does not mutate', async () => {
+describe('EmployeesService commercial-seat independence', () => {
+  it('creates an ACTIVE Employee without allocating another commercial seat', async () => {
     const h = harness({ used: 10, capacity: 10 });
-    await assert.rejects(() => h.service.create(dto, actor), ConflictException);
-    assert.ok(!h.events.includes('create'));
+    await h.service.create(dto, actor);
+    assert.deepEqual(h.events, ['create']);
   });
 
-  it('rejects ACTIVE creation when over limit, suspended, or without commercial access', async () => {
+  it('does not consult commercial capacity for Employee creation', async () => {
     for (const options of [
       { used: 11, capacity: 10 },
       { used: 1, capacity: 10, commercialStatus: SubscriptionStatus.SUSPENDED },
       { used: 0, capacity: null },
     ]) {
       const h = harness(options);
-      await assert.rejects(() => h.service.create(dto, actor), ConflictException);
-      assert.ok(!h.events.includes('create'));
+      await h.service.create(dto, actor);
+      assert.deepEqual(h.events, ['create']);
     }
   });
 
@@ -129,30 +123,30 @@ describe('EmployeesService seat enforcement', () => {
     assert.deepEqual(h.events, ['create']);
   });
 
-  it('checks capacity for INACTIVE to ACTIVE and orders the lock before the count', async () => {
+  it('reactivates an Employee independently of commercial seat capacity', async () => {
     const h = harness({ currentStatus: EmployeeStatus.INACTIVE, used: 9, capacity: 10 });
     await h.service.update(employee.id, { status: EmployeeStatus.ACTIVE }, actor);
-    assert.deepEqual(h.events.slice(0, 4), ['lock', 'resolve', 'count', 'update:ACTIVE']);
+    assert.deepEqual(h.events, ['update:ACTIVE']);
   });
 
   it('always allows ACTIVE reclamation and metadata updates without a positive allocation check', async () => {
     const reclaim = harness({ currentStatus: EmployeeStatus.ACTIVE, used: 12, capacity: 10 });
     await reclaim.service.update(employee.id, { status: EmployeeStatus.INACTIVE }, actor);
-    assert.deepEqual(reclaim.events, ['lock', 'update:INACTIVE']);
+    assert.deepEqual(reclaim.events, ['update:INACTIVE']);
 
     const terminate = harness({ currentStatus: EmployeeStatus.ACTIVE, used: 12, capacity: 10 });
     await terminate.service.update(employee.id, { status: EmployeeStatus.TERMINATED }, actor);
-    assert.deepEqual(terminate.events, ['lock', 'update:TERMINATED']);
+    assert.deepEqual(terminate.events, ['update:TERMINATED']);
 
     const metadata = harness({ currentStatus: EmployeeStatus.ACTIVE, used: 12, capacity: 10 });
     await metadata.service.update(employee.id, { phone: '+91 98765 43210' }, actor);
-    assert.deepEqual(metadata.events, ['lock', 'update:metadata']);
+    assert.deepEqual(metadata.events, ['update:metadata']);
   });
 
   it('allows soft-delete as reclamation without allocation validation', async () => {
     const h = harness({ currentStatus: EmployeeStatus.ACTIVE, used: 12, capacity: 10 });
     await h.service.remove(employee.id, actor);
-    assert.deepEqual(h.events, ['lock', 'update:TERMINATED']);
+    assert.deepEqual(h.events, ['update:TERMINATED']);
     assert.equal(h.employee().status, EmployeeStatus.TERMINATED);
     assert.ok(h.employee().deletedAt instanceof Date);
   });
