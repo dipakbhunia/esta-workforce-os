@@ -15,7 +15,7 @@ the CP-R4 snapshot, the published checkpoint migration count was 53, the local
 repository contained 59 migrations, and `esta_workforce` had 53 applied
 migrations.
 
-The current Git checkpoint is `a827ee09bb6bbe607e88ef652fbd71e2b766e36c`
+The current Git checkpoint is `d7477eb22765f10887eaf165643616710afdda8c`
 on synchronized local and remote `main`. The repository contains 60 migration
 directories; live applied-migration state was not reverified by the
 documentation-only EMAIL-QA.3C.4P synchronization. The preceding 59/53 values
@@ -58,7 +58,7 @@ phase is **NOT VERIFIED**:
 | Plans and Pricing | IMPLEMENTED AND VERIFIED | Live pricing approval remains separate |
 | Subscriptions | IMPLEMENTED AND VERIFIED | Preserve lifecycle/financial regressions |
 | Trial Management | IMPLEMENTED AND VERIFIED | Preserve lifecycle regressions |
-| Usage and Seats | PARTIALLY IMPLEMENTED | Replace Employee authority with user seats |
+| Usage and Seats | IMPLEMENTED AND VERIFIED | Preserve user-seat authority and financial regressions |
 | Storage Usage | IMPLEMENTED AND VERIFIED | Preserve measured/unmeasured distinction |
 | Payments | IMPLEMENTED AND VERIFIED | Controlled live-provider validation |
 | Invoices | IMPLEMENTED AND VERIFIED | Local billing-profile prerequisites |
@@ -81,7 +81,9 @@ phase is **NOT VERIFIED**:
 - Provider-neutral billing; Razorpay is first, not the generic domain.
 - Real connectivity needs approved credentials and explicit evidence.
 - Billable seats are active, login-enabled human tenant users; platform users
-  consume none. Current active-Employee authority is a known mismatch.
+  consume none. Commit `d7477eb` establishes matching-company, `ACTIVE`,
+  non-deleted tenant Users as the shared Prisma/SQL/Admin authority; each User
+  counts once regardless of role multiplicity or Employee profile.
 - Billing Settings owns invoice numbering/reset, terms, notes, seller/legal
   identity, and GST metadata.
 - `Company.status` is not subscription/trial truth.
@@ -184,8 +186,9 @@ their dedicated analytics authorities.
 
 ### Unsupported dashboard analytics
 
-Exclude Billable Seats/Seat Utilization until seat authority is corrected;
-revenue, MRR, ARR, ARPU, churn, renewal revenue; payment totals/trends;
+Billable-seat authority is corrected, but adding a dashboard seat metric remains
+a separate explicitly reviewed product decision. Continue to exclude revenue,
+MRR, ARR, ARPU, churn, renewal revenue; payment totals/trends;
 invoice/GST/renewal analytics; tenant employee, attendance, monitoring,
 productivity, and payroll data; fake deltas; and unsupported conversion rates.
 
@@ -302,7 +305,8 @@ email modules.
 ## Recommended remaining sequence
 
 1. Close Company Onboarding correction and manual QA.
-2. Correct billable-seat authority.
+2. Begin SA-C2 planning/audit only after separate authorization; SA-C2 has not
+   started.
 3. Complete genuine provider verification, operational readiness, and genuine
    browser QA for the implemented EC-B2D.5 Email Configuration Admin UI.
 4. Complete genuine browser QA for the implemented ET-B1–ET-B5 Email Templates

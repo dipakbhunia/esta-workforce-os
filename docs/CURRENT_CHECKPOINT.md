@@ -1,5 +1,51 @@
 # Esta Workforce OS — Current Checkpoint
 
+## SA-C1 User-Based Billable Seat Authority — published 2026-10-28
+
+- Branch: `main`
+- Local `HEAD` and `origin/main`:
+  `d7477eb22765f10887eaf165643616710afdda8c`
+- Commit: `fix(billing): use tenant users for billable seat authority`
+- Scope: 21 paths (18 modified, 3 added), with no schema or migration change.
+- Repository migration directories: 60.
+
+SA-C1.1 completed the authority audit; SA-C1.2 implemented the correction;
+SA-C1.3 passed 4/4 disposable PostgreSQL integration tests with all 60
+migrations applied; SA-C1.4 completed independent security and financial
+review; SA-C1.5 verified exact staging; SA-C1.6 created the local commit; and
+SA-C1.7 independently verified the GitHub fast-forward push and clean 0/0
+synchronization.
+
+Billable seats now count matching-company, `ACTIVE`, non-deleted tenant Users,
+once per User. Multi-role Users remain deduplicated, Employee profiles are not
+required, and Employee lifecycle does not independently allocate or release a
+seat. Administrative reactivation and invitation activation enforce capacity
+transactionally under the company-row mutex. Prisma counting, aggregate SQL,
+company detail views, and Admin Usage & Seats presentation share this authority.
+
+Historical subscription quantities and pricing snapshots, renewals, invoices,
+payments, and GST records were not rewritten. No automatic repricing or
+backfill was introduced, and explicit below-usage override semantics remain.
+Populated financial-history PostgreSQL regression coverage remains a
+non-blocking LOW follow-up; full financial browser E2E coverage is not claimed.
+
+Open findings remain:
+
+- SA-C0 LOW-1: hard-coded SMTP QA database identity and port.
+- SA-C0 LOW-2: external disposable-database ownership attestation.
+- SA-C0 LOW-3: missing dedicated two-tenant activation regression.
+- SA-C1 LOW: populated financial-history regression coverage.
+- SA-C1 LOW: disposable test fence relies on positive identity and external
+  ownership.
+- SA-C1 LOW: possible test-owned fixture residue before disposable database
+  destruction.
+- Historical backend TypeScript test-fixture typing debt.
+
+SA-C0 and SA-C1 implementation, verification, and Git publication are complete.
+This documentation synchronization closes SA-C1 documentation only. SA-C2 is
+the next separately authorized planning/audit checkpoint and has not started;
+Company Admin, HR, Manager, and Employee development has not begun under it.
+
 ## EMAIL-QA.3C.4P published checkpoint — 2026-10-23
 
 - Branch: `main`
@@ -104,7 +150,8 @@ They were supplied after PC-M2 and must remain unchanged.
 ## Pending work
 
 - Company Onboarding manual QA and checkpoint.
-- User-based billable-seat authority.
+- Preserve the published user-based billable-seat authority and complete its
+  remaining LOW regression/fencing follow-ups.
 - EC-B1–EC-B2D.3 SMTP configuration, authority, and worker backend is verified
   in published commit `1ab1af2`. EC-B2D.4 passed 16/16 executable checks but is
   blocked on genuine approved-provider connection and restricted test-email

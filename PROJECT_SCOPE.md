@@ -25,6 +25,30 @@ overall production readiness or completion of the full SOW.
 
 ## 2. Current checkpoint
 
+### SA-C1 User-Based Billable Seat Authority checkpoint — 2026-10-28
+
+Commit `d7477eb22765f10887eaf165643616710afdda8c` is published on synchronized
+local and remote `main`. SA-C1.1 audited the authority; SA-C1.2 implemented the
+correction; SA-C1.3 passed 4/4 disposable PostgreSQL integration tests against
+all 60 migrations; SA-C1.4 completed independent security and financial review;
+and SA-C1.5–SA-C1.7 verified exact staging, local commit, and GitHub publication.
+No schema or migration change was required.
+
+Billable seats now count each matching-company, `ACTIVE`, non-deleted tenant
+`User` exactly once. Role multiplicity and the presence of an `Employee` profile
+do not change the count. Administrative reactivation and invitation activation
+enforce capacity transactionally under the company-row mutex, while Employee
+lifecycle changes do not allocate or release commercial seats. Historical
+subscription quantities, pricing snapshots, renewals, invoices, payments, and
+GST records were not rewritten; no repricing or backfill was introduced.
+
+Open SA-C1 LOW follow-ups are populated financial-history regression coverage,
+the disposable test fence's reliance on positive identity and external
+ownership, and possible test-owned fixture residue before disposable database
+destruction. SA-C0 LOW-1 through LOW-3 and historical backend TypeScript
+test-fixture typing debt also remain open. SA-C2 is the next planning/audit
+checkpoint and has not started.
+
 ### EMAIL-QA.3C.4P checkpoint — 2026-10-23
 
 Commit `a827ee09bb6bbe607e88ef652fbd71e2b766e36c` is published on `main`
@@ -140,7 +164,7 @@ only by explicit policy.
 | Plans and Pricing | IMPLEMENTED AND VERIFIED |
 | Subscriptions | IMPLEMENTED AND VERIFIED |
 | Trial Management | IMPLEMENTED AND VERIFIED |
-| Usage and Seats | PARTIALLY IMPLEMENTED; billable-seat authority mismatch remains |
+| Usage and Seats | IMPLEMENTED AND VERIFIED; user-based authority published in `d7477eb` |
 | Storage Usage | IMPLEMENTED AND VERIFIED |
 | Payments | IMPLEMENTED AND VERIFIED |
 | Invoices | IMPLEMENTED AND VERIFIED |
@@ -211,8 +235,9 @@ device QA remain unresolved or not verified.
   locking, and safe late-capture/recovery behavior.
 - Dunning is a derived operational projection, not independent financial truth.
 - Billable seats are approved as active, login-enabled human tenant users.
-  Platform users do not consume tenant seats. Current usage-seat code still
-  derives counts from active Employee records and requires a separate fix.
+  Platform users do not consume tenant seats. The shared authority now counts
+  matching-company, `ACTIVE`, non-deleted tenant Users once, independent of
+  roles or Employee profiles.
 - Revenue, MRR, ARR, ARPU, churn, renewal revenue, and unsupported payment or
   invoice analytics must not be invented.
 
@@ -302,8 +327,8 @@ Planned modules include CRM, tasks/projects, full HRMS, ERP Lite, AI, formal
 Reporting/BI, mobile applications, tenant communication integrations, Platform
 Reports, and Platform Settings.
 
-Deferred dependencies include user-based seat authority, tenant-domain
-architecture, real provider connectivity, production deployment, final
+Deferred dependencies include tenant-domain architecture, real provider
+connectivity, production deployment, final
 cross-product UX review, and final security/release review.
 
 Production topology, CI/CD, disaster recovery, backups, SLOs, penetration
@@ -334,7 +359,7 @@ do not prove financial, security, or concurrency correctness.
    six reviewed files.
 2. Resolve three local `BILLING_PROFILE_INCOMPLETE` invoice-recovery data
    prerequisites without weakening financial rules.
-3. Define and implement user-based billable-seat authority.
+3. Plan and audit SA-C2; implementation has not started.
 4. Complete provider acceptance, key-ring/allowlist/TLS readiness, migration
    rollout approval, and genuine browser QA for the EC-B2D.5 Email Configuration UI.
 5. Complete genuine browser QA for the implemented Email Templates backend/UI;
