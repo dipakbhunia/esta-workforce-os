@@ -146,3 +146,21 @@ describe('CompaniesController company profile authority', () => {
     );
   });
 });
+
+describe('CompaniesController onboarding readiness authority', () => {
+  it('delegates the read-only readiness endpoint and restricts it to SUPER_ADMIN', async () => {
+    const companyId = '30000000-0000-4000-8000-000000000001';
+    const response = { companyId, contractVersion: '1', items: [] };
+    let received: string | undefined;
+    const controller = new CompaniesController({} as never, {
+      evaluate: async (id: string) => { received = id; return response; },
+    } as never);
+
+    assert.deepEqual(await controller.onboardingReadinessStatus(companyId), response);
+    assert.equal(received, companyId);
+    assert.deepEqual(
+      Reflect.getMetadata(ROLES_KEY, CompaniesController.prototype.onboardingReadinessStatus),
+      [RoleName.SUPER_ADMIN],
+    );
+  });
+});

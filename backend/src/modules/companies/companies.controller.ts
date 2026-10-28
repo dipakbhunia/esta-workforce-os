@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -36,13 +37,18 @@ import { DesignatedLeaveApproverResponseDto } from './dto/designated-leave-appro
 import { UpdateDesignatedAttendanceApproverDto } from './dto/update-designated-attendance-approver.dto';
 import { DesignatedAttendanceApproverResponseDto } from './dto/designated-attendance-approver-response.dto';
 import { BillingContactIdentityDto, BillingContactResponseDto, EligibleBillingContactQueryDto, UpdateBillingContactDto } from './dto/billing-contact.dto';
+import { CompanyOnboardingReadinessService } from './company-onboarding-readiness.service';
+import { CompanyOnboardingReadinessResponseDto } from './dto/company-onboarding-readiness.dto';
 
 @ApiTags('Companies')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('companies')
 export class CompaniesController {
-  constructor(private readonly companiesService: CompaniesService) {}
+  constructor(
+    private readonly companiesService: CompaniesService,
+    private readonly onboardingReadiness: CompanyOnboardingReadinessService = undefined as never,
+  ) {}
 
   @Post()
   @Roles(RoleName.SUPER_ADMIN)
@@ -126,6 +132,15 @@ export class CompaniesController {
   @ApiOkResponse({ type: BillingContactResponseDto })
   updateBillingContact(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateBillingContactDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.companiesService.updateBillingContact(id, dto, actor);
+  }
+
+  @Get(':id/onboarding-readiness')
+  @Roles(RoleName.SUPER_ADMIN)
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'Evaluate backend-authoritative company onboarding readiness' })
+  @ApiOkResponse({ type: CompanyOnboardingReadinessResponseDto })
+  onboardingReadinessStatus(@Param('id', ParseUUIDPipe) id: string) {
+    return this.onboardingReadiness.evaluate(id);
   }
 
   @Get(':id')
