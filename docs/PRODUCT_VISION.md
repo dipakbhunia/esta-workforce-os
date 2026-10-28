@@ -6,6 +6,20 @@ This is an index of the long-term vision in
 [EstaAI Workforce OS.docx](EstaAI%20Workforce%20OS.docx), not a delivery or
 completion claim. Current status comes from repository and checkpoint evidence.
 
+The current published backend checkpoint is
+`c380b1054ad07c8f42831d2b35029e92289f8f28` (SA-C2.3 Unified Company
+Onboarding Readiness Backend), with 60 migration directories and no SA-C2.3
+schema or migration change. Prior evidence records 70 database-free tests, 8
+disposable PostgreSQL/API integration tests, and an independent **PASS WITH
+CONDITIONS** review. This documentation task does not rerun those tests.
+
+The selected delivery direction is **Option A**: finish the full Platform Super
+Admin scope before declaring Super Admin complete or starting Company Admin or
+another tenant role. Existing long-term requirements—including Stripe,
+reporting, tenant domains, automated email, Platform Settings,
+shell/accessibility closure, and final release acceptance—remain in scope until
+an explicit authorized product decision changes them.
+
 ## Vision and users
 
 One platform combining CRM, HRMS, monitoring, tasks, ERP, AI analytics, and

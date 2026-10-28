@@ -15,11 +15,26 @@ the CP-R4 snapshot, the published checkpoint migration count was 53, the local
 repository contained 59 migrations, and `esta_workforce` had 53 applied
 migrations.
 
-The current Git checkpoint is `d7477eb22765f10887eaf165643616710afdda8c`
+The current Git checkpoint is `c380b1054ad07c8f42831d2b35029e92289f8f28`
 on synchronized local and remote `main`. The repository contains 60 migration
-directories; live applied-migration state was not reverified by the
-documentation-only EMAIL-QA.3C.4P synchronization. The preceding 59/53 values
+directories; SA-C2.3 added no schema or migration change, and live applied-
+migration state was not reverified by this documentation-only synchronization.
+The preceding 59/53 values
 remain a historical CP-R4 snapshot rather than current repository state.
+
+SA-C2.3 publishes the Unified Company Onboarding Readiness backend contract.
+Prior execution evidence records 70 database-free tests, 8 disposable
+PostgreSQL/API integration tests, and independent **PASS WITH CONDITIONS**.
+This synchronization does not rerun those tests. SA-C2.3 does not complete
+Company Management: frontend integration, billing-profile onboarding,
+authenticated browser and production-auth lifecycle acceptance, responsive/
+keyboard/accessibility QA, loading/error/empty states, dirty-form/stale-data UX,
+and security/tenant-isolation regression remain pending.
+
+The selected direction is **Option A**: complete the full Platform Super Admin
+scope before declaring Super Admin complete or beginning Company Admin or
+another tenant role. No unresolved Super Admin requirement is silently
+deferred or removed to accelerate launch.
 
 ## Mission and boundaries
 
@@ -54,7 +69,7 @@ phase is **NOT VERIFIED**:
 | Module | Status | Remaining work |
 |---|---|---|
 | Dashboard | IMPLEMENTED AND VERIFIED | Preserve metric authority/exclusions |
-| Companies | IMPLEMENTED; active correction | Onboarding manual QA/checkpoint |
+| Companies | PARTIALLY IMPLEMENTED; SA-C2.2 lifecycle and SA-C2.3 readiness backend published | Readiness frontend, billing-profile onboarding, authenticated browser/production-auth acceptance, responsive/accessibility and UX closure |
 | Plans and Pricing | IMPLEMENTED AND VERIFIED | Live pricing approval remains separate |
 | Subscriptions | IMPLEMENTED AND VERIFIED | Preserve lifecycle/financial regressions |
 | Trial Management | IMPLEMENTED AND VERIFIED | Preserve lifecycle regressions |
@@ -321,18 +336,30 @@ was required, and disposable infrastructure was removed after verification.
 
 SA-C2.2 LOW findings remain open: subnet-unaware rejection of expected Docker
 IPv4 addresses ending in `.0` or `.255`, and the 150 ms timing-based pending-lock
-observation. Authenticated Company Management browser acceptance, unified
-onboarding readiness, billing-profile onboarding, dirty-form navigation
-protection, and broader UI acceptance remain pending. SA-C2 is not fully
-accepted. SA-C2.3 **Unified Company Onboarding Readiness Contract** is the next
-planned, separately authorized work item.
+observation. SA-C2.3 **Unified Company Onboarding Readiness Backend** is now
+implemented and published in commit
+`c380b1054ad07c8f42831d2b35029e92289f8f28`. It adds a transactional,
+server-computed readiness contract and no schema or migration change. Prior
+execution recorded 70 database-free tests, 8 disposable PostgreSQL/API tests,
+and independent **PASS WITH CONDITIONS**; this documentation task did not
+rerun them.
+
+Authenticated Company Management browser acceptance, readiness frontend
+integration, billing-profile onboarding, production JWT/live-user lifecycle
+acceptance, responsive/keyboard/accessibility QA, dirty-form navigation,
+stale-data UX, and broader UI acceptance remain pending. SA-C2 remains
+incomplete. Preserve the three SA-C2.3 LOW integration limitations: test-only
+JWT evidence is not full production-auth evidence; Docker ownership attestation
+is a mandatory external preflight for future reruns; and schema constraints
+prevent direct PostgreSQL testing of persisted incomplete billing-profile
+state.
 
 ## Recommended remaining sequence
 
-1. Complete authenticated Company Management browser acceptance and remaining
-   broader UI acceptance work.
-2. Design and implement SA-C2.3 Unified Company Onboarding Readiness Contract
-   only after separate authorization.
+1. Integrate the published SA-C2.3 readiness contract into the Admin frontend
+   and complete billing-profile onboarding plus dirty-form and stale-data UX.
+2. Complete authenticated Company Management browser, production-auth,
+   responsive, keyboard, and accessibility acceptance.
 3. Complete genuine provider verification, operational readiness, and genuine
    browser QA for the implemented EC-B2D.5 Email Configuration Admin UI.
 4. Complete genuine browser QA for the implemented ET-B1–ET-B5 Email Templates

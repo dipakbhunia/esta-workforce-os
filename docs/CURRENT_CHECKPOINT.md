@@ -1,5 +1,49 @@
 # Esta Workforce OS — Current Checkpoint
 
+## SA-C2.3 Unified Company Onboarding Readiness Backend — published 2026-10-28
+
+- Branch: `main`
+- Local `HEAD` and `origin/main`:
+  `c380b1054ad07c8f42831d2b35029e92289f8f28`
+- Commit: `feat: add verified company onboarding readiness backend`
+- Scope: seven backend paths (three modified, four added), with no schema or
+  migration change.
+- Repository migration directories: 60.
+
+The checkpoint publishes a Platform `SUPER_ADMIN`-authorized,
+server-computed Company onboarding-readiness contract. It evaluates Company,
+tenant-administrator, invitation, commercial, and billing-contact state in one
+transaction and returns explicit item status, reason codes, aggregate status,
+and decision time. Prior execution evidence records 70 database-free tests and
+8 disposable PostgreSQL/API integration tests passing. Independent review
+returned **PASS WITH CONDITIONS**. This documentation synchronization did not
+rerun those tests.
+
+SA-C2.3 completes the backend contract only. Pending work remains: onboarding
+readiness frontend integration, billing-profile onboarding, authenticated
+browser acceptance, production JWT/live-user lifecycle acceptance,
+responsive/keyboard/accessibility QA, loading/error/empty states, dirty-form and
+stale-data UX, security and tenant-isolation regression, and historical
+repository-wide TypeScript test-fixture debt.
+
+Accepted LOW integration limitations remain open:
+
+- Production-auth lifecycle was not fully exercised by the test-only JWT
+  strategy.
+- Docker ownership attestation remains an external mandatory preflight for
+  future integration reruns.
+- Persisted incomplete billing-profile state is not directly PostgreSQL-tested
+  because current schema constraints prevent that state.
+
+The selected direction is **Option A**: complete the full Platform Super Admin
+scope before declaring Super Admin complete or beginning Company Admin or
+other tenant-role implementation. Stripe, reporting, tenant domains, automated
+email, external provider acceptance, GST/legal approval, Platform Settings,
+shell/accessibility closure, and final release reviews remain explicit scope or
+open decisions. SA-C0, SA-C1 and SA-C2 are established checkpoint identities;
+the audit-order SA-C3–SA-C16 labels are not canonical identifiers and are not
+adopted by this synchronization.
+
 ## SA-C2.2 Company Lifecycle Security Correction — published 2026-10-28
 
 - Branch: `main`
@@ -34,13 +78,12 @@ Open SA-C2.2 findings:
 
 Completed scope includes implementation, authorization regression coverage,
 real PostgreSQL concurrency and audit-atomicity verification, independent
-security review, and exact-scope Git publication. Authenticated Company
-Management browser acceptance, the unified onboarding-readiness contract,
-billing-profile onboarding, dirty-form navigation protection, broader Company
-Management UI acceptance, and later roadmap phases remain pending. Company
-Admin login development is not claimed complete. SA-C2 overall is not fully
-accepted; SA-C2.3 Unified Company Onboarding Readiness Contract is the next
-planned separately authorized checkpoint.
+security review, and exact-scope Git publication. SA-C2.3 subsequently
+published the backend onboarding-readiness contract. Authenticated Company
+Management browser acceptance, readiness frontend integration, billing-profile
+onboarding, dirty-form navigation protection, broader Company Management UI
+acceptance, and later roadmap phases remain pending. Company Admin login
+development is not claimed complete. SA-C2 overall is not fully accepted.
 
 ## SA-C1 User-Based Billable Seat Authority — published 2026-10-28
 
@@ -190,20 +233,23 @@ They were supplied after PC-M2 and must remain unchanged.
 
 ## Pending work
 
-- Preserve the published SA-C2.2 lifecycle correction and complete authenticated
-  Company Management browser acceptance, onboarding-readiness, billing-profile
-  onboarding, dirty-form navigation, and broader UI acceptance work.
-- Plan SA-C2.3 Unified Company Onboarding Readiness Contract as a separate
-  authorized checkpoint; do not treat it as implemented.
+- Preserve the published SA-C2.2 lifecycle correction and SA-C2.3 backend
+  readiness contract. Complete readiness frontend integration, billing-profile
+  onboarding, authenticated browser and production-auth lifecycle acceptance,
+  responsive/keyboard/accessibility QA, dirty-form navigation, stale-data UX,
+  and broader UI acceptance work.
 - Preserve the published user-based billable-seat authority and complete its
   remaining LOW regression/fencing follow-ups.
 - EC-B1–EC-B2D.3 SMTP configuration, authority, and worker backend is verified
   in published commit `1ab1af2`. EC-B2D.4 passed 16/16 executable checks but is
   blocked on genuine approved-provider connection and restricted test-email
   acceptance; simulated evidence is not provider acceptance or inbox delivery.
-- Replica key-ring parity, exact-host allowlist and DNS/TLS readiness,
-  deployment approval, and migrations 54–59 rollout remain pending. The
-  management gate is false by default and no application cutover occurred.
+- Historical CP-R4 evidence recorded migrations 54–59 as pending at that
+  checkpoint. The current repository contains 60 migration directories. This
+  documentation checkpoint did not verify the live applied-migration state or
+  the current application-cutover state. Replica key-ring parity, exact-host
+  allowlist, DNS/TLS readiness, and deployment approval still require current
+  operational verification before any cutover decision.
 - EC-B2D.5 Email Configuration UI is implemented with focused automated
   verification in published commit `1ab1af2`; genuine browser QA remains pending.
   ET-B1–ET-B5 Email Templates database, management API, validation/preview,
