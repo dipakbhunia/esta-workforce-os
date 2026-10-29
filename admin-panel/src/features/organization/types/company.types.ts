@@ -85,3 +85,60 @@ export interface BillingContactConfiguration {
   billingContactUserId: string | null;
   billingContact: BillingContactUser | null;
 }
+
+export const COMPANY_ONBOARDING_READINESS_ITEM_IDS = [
+  'COMPANY_PROFILE',
+  'OPERATIONAL_LIFECYCLE',
+  'TENANT_ADMIN_ACCESS',
+  'ADMIN_INVITATION',
+  'COMMERCIAL_ACCESS',
+  'BILLING_PROFILE',
+  'BILLING_CONTACT',
+  'COMPANY_CONTACT_DETAILS',
+] as const;
+
+export const COMPANY_ONBOARDING_READINESS_STATUSES = [
+  'READY',
+  'INCOMPLETE',
+  'BLOCKED',
+  'NOT_APPLICABLE',
+  'UNAVAILABLE',
+] as const;
+
+export const COMPANY_ONBOARDING_READINESS_CATEGORIES = [
+  'ADMINISTRATIVE',
+  'OPERATIONAL',
+  'COMMERCIAL',
+  'BILLING',
+  'PROFILE',
+] as const;
+
+export type CompanyOnboardingReadinessItemId = typeof COMPANY_ONBOARDING_READINESS_ITEM_IDS[number];
+export type CompanyOnboardingReadinessStatus = typeof COMPANY_ONBOARDING_READINESS_STATUSES[number];
+export type CompanyOnboardingReadinessCategory = typeof COMPANY_ONBOARDING_READINESS_CATEGORIES[number];
+
+export interface CompanyOnboardingRemediation {
+  kind: 'NAVIGATE';
+  label: string;
+  route: string;
+}
+
+export interface CompanyOnboardingReadinessItem {
+  id: CompanyOnboardingReadinessItemId;
+  category: CompanyOnboardingReadinessCategory;
+  label: string;
+  status: CompanyOnboardingReadinessStatus;
+  blocking: boolean;
+  reasonCode: string;
+  explanation: string;
+  remediation: CompanyOnboardingRemediation | null;
+}
+
+export interface CompanyOnboardingReadiness {
+  companyId: string;
+  contractVersion: '1';
+  evaluatedAt: string;
+  overallStatus: CompanyOnboardingReadinessStatus;
+  blockingCount: number;
+  items: CompanyOnboardingReadinessItem[];
+}

@@ -18,6 +18,7 @@ import { SeatUsageSummary } from '@/features/usage-seats/SeatUsageSummary';
 import { getCompanySeatUsage } from '@/features/usage-seats/usage-seats-api';
 import { getCompanyStorageUsage } from '@/features/storage-usage/storage-usage-api';
 import { StorageUsageSummary } from '@/features/storage-usage/StorageUsageSummary';
+import { CompanyOnboardingReadinessPanel, companyOnboardingReadinessQueryKey } from '../components/CompanyOnboardingReadinessPanel';
 
 interface LocationState {
   success?: string;
@@ -68,7 +69,10 @@ export default function CompanyDetailsPage() {
       setBillingContactSearch('');
       billingContactInputTouched.current = false;
       setToast({ severity: 'success', message: 'Billing Contact updated.' });
-      await queryClient.invalidateQueries({ queryKey: ['company', id, 'billing-contact'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['company', id, 'billing-contact'] }),
+        queryClient.invalidateQueries({ queryKey: companyOnboardingReadinessQueryKey(id!) }),
+      ]);
     },
     onError: (error) => setToast({ severity: 'error', message: companyErrorMessage(error, 'Billing Contact could not be updated.') }),
   });
@@ -103,6 +107,8 @@ export default function CompanyDetailsPage() {
           <Button component={RouterLink} to={`/organization/companies/${company.id}/edit`} variant="contained" startIcon={<Edit3 size={18} />}>Edit Company</Button>
           <Button color="error" variant="outlined" startIcon={<Trash2 size={18} />} onClick={() => setArchiveOpen(true)}>Archive</Button>
         </Stack>
+
+        <CompanyOnboardingReadinessPanel companyId={company.id} />
 
         <SummaryCardsContainer minCardWidth={180}>
           <StatCard label="Branches" value={String(company.counts.branches)} helper="Active branch records" icon={Building2} tone="#2563EB" />

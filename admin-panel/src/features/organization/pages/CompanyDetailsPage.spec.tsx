@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   updateBillingContact: vi.fn(),
   getCompanySeatUsage: vi.fn(),
   getCompanyStorageUsage: vi.fn(),
+  getCompanyOnboardingReadiness: vi.fn(),
 }));
 
 vi.mock('../services/companies-api', () => ({
@@ -19,6 +20,7 @@ vi.mock('../services/companies-api', () => ({
   getBillingContact: api.getBillingContact,
   getEligibleBillingContacts: api.getEligibleBillingContacts,
   updateBillingContact: api.updateBillingContact,
+  getCompanyOnboardingReadiness: api.getCompanyOnboardingReadiness,
 }));
 vi.mock('@/features/usage-seats/usage-seats-api', () => ({ getCompanySeatUsage: api.getCompanySeatUsage }));
 vi.mock('@/features/storage-usage/storage-usage-api', () => ({ getCompanyStorageUsage: api.getCompanyStorageUsage }));
@@ -44,6 +46,15 @@ describe('CompanyDetailsPage designated Billing Contact', () => {
     api.getEligibleBillingContacts.mockResolvedValue({ data: [alice, bob] });
     api.getBillingContact.mockResolvedValue({ data: { companyId, billingProfileExists: true, billingContactUserId: alice.id, billingContact: alice } });
     api.updateBillingContact.mockResolvedValue({ data: { companyId, billingProfileExists: true, billingContactUserId: bob.id, billingContact: bob } });
+    api.getCompanyOnboardingReadiness.mockResolvedValue({ data: {
+      companyId, contractVersion: '1', evaluatedAt: '2026-10-28T10:00:00.000Z', overallStatus: 'READY', blockingCount: 0,
+      items: [
+        ['COMPANY_PROFILE', 'ADMINISTRATIVE', true], ['OPERATIONAL_LIFECYCLE', 'OPERATIONAL', false],
+        ['TENANT_ADMIN_ACCESS', 'ADMINISTRATIVE', true], ['ADMIN_INVITATION', 'ADMINISTRATIVE', false],
+        ['COMMERCIAL_ACCESS', 'COMMERCIAL', false], ['BILLING_PROFILE', 'BILLING', false],
+        ['BILLING_CONTACT', 'BILLING', false], ['COMPANY_CONTACT_DETAILS', 'PROFILE', false],
+      ].map(([id, category, blocking], index) => ({ id, category, blocking, label: `Readiness ${index}`, status: 'READY', reasonCode: `REASON_${index}`, explanation: `Explanation ${index}`, remediation: null })),
+    } });
   });
 
   it('loads the current authority and exposes an accessible eligible-user selector', async () => {
@@ -92,6 +103,7 @@ describe('CompanyDetailsPage designated Billing Contact', () => {
     fireEvent.click(await screen.findByText('Bob Billing — bob@example.test'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.updateBillingContact).toHaveBeenCalledWith(companyId, bob.id));
+    await waitFor(() => expect(api.getCompanyOnboardingReadiness).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
     await waitFor(() => expect(api.updateBillingContact).toHaveBeenCalledWith(companyId, null));
