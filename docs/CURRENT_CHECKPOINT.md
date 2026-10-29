@@ -1,30 +1,36 @@
 # Esta Workforce OS — Current Checkpoint
 
-## SA-C2.3 Unified Company Onboarding Readiness Backend — published 2026-10-28
+## SA-C2.4 Phase 1 Company Onboarding Readiness Frontend — published 2026-10-29
 
 - Branch: `main`
 - Local `HEAD` and `origin/main`:
-  `c380b1054ad07c8f42831d2b35029e92289f8f28`
-- Commit: `feat: add verified company onboarding readiness backend`
-- Scope: seven backend paths (three modified, four added), with no schema or
+  `a60452a0e1772ea311d55811043c9f5bc0b781cd`
+- Commit: `feat: add company onboarding readiness frontend`
+- Scope: seven frontend paths (five modified, two added), with no schema or
   migration change.
 - Repository migration directories: 60.
 
-The checkpoint publishes a Platform `SUPER_ADMIN`-authorized,
-server-computed Company onboarding-readiness contract. It evaluates Company,
-tenant-administrator, invitation, commercial, and billing-contact state in one
-transaction and returns explicit item status, reason codes, aggregate status,
-and decision time. Prior execution evidence records 70 database-free tests and
-8 disposable PostgreSQL/API integration tests passing. Independent review
-returned **PASS WITH CONDITIONS**. This documentation synchronization did not
-rerun those tests.
+The checkpoint publishes the read-only Admin frontend integration for the
+separately published SA-C2.3 Platform `SUPER_ADMIN`-authorized backend
+readiness authority. It enforces contract version `"1"`, displays all eight
+backend-provided readiness dimensions, preserves backend aggregate status,
+blocking count, reason codes, explanations, decision time, and safe remediation,
+uses `GET /api/companies/:id/onboarding-readiness`, and does not calculate
+readiness eligibility or commercial authority locally.
+Company-specific React Query keys isolate cached results. Failed background
+refresh preserves the last validated result and original evaluation timestamp,
+shows an accessible stale-data warning, and supports controlled recovery.
 
-SA-C2.3 completes the backend contract only. Pending work remains: onboarding
-readiness frontend integration, billing-profile onboarding, authenticated
-browser acceptance, production JWT/live-user lifecycle acceptance,
-responsive/keyboard/accessibility QA, loading/error/empty states, dirty-form and
-stale-data UX, security and tenant-isolation regression, and historical
-repository-wide TypeScript test-fixture debt.
+Published validation evidence records 24/24 focused Vitest tests, frontend
+TypeScript validation passing, and the production build passing. The existing
+large-chunk build warning is non-blocking. SA-C2.4 Phase 1 does not complete
+Company Management or SA-C2 overall. Pending work remains: authenticated browser
+acceptance; desktop/tablet/mobile visual verification; real-browser keyboard,
+focus, and screen-reader checks; production authentication lifecycle acceptance;
+Company Billing Profile backend API and management UI; durable company-scoped
+administrative invitation handoff; dirty-form and broader Company Management UX;
+the remaining full Platform Super Admin scope; and historical repository-wide
+TypeScript test-fixture debt.
 
 Accepted LOW integration limitations remain open:
 
@@ -79,11 +85,13 @@ Open SA-C2.2 findings:
 Completed scope includes implementation, authorization regression coverage,
 real PostgreSQL concurrency and audit-atomicity verification, independent
 security review, and exact-scope Git publication. SA-C2.3 subsequently
-published the backend onboarding-readiness contract. Authenticated Company
-Management browser acceptance, readiness frontend integration, billing-profile
-onboarding, dirty-form navigation protection, broader Company Management UI
-acceptance, and later roadmap phases remain pending. Company Admin login
-development is not claimed complete. SA-C2 overall is not fully accepted.
+published the backend onboarding-readiness contract, and SA-C2.4 Phase 1
+published its read-only frontend integration. Authenticated Company
+Management browser acceptance, Company Billing Profile backend API and
+management UI, durable administrative invitation handoff, dirty-form navigation
+protection, broader Company Management UI acceptance, and later roadmap phases
+remain pending. Company Admin login development is not claimed complete. SA-C2
+overall is not fully accepted.
 
 ## SA-C1 User-Based Billable Seat Authority — published 2026-10-28
 
@@ -233,11 +241,12 @@ They were supplied after PC-M2 and must remain unchanged.
 
 ## Pending work
 
-- Preserve the published SA-C2.2 lifecycle correction and SA-C2.3 backend
-  readiness contract. Complete readiness frontend integration, billing-profile
-  onboarding, authenticated browser and production-auth lifecycle acceptance,
-  responsive/keyboard/accessibility QA, dirty-form navigation, stale-data UX,
-  and broader UI acceptance work.
+- Preserve the published SA-C2.2 lifecycle correction, SA-C2.3 backend readiness
+  authority, and SA-C2.4 Phase 1 frontend integration. Complete Company Billing
+  Profile backend API and management UI, durable company-scoped administrative
+  invitation handoff, authenticated browser and production-auth lifecycle acceptance,
+  desktop/tablet/mobile visual and real-browser keyboard/focus/screen-reader
+  verification, dirty-form navigation, and broader UI acceptance work.
 - Preserve the published user-based billable-seat authority and complete its
   remaining LOW regression/fencing follow-ups.
 - EC-B1–EC-B2D.3 SMTP configuration, authority, and worker backend is verified

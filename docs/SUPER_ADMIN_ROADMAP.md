@@ -15,21 +15,26 @@ the CP-R4 snapshot, the published checkpoint migration count was 53, the local
 repository contained 59 migrations, and `esta_workforce` had 53 applied
 migrations.
 
-The current Git checkpoint is `c380b1054ad07c8f42831d2b35029e92289f8f28`
+The current Git checkpoint is `a60452a0e1772ea311d55811043c9f5bc0b781cd`
 on synchronized local and remote `main`. The repository contains 60 migration
-directories; SA-C2.3 added no schema or migration change, and live applied-
-migration state was not reverified by this documentation-only synchronization.
-The preceding 59/53 values
+directories; SA-C2.4 Phase 1 added no schema or migration change, and live
+applied-migration state was not reverified by this documentation-only
+synchronization. The preceding 59/53 values
 remain a historical CP-R4 snapshot rather than current repository state.
 
-SA-C2.3 publishes the Unified Company Onboarding Readiness backend contract.
-Prior execution evidence records 70 database-free tests, 8 disposable
-PostgreSQL/API integration tests, and independent **PASS WITH CONDITIONS**.
-This synchronization does not rerun those tests. SA-C2.3 does not complete
-Company Management: frontend integration, billing-profile onboarding,
-authenticated browser and production-auth lifecycle acceptance, responsive/
-keyboard/accessibility QA, loading/error/empty states, dirty-form/stale-data UX,
-and security/tenant-isolation regression remain pending.
+SA-C2.3 separately publishes the Unified Company Onboarding Readiness backend
+authority. SA-C2.4 Phase 1 publishes its read-only frontend integration for
+`GET /api/companies/:id/onboarding-readiness`, contract version `"1"`, and all
+eight backend-owned dimensions. Backend status, blocking count, and remediation
+remain authoritative. Company-specific React Query isolation is covered, and
+failed background refresh preserves the last validated result with an explicit
+stale-data warning. Published validation
+records 24/24 focused Vitest tests, frontend TypeScript validation, and the
+production build passing; the existing large-chunk warning is non-blocking.
+Company Management remains incomplete: authenticated browser and production-
+auth acceptance, desktop/tablet/mobile and real-browser accessibility checks,
+Company Billing Profile backend API and management UI, durable company-scoped
+administrative invitation handoff, dirty-form UX, and broader acceptance remain.
 
 The selected direction is **Option A**: complete the full Platform Super Admin
 scope before declaring Super Admin complete or beginning Company Admin or
@@ -69,7 +74,7 @@ phase is **NOT VERIFIED**:
 | Module | Status | Remaining work |
 |---|---|---|
 | Dashboard | IMPLEMENTED AND VERIFIED | Preserve metric authority/exclusions |
-| Companies | PARTIALLY IMPLEMENTED; SA-C2.2 lifecycle and SA-C2.3 readiness backend published | Readiness frontend, billing-profile onboarding, authenticated browser/production-auth acceptance, responsive/accessibility and UX closure |
+| Companies | PARTIALLY IMPLEMENTED; SA-C2.2 lifecycle, SA-C2.3 readiness backend, and SA-C2.4 Phase 1 frontend published | Billing-profile API and management UI, durable administrative invitation handoff, authenticated browser/production-auth acceptance, responsive/accessibility and UX closure |
 | Plans and Pricing | IMPLEMENTED AND VERIFIED | Live pricing approval remains separate |
 | Subscriptions | IMPLEMENTED AND VERIFIED | Preserve lifecycle/financial regressions |
 | Trial Management | IMPLEMENTED AND VERIFIED | Preserve lifecycle regressions |
@@ -344,11 +349,20 @@ execution recorded 70 database-free tests, 8 disposable PostgreSQL/API tests,
 and independent **PASS WITH CONDITIONS**; this documentation task did not
 rerun them.
 
-Authenticated Company Management browser acceptance, readiness frontend
-integration, billing-profile onboarding, production JWT/live-user lifecycle
-acceptance, responsive/keyboard/accessibility QA, dirty-form navigation,
-stale-data UX, and broader UI acceptance remain pending. SA-C2 remains
-incomplete. Preserve the three SA-C2.3 LOW integration limitations: test-only
+SA-C2.4 Phase 1 **Company Onboarding Readiness Frontend** is implemented and
+published in commit `a60452a0e1772ea311d55811043c9f5bc0b781cd`.
+It enforces backend contract version `"1"`, displays all eight backend-owned
+dimensions without reconstructing eligibility, isolates Company query caches,
+and preserves last-known validated data with a warning after failed refresh.
+Published evidence records 24/24 focused Vitest tests, frontend TypeScript, and
+production build passing; the existing large-chunk warning is non-blocking.
+
+Authenticated Company Management browser acceptance, Company Billing Profile
+backend API and management UI, durable company-scoped administrative invitation
+handoff, production JWT/live-user lifecycle acceptance, responsive/keyboard/
+accessibility browser QA, dirty-form navigation, and broader UI acceptance
+remain pending. SA-C2 remains incomplete. Preserve the three SA-C2.3 LOW
+integration limitations: test-only
 JWT evidence is not full production-auth evidence; Docker ownership attestation
 is a mandatory external preflight for future reruns; and schema constraints
 prevent direct PostgreSQL testing of persisted incomplete billing-profile
@@ -356,10 +370,12 @@ state.
 
 ## Recommended remaining sequence
 
-1. Integrate the published SA-C2.3 readiness contract into the Admin frontend
-   and complete billing-profile onboarding plus dirty-form and stale-data UX.
+1. Preserve the published SA-C2.4 Phase 1 readiness frontend and complete
+   Company Billing Profile backend API and management UI plus durable
+   company-scoped administrative invitation handoff.
 2. Complete authenticated Company Management browser, production-auth,
-   responsive, keyboard, and accessibility acceptance.
+   desktop/tablet/mobile, keyboard, focus, and screen-reader acceptance plus
+   remaining dirty-form and broader UX closure.
 3. Complete genuine provider verification, operational readiness, and genuine
    browser QA for the implemented EC-B2D.5 Email Configuration Admin UI.
 4. Complete genuine browser QA for the implemented ET-B1–ET-B5 Email Templates

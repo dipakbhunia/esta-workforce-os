@@ -6,12 +6,21 @@ This is an index of the long-term vision in
 [EstaAI Workforce OS.docx](EstaAI%20Workforce%20OS.docx), not a delivery or
 completion claim. Current status comes from repository and checkpoint evidence.
 
-The current published backend checkpoint is
-`c380b1054ad07c8f42831d2b35029e92289f8f28` (SA-C2.3 Unified Company
-Onboarding Readiness Backend), with 60 migration directories and no SA-C2.3
-schema or migration change. Prior evidence records 70 database-free tests, 8
-disposable PostgreSQL/API integration tests, and an independent **PASS WITH
-CONDITIONS** review. This documentation task does not rerun those tests.
+The current published checkpoint is
+`a60452a0e1772ea311d55811043c9f5bc0b781cd` (SA-C2.4 Phase 1 Company
+Onboarding Readiness Frontend), with 60 migration directories and no schema or
+migration change. It consumes the separately published SA-C2.3 backend
+authority, enforces contract version `"1"`, displays all eight backend-provided
+dimensions from `GET /api/companies/:id/onboarding-readiness`, and does not
+calculate readiness locally. Backend status, blocking count, and remediation
+remain authoritative. Published validation records 24/24 focused Vitest tests,
+frontend TypeScript validation, and the
+production build passing; the existing large-chunk warning is non-blocking.
+Authenticated browser and production-auth acceptance, responsive/accessibility
+browser verification, Company Billing Profile backend API and management UI,
+durable company-scoped administrative invitation handoff, and remaining
+Platform Super Admin scope are not complete. This documentation task did not
+rerun validation.
 
 The selected delivery direction is **Option A**: finish the full Platform Super
 Admin scope before declaring Super Admin complete or starting Company Admin or

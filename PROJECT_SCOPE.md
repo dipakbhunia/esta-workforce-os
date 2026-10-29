@@ -25,34 +25,34 @@ overall production readiness or completion of the full SOW.
 
 ## 2. Current checkpoint
 
-### SA-C2.3 Unified Company Onboarding Readiness Backend — published 2026-10-28
+### SA-C2.4 Phase 1 Company Onboarding Readiness Frontend — published 2026-10-29
 
-Commit `c380b1054ad07c8f42831d2b35029e92289f8f28`,
-`feat: add verified company onboarding readiness backend`, is published on
-synchronized local and remote `main`. It contains seven backend paths, adds no
-Prisma schema or migration change, and leaves the repository at 60 migration
-directories.
+Commit `a60452a0e1772ea311d55811043c9f5bc0b781cd`,
+`feat: add company onboarding readiness frontend`, is published on synchronized
+local and remote `main`. It contains seven frontend paths, adds no Prisma schema
+or migration change, and leaves the repository at 60 migration directories.
 
-The checkpoint adds a Platform `SUPER_ADMIN`-authorized, server-computed
-Company onboarding-readiness contract. Readiness is evaluated from
-authoritative Company, tenant-administrator, invitation, commercial, and
-billing-contact state in one transaction, with explicit item status, reason
-codes, aggregate status, and decision time. Prior execution evidence records
-70 database-free tests and 8 disposable PostgreSQL/API integration tests
-passing. Independent review returned **PASS WITH CONDITIONS**. These are
-published checkpoint results, not tests rerun by this documentation task.
+The frontend consumes the separately published SA-C2.3 Platform
+`SUPER_ADMIN`-authorized backend readiness authority. It enforces contract
+version `"1"`, displays all eight backend-provided readiness dimensions, and
+uses `GET /api/companies/:id/onboarding-readiness`. It does not calculate
+readiness eligibility or commercial authority locally. Backend-provided status,
+blocking count, explanations, and remediation remain authoritative.
+Company-specific React Query keys isolate cached results. A failed background
+refresh preserves the last validated result and original evaluation timestamp,
+shows an explicit stale-data warning, and permits a controlled retry.
 
-SA-C2.3 completes the backend readiness contract, not Company Management or
-SA-C2 overall. Pending work remains: Admin frontend integration,
-billing-profile onboarding, authenticated browser acceptance, production
-JWT/live-user lifecycle acceptance, responsive/keyboard/accessibility QA,
-loading/error/empty states, dirty-form and stale-data UX, security and
-tenant-isolation regression, and historical repository-wide TypeScript
-test-fixture debt. Accepted LOW limitations remain: test-only JWT evidence does
-not fully exercise production authentication; Docker ownership attestation is
-a mandatory external preflight for future integration reruns; and current
-schema constraints prevent direct PostgreSQL coverage of a persisted
-incomplete billing-profile state.
+Published validation evidence records 24/24 focused Vitest tests passing,
+frontend TypeScript validation passing, and the production build passing. The
+existing large-chunk build warning is non-blocking. SA-C2.4 Phase 1 does not
+complete Company Management or SA-C2 overall. Pending work remains:
+authenticated browser acceptance; desktop/tablet/mobile visual verification;
+real-browser keyboard, focus, and screen-reader checks; production
+authentication lifecycle acceptance; Company Billing Profile backend API and
+management UI; durable company-scoped administrative invitation handoff; and the
+remaining full Platform Super Admin scope. Accepted SA-C2.3 LOW limitations
+and historical repository-wide TypeScript test-fixture debt remain open. This
+documentation task did not rerun the published validation.
 
 ### Selected Super Admin delivery direction
 
@@ -93,11 +93,12 @@ preserved.
 
 Open SA-C2.2 LOW findings remain: the test fence rejects Docker IPv4 addresses
 ending in `.0` or `.255` without subnet-aware evaluation, and its pending-lock
-observation uses a 150 ms timing window. SA-C2.3 subsequently published the
-backend onboarding-readiness contract. Authenticated Company Management browser
-acceptance, readiness frontend integration, billing-profile onboarding,
-dirty-form navigation protection, and broader Company Management UI acceptance
-remain pending. SA-C2 is not fully accepted.
+observation uses a 150 ms timing window. SA-C2.3 published the backend
+onboarding-readiness authority, and SA-C2.4 Phase 1 published its read-only
+frontend integration. Authenticated Company Management browser and responsive/
+accessibility acceptance, billing-profile authority, durable administrative
+invitation handoff, dirty-form navigation protection, and broader Company
+Management UI acceptance remain pending. SA-C2 is not fully accepted.
 
 ### SA-C1 User-Based Billable Seat Authority checkpoint — 2026-10-28
 
@@ -432,9 +433,10 @@ do not prove financial, security, or concurrency correctness.
    remaining broader UI acceptance work.
 2. Resolve three local `BILLING_PROFILE_INCOMPLETE` invoice-recovery data
    prerequisites without weakening financial rules.
-3. Integrate the published SA-C2.3 readiness contract into the Admin frontend
-   and complete billing-profile, production-auth, responsive, accessibility,
-   dirty-form, and stale-data acceptance.
+3. Preserve the published SA-C2.4 Phase 1 readiness frontend and complete
+   billing-profile API and management UI, durable administrative invitation
+   handoff, production-auth, browser/responsive/accessibility, and dirty-form
+   acceptance.
 4. Complete provider acceptance, key-ring/allowlist/TLS readiness, migration
    rollout approval, and genuine browser QA for the EC-B2D.5 Email Configuration UI.
 5. Complete genuine browser QA for the implemented Email Templates backend/UI;
