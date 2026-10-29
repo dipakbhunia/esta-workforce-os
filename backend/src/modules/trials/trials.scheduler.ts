@@ -1,15 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SchedulerExecutionGuard } from '../../common/scheduling/scheduler-execution.guard';
 import { TrialsService } from './trials.service';
 
 @Injectable()
 export class TrialsScheduler {
   private readonly logger = new Logger(TrialsScheduler.name);
   private running = false;
-  constructor(private readonly trials: TrialsService) {}
+  constructor(
+    private readonly trials: TrialsService,
+    private readonly schedulerGuard: SchedulerExecutionGuard,
+  ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async expireTrials() {
+    if (!this.schedulerGuard.shouldExecute()) return;
     if (this.running) return;
     this.running = true;
     try {

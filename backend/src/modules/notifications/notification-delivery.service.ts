@@ -6,6 +6,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { EmailDeliveryResult, EmailNotificationChannel, SafeEmailError, StaleAccountInvitationDeliveryError, StaleEmailVerificationDeliveryError } from './email-notification-channel.service';
 import { ResolvedSmtpSnapshot } from '../smtp-runtime/smtp-runtime.types';
 import { SmtpRuntimeResolverService } from '../smtp-runtime/smtp-runtime-resolver.service';
+import { SchedulerExecutionGuard } from '../../common/scheduling/scheduler-execution.guard';
 
 const maxAttempts = 5;
 const leaseMilliseconds = 5 * 60_000;
@@ -19,10 +20,12 @@ export class NotificationDeliveryService {
   private processing = false;
 
   constructor(private readonly prisma: PrismaService, private readonly emailChannel: EmailNotificationChannel,
-    private readonly smtpRuntime: SmtpRuntimeResolverService = undefined as never) {}
+    private readonly smtpRuntime: SmtpRuntimeResolverService = undefined as never,
+    private readonly schedulerGuard: SchedulerExecutionGuard = undefined as never) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async processPendingDeliveries() {
+    if (!this.schedulerGuard.shouldExecute()) return;
     if (this.processing) return;
     this.processing = true;
     try {

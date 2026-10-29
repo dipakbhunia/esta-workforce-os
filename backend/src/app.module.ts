@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { resolve } from 'node:path';
 import { environmentValidationSchema } from './config/environment.validation';
+import { SchedulerRuntimeSafetyModule } from './common/scheduling/scheduler-runtime-safety.module';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BillingSettingsModule } from './modules/billing-settings/billing-settings.module';
@@ -52,6 +53,7 @@ import { UsageSeatsModule } from './modules/usage-seats/usage-seats.module';
       validationSchema: environmentValidationSchema,
     }),
     ScheduleModule.forRoot(),
+    SchedulerRuntimeSafetyModule,
     DatabaseModule,
     AuthModule,
     BillingSettingsModule,

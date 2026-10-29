@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SchedulerExecutionGuard } from '../../common/scheduling/scheduler-execution.guard';
 import { AttendanceService } from './attendance.service';
 
 @Injectable()
@@ -12,10 +13,12 @@ export class StaleAttendanceScheduler {
   constructor(
     private readonly attendanceService: AttendanceService,
     private readonly config: ConfigService,
+    private readonly schedulerGuard: SchedulerExecutionGuard,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async evaluateOpenAttendance(): Promise<void> {
+    if (!this.schedulerGuard.shouldExecute()) return;
     if (this.config.get<boolean>('ATTENDANCE_STALE_EVALUATION_ENABLED') === false) {
       return;
     }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { rootCertificates } from 'node:tls';
 import { describe, it } from 'node:test';
 import { environmentValidationSchema } from './environment.validation';
+import { QA_BROWSER_ACCEPTANCE_RUNTIME } from './qa-browser-acceptance-scheduler.runtime';
 
 const base = {
   DATABASE_URL: 'postgresql://user:password@localhost:5432/database',
@@ -169,5 +170,80 @@ describe('public application origin validation', () => {
     }
     assert.equal(validate({ PUBLIC_APP_ORIGIN: 'http://localhost:5173' }), undefined);
     assert.equal(validate({ NODE_ENV: 'test', PUBLIC_APP_ORIGIN: undefined }), undefined);
+  });
+});
+
+describe('QA browser acceptance scheduler suppression fencing', () => {
+  const approved = {
+    NODE_ENV: 'test',
+    DATABASE_URL: `postgresql://${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseUser}:qa-password@${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseHost}:${QA_BROWSER_ACCEPTANCE_RUNTIME.databasePort}/${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseName}`,
+    PUBLIC_APP_ORIGIN: QA_BROWSER_ACCEPTANCE_RUNTIME.publicAppOrigin,
+    QA_BROWSER_ACCEPTANCE_SCHEDULERS_DISABLED: true,
+    QA_BROWSER_ACCEPTANCE_AUTHORIZATION: QA_BROWSER_ACCEPTANCE_RUNTIME.authorization,
+    QA_BROWSER_ACCEPTANCE_DATABASE_ENDPOINT: QA_BROWSER_ACCEPTANCE_RUNTIME.databaseEndpoint,
+    QA_BROWSER_ACCEPTANCE_DATABASE_CONTAINER_ID: QA_BROWSER_ACCEPTANCE_RUNTIME.databaseContainerId,
+    QA_BROWSER_ACCEPTANCE_DATABASE_NETWORK_ID: QA_BROWSER_ACCEPTANCE_RUNTIME.databaseNetworkId,
+    QA_BROWSER_ACCEPTANCE_DATABASE_SYSTEM_IDENTIFIER: QA_BROWSER_ACCEPTANCE_RUNTIME.databaseSystemIdentifier,
+    EMAIL_NOTIFICATIONS_ENABLED: false,
+    SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: false,
+    SMTP_EMAIL_VERIFICATION_BOOTSTRAP_ENABLED: false,
+    SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED: false,
+    SMTP_QA_CAPTURE_ENABLED: false,
+  };
+
+  it('defaults to normal scheduler execution and accepts only the exact approved QA attestation', () => {
+    const absent = environmentValidationSchema.validate(base);
+    assert.equal(absent.error, undefined);
+    assert.equal(absent.value.QA_BROWSER_ACCEPTANCE_SCHEDULERS_DISABLED, false);
+    assert.equal(validate(approved), undefined);
+  });
+
+  it('rejects production, protected or mismatched database identities, and malformed authorization', () => {
+    for (const change of [
+      { NODE_ENV: 'production', PUBLIC_APP_ORIGIN: 'https://app.example.test' },
+      { DATABASE_URL: 'postgresql://esta_sac24_qa2b_app:qa-password@esta-sac24-qa2b-pg-20261029:5432/esta_workforce' },
+      { DATABASE_URL: `postgresql://wrong-user:qa-password@${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseHost}:5432/${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseName}` },
+      { DATABASE_URL: `postgresql://${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseUser}:qa-password@127.0.0.1:55449/${QA_BROWSER_ACCEPTANCE_RUNTIME.databaseName}` },
+      { DATABASE_URL: 'not-a-database-url' },
+      { QA_BROWSER_ACCEPTANCE_AUTHORIZATION: '' },
+      { QA_BROWSER_ACCEPTANCE_AUTHORIZATION: 'wrong-checkpoint' },
+      { QA_BROWSER_ACCEPTANCE_DATABASE_ENDPOINT: 'other:5432' },
+      { QA_BROWSER_ACCEPTANCE_DATABASE_CONTAINER_ID: '0'.repeat(64) },
+      { QA_BROWSER_ACCEPTANCE_DATABASE_NETWORK_ID: '0'.repeat(64) },
+      { QA_BROWSER_ACCEPTANCE_DATABASE_SYSTEM_IDENTIFIER: '0'.repeat(19) },
+      { PUBLIC_APP_ORIGIN: 'http://127.0.0.1:5175' },
+    ]) assert.ok(validate({ ...approved, ...change }));
+    for (const key of [
+      'QA_BROWSER_ACCEPTANCE_AUTHORIZATION',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_ENDPOINT',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_CONTAINER_ID',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_NETWORK_ID',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_SYSTEM_IDENTIFIER',
+    ]) assert.ok(validate({ ...approved, [key]: undefined }));
+  });
+
+  it('rejects enabled email authority and inherited SMTP or payment configuration', () => {
+    for (const change of [
+      { EMAIL_NOTIFICATIONS_ENABLED: true },
+      { SMTP_DATABASE_AUTHORITY_MANAGEMENT_ENABLED: true },
+      { SMTP_EMAIL_VERIFICATION_BOOTSTRAP_ENABLED: true },
+      { SMTP_PLATFORM_INVITATION_BOOTSTRAP_ENABLED: true },
+      { SMTP_QA_CAPTURE_ENABLED: true },
+      { SMTP_HOST: 'mail.example.test' },
+      { SMTP_USER: 'inherited-user' },
+      { SMTP_PASSWORD: 'inherited-password' },
+      { SMTP_FROM_EMAIL: 'sender@example.test' },
+      { PAYMENT_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'), PAYMENT_CREDENTIAL_ENCRYPTION_KEY_VERSION: 'production-key' },
+    ]) assert.ok(validate({ ...approved, ...change }));
+  });
+
+  it('rejects authorization attestation settings when suppression is not enabled', () => {
+    for (const key of [
+      'QA_BROWSER_ACCEPTANCE_AUTHORIZATION',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_ENDPOINT',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_CONTAINER_ID',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_NETWORK_ID',
+      'QA_BROWSER_ACCEPTANCE_DATABASE_SYSTEM_IDENTIFIER',
+    ]) assert.ok(validate({ [key]: approved[key as keyof typeof approved] }));
   });
 });

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SchedulerExecutionGuard } from '../../common/scheduling/scheduler-execution.guard';
 import { SubscriptionExpirationService } from './subscription-expiration.service';
 import { SubscriptionRenewalPreparationService } from './subscription-renewal-preparation.service';
 
@@ -11,10 +12,12 @@ export class SubscriptionExpirationScheduler {
   constructor(
     private readonly renewal: SubscriptionRenewalPreparationService,
     private readonly expiration: SubscriptionExpirationService,
+    private readonly schedulerGuard: SchedulerExecutionGuard,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async expireDueSubscriptions(): Promise<void> {
+    if (!this.schedulerGuard.shouldExecute()) return;
     if (this.running) return;
     this.running = true;
     try {

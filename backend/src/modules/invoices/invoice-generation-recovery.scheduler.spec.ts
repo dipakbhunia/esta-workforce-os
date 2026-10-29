@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvoiceGenerationRecoveryScheduler } from './invoice-generation-recovery.scheduler';
 
+const enabledScheduler = { shouldExecute: () => true } as never;
+
 describe('InvoiceGenerationRecoveryScheduler', () => {
   it('prevents same-process overlap and releases its guard after completion', async () => {
     let calls = 0;
@@ -11,7 +13,7 @@ describe('InvoiceGenerationRecoveryScheduler', () => {
       calls += 1;
       if (calls === 1) await pending;
       return { scanned: 0, succeeded: 0, failed: 0 };
-    } } as never);
+    } } as never, enabledScheduler);
     const first = scheduler.recoverMissingInvoices();
     await scheduler.recoverMissingInvoices();
     assert.equal(calls, 1);
@@ -28,7 +30,7 @@ describe('InvoiceGenerationRecoveryScheduler', () => {
       calls += 1;
       if (calls === 1) throw new Error('database password secret');
       return { scanned: 0, succeeded: 0, failed: 0 };
-    } } as never);
+    } } as never, enabledScheduler);
     (scheduler as unknown as { logger: { warn(message: string): void } }).logger = {
       warn: (message) => messages.push(message),
     };

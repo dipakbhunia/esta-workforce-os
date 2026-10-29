@@ -1,6 +1,7 @@
 ﻿import Joi = require('joi');
 
 import { isIP } from 'node:net';
+import { qaBrowserAcceptanceSchedulerConfigurationError } from './qa-browser-acceptance-scheduler.runtime';
 import { qaSmtpCaptureConfigurationError } from './smtp-qa-capture-runtime';
 
 const paymentCredentialKey = Joi.string().allow('').custom((value: string, helpers) => {
@@ -35,6 +36,12 @@ export const environmentValidationSchema = Joi.object({
   ALERT_EVALUATION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   ATTENDANCE_STALE_EVALUATION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   ATTENDANCE_STALE_EVALUATION_INTERVAL_MINUTES: Joi.number().integer().min(1).default(5),
+  QA_BROWSER_ACCEPTANCE_SCHEDULERS_DISABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  QA_BROWSER_ACCEPTANCE_AUTHORIZATION: Joi.string().max(128).allow('').optional(),
+  QA_BROWSER_ACCEPTANCE_DATABASE_ENDPOINT: Joi.string().max(253).allow('').optional(),
+  QA_BROWSER_ACCEPTANCE_DATABASE_CONTAINER_ID: Joi.string().hex().length(64).allow('').optional(),
+  QA_BROWSER_ACCEPTANCE_DATABASE_NETWORK_ID: Joi.string().hex().length(64).allow('').optional(),
+  QA_BROWSER_ACCEPTANCE_DATABASE_SYSTEM_IDENTIFIER: Joi.string().pattern(/^\d{10,20}$/).allow('').optional(),
   EMAIL_NOTIFICATIONS_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   SMTP_HOST: Joi.string().allow('', null).optional(),
   SMTP_PORT: Joi.number().port().default(587),
@@ -91,6 +98,8 @@ export const environmentValidationSchema = Joi.object({
   })) return helpers.error('object.invalidSmtpTestAllowlist');
   const qaCaptureError = qaSmtpCaptureConfigurationError(value);
   if (qaCaptureError) return helpers.error(`object.${qaCaptureError}`);
+  const qaSchedulerError = qaBrowserAcceptanceSchedulerConfigurationError(value);
+  if (qaSchedulerError) return helpers.error(`object.${qaSchedulerError}`);
   const production = value.NODE_ENV === 'production';
   const configuredOrigin = typeof value.PUBLIC_APP_ORIGIN === 'string' ? value.PUBLIC_APP_ORIGIN : '';
   if (!configuredOrigin) {
@@ -125,6 +134,14 @@ export const environmentValidationSchema = Joi.object({
   'object.QA_CAPTURE_CA_MISSING': 'QA SMTP capture requires a process-trusted CA certificate',
   'object.QA_CAPTURE_CA_INVALID': 'QA SMTP capture CA certificate is invalid',
   'object.QA_CAPTURE_SETTINGS_WITHOUT_ENABLEMENT': 'QA SMTP capture settings require explicit enablement',
+  'object.QA_SCHEDULER_SETTINGS_WITHOUT_ENABLEMENT': 'QA scheduler authorization settings require explicit enablement',
+  'object.QA_SCHEDULER_REQUIRES_TEST_ENVIRONMENT': 'QA scheduler suppression is restricted to the approved test runtime',
+  'object.QA_SCHEDULER_AUTHORIZATION_MISMATCH': 'QA scheduler suppression authorization is invalid',
+  'object.QA_SCHEDULER_CLUSTER_ATTESTATION_MISMATCH': 'QA scheduler suppression cluster attestation is invalid',
+  'object.QA_SCHEDULER_ORIGIN_MISMATCH': 'QA scheduler suppression application origin is invalid',
+  'object.QA_SCHEDULER_DATABASE_IDENTITY_MISMATCH': 'QA scheduler suppression database identity is invalid',
+  'object.QA_SCHEDULER_EMAIL_GATE_CONFLICT': 'QA scheduler suppression conflicts with an enabled email authority gate',
+  'object.QA_SCHEDULER_EXTERNAL_AUTHORITY_CONFLICT': 'QA scheduler suppression forbids inherited external authority configuration',
   'any.invalid': 'Payment credential encryption key must be canonical base64 encoding of exactly 32 bytes',
   'object.productionAppOriginRequired': 'PUBLIC_APP_ORIGIN is required in production',
   'object.productionAppOriginHttps': 'PUBLIC_APP_ORIGIN must use HTTPS in production',

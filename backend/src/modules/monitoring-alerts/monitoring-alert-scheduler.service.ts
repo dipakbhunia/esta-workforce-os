@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { SchedulerExecutionGuard } from '../../common/scheduling/scheduler-execution.guard';
 import { MonitoringAlertsService } from './monitoring-alerts.service';
 
 @Injectable()
 export class MonitoringAlertSchedulerService {
   private readonly logger = new Logger(MonitoringAlertSchedulerService.name);
 
-  constructor(private readonly alerts: MonitoringAlertsService) {}
+  constructor(
+    private readonly alerts: MonitoringAlertsService,
+    private readonly schedulerGuard: SchedulerExecutionGuard,
+  ) {}
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async evaluateHeartbeat() {
@@ -29,6 +33,7 @@ export class MonitoringAlertSchedulerService {
   }
 
   private async run(name: string, job: () => Promise<{ detected: number; resolved: number }>) {
+    if (!this.schedulerGuard.shouldExecute()) return;
     try {
       const result = await job();
       this.logger.log(`Monitoring alert ${name} evaluation completed: detected=${result.detected}, resolved=${result.resolved}`);
